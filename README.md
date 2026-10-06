@@ -45,7 +45,7 @@ ai-active-company/
 
 | 块 | 状态 |
 |---|---|
-| `SPEC.md` | v0.1 立项稿（2026-10-06） |
+| `SPEC.md` | v0.2 立项稿（2026-10-06）· ANC = AI Native Company |
 | `skill/` | 未建 |
 | `runtime/` | 已并入 `anc-onsite`；实测通过：`go vet` / `gofmt` / `go build` / `anc version` / `anc doctor` / `anc init` |
 
