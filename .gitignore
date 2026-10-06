@@ -1,0 +1,14 @@
+# 运行层构建产出（可重出）
+dist/
+anc
+anc.exe
+*.exe
+
+# 现场生成的客户目录（含客户机密，绝不入库）
+_tmp/
+clients/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store

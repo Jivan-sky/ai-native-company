@@ -1,0 +1,497 @@
+// anc —— ANC 驻场装配器。
+//
+// 一句话：把一台空机器（或一个空目录）在几分钟内变成「客户 ANC 运行层」——
+// 树干目录 + 路由表 + 判层卡 + 计划书骨架 + 连接件 + 操作日志与可逆性分级。
+//
+// 为什么是 Go：装配器要在客户的 Mac mini / Windows / Linux 上跑，同一份源码三平台，
+// 且交付物不许自带运行时。模板全部外置成纯文件，现场改模板不用重编译。
+package main
+
+import (
+	"flag"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+const version = "0.1.0"
+
+// ---------- 九宫格：三层客户 ----------
+
+type tierInfo struct {
+	Code int
+	Name string
+	Size string
+	Want string
+	Play []string
+	Note string
+}
+
+var tiers = map[int]tierInfo{
+	1: {1, "降本增效型", "约 30 人", "省钱",
+		[]string{"⑦ ROI 切单（商务）——聚焦高频痛点、固定范围与报价、验收标准清晰", "⑧ 核心工作流梳理（产品）——1~3 条人力密集的高频流程，输入输出明确", "⑨ 轻量工具化（研发）——插件/脚本/IM 机器人，必须快、稳、易用"},
+		"别接大而全。切一个能快速回本的小口。"},
+	2: {2, "进步型", "约 200 人", "进步（不是省钱）",
+		[]string{"④ 共同定义试点（商务）——锁一个试点部门、定义成功标准、给分阶段路线图", "⑤ 复杂工作流编排（产品）——5~10 条工作流、数据流归一、异常处理、系统集成", "⑥ 智能体工作系统（研发）——上 Agent、自研 Skill、统一知识库当业务大脑"},
+		"老板不为降本买单；主打降本反而脱靶，讲愿景与整体流程改造。"},
+	3: {3, "战略型", "大型国央企", "战略变革 + 安全合规可审计",
+		[]string{"① 战略立项（商务）——多意图识别、对齐一把手/二把手、写进公司战略", "② 业务蓝图（产品）——Ontology 级建模、跨系统蓝图、组织与岗位调整路径", "③ 安全合规底座（研发）——私有化/信创、权限与审计、数据不出域、等保"},
+		"抬头要够大；一个人接不住，要 FDE 团队。"},
+}
+
+// ---------- 交付形态 ----------
+
+var forms = map[string]string{
+	"F1": "48h 薄切片：可跑的薄切片。前提＝有真实单据 + 有一线可当场验证。",
+	"F2": "一页纸真伪结论：判断 + 证据 + 建议。三种情况交这个——真伪是「伪」、经济账算不过、这活之前有人做过且说不清为什么失败。",
+	"F3": "现场工具：一线持续要用的脚本/工具。从 F1 验证通过、一线还要求接着用，才固化它。",
+	"F4": "报告/复盘：对方明确只要工具之外的结论时才交。少做，防退化回咨询。",
+}
+
+// ---------- 客户工作区骨架 ----------
+
+var skeletonDirs = []string{
+	"00-inbox/_originals",
+	"10-knowledge",
+	"20-ops",
+	"30-delivery",
+	"40-roles",
+	"50-skills",
+	"company",
+}
+
+type tplEntry struct{ Src, Dst string }
+
+var tplMap = []tplEntry{
+	{"README.md.tmpl", "README.md"},
+	{"CONTRIBUTING.md.tmpl", "CONTRIBUTING.md"},
+	{"CLAUDE.md.tmpl", "CLAUDE.md"},
+	{"CLAUDE.md.tmpl", "AGENTS.md"},
+	{"tier-card.md.tmpl", "30-delivery/00-判层卡.md"},
+	{"plan.md.tmpl", "30-delivery/01-计划书.md"},
+	{"connectors.md.tmpl", "20-ops/00-七个连接件.md"},
+	{"ops-log.md.tmpl", "20-ops/01-操作日志与可逆性分级.md"},
+}
+
+// ---------- 入口 ----------
+
+func main() {
+	if len(os.Args) < 2 {
+		usage()
+		os.Exit(2)
+	}
+	cmd := os.Args[1]
+	args := os.Args[2:]
+	switch cmd {
+	case "init":
+		os.Exit(cmdInit(args))
+	case "doctor":
+		os.Exit(cmdDoctor(args))
+	case "assets":
+		os.Exit(cmdAssets(args))
+	case "version", "--version", "-v":
+		fmt.Println("anc " + version)
+	case "help", "--help", "-h":
+		usage()
+	default:
+		fmt.Fprintf(os.Stderr, "未知子命令：%s\n\n", cmd)
+		usage()
+		os.Exit(2)
+	}
+}
+
+func usage() {
+	fmt.Print(`anc —— ANC 驻场装配器
+
+用法：
+  anc init <目录> --client <客户名> [--tier 1|2|3] [--form F1|F2|F3|F4] [--date YYYY-MM-DD] [--templates <模板目录>] [--git] [--force]
+  anc doctor [目录]                 环境与网络自检（客户机器上跑）
+  anc assets [--templates <模板目录>]  列出可复用资产台账
+  anc version
+
+三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：
+  1 = 降本增效型（约 30 人，要省钱）
+  2 = 进步型（约 200 人，要进步）
+  3 = 战略型（大型国央企，要战略变革 + 安全合规）
+
+例：
+  anc init ./climax --client 某车队 --tier 1 --form F1 --git
+`)
+}
+
+// ---------- init ----------
+
+func cmdInit(args []string) int {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	client := fs.String("client", "", "客户名（必填）")
+	tierNo := fs.Int("tier", 1, "客户层级 1|2|3")
+	form := fs.String("form", "F1", "交付形态 F1|F2|F3|F4")
+	date := fs.String("date", time.Now().Format("2006-01-02"), "日期 YYYY-MM-DD")
+	tplDir := fs.String("templates", "", "模板目录（默认：exe 同级 templates/，其次 ./templates）")
+	doGit := fs.Bool("git", false, "生成后执行 git init + 首次提交")
+	force := fs.Bool("force", false, "目标目录已存在且非空时仍继续")
+	flagArgs, posArgs := splitArgs(args, map[string]bool{"git": true, "force": true})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if *client == "" {
+		fmt.Fprintln(os.Stderr, "错误：--client 必填")
+		return 2
+	}
+	ti, ok := tiers[*tierNo]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "错误：--tier 只能是 1 / 2 / 3，收到 %d\n", *tierNo)
+		return 2
+	}
+	formKey := strings.ToUpper(*form)
+	formMean, ok := forms[formKey]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "错误：--form 只能是 F1 / F2 / F3 / F4，收到 %s\n", *form)
+		return 2
+	}
+	if _, err := time.Parse("2006-01-02", *date); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：--date 需为 YYYY-MM-DD，收到 %s\n", *date)
+		return 2
+	}
+	dst := ""
+	if len(posArgs) > 0 {
+		dst = posArgs[0]
+	}
+	if dst == "" {
+		fmt.Fprintln(os.Stderr, "错误：缺少目标目录")
+		return 2
+	}
+	abs, err := filepath.Abs(dst)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	td, err := resolveTemplates(*tplDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	if !*force {
+		if entries, err := os.ReadDir(abs); err == nil && len(entries) > 0 {
+			fmt.Fprintf(os.Stderr, "错误：%s 已存在且非空（要覆盖请加 --force）\n", abs)
+			return 1
+		}
+	}
+
+	vars := map[string]string{
+		"{{CLIENT}}":      *client,
+		"{{DATE}}":        *date,
+		"{{TIER_N}}":      fmt.Sprintf("%d", ti.Code),
+		"{{TIER_NAME}}":   ti.Name,
+		"{{TIER_SIZE}}":   ti.Size,
+		"{{TIER_WANT}}":   ti.Want,
+		"{{TIER_PLAY}}":   "- " + strings.Join(ti.Play, "\n- "),
+		"{{TIER_NOTE}}":   ti.Note,
+		"{{FORM}}":        formKey,
+		"{{FORM_MEAN}}":   formMean,
+		"{{DIR}}":         abs,
+		"{{ANC_VERSION}}": version,
+	}
+
+	for _, d := range skeletonDirs {
+		if err := os.MkdirAll(filepath.Join(abs, d), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "错误：建目录 %s 失败：%v\n", d, err)
+			return 1
+		}
+	}
+	written := 0
+	for _, t := range tplMap {
+		raw, err := os.ReadFile(filepath.Join(td, t.Src))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误：读模板 %s 失败：%v\n", t.Src, err)
+			return 1
+		}
+		out := render(string(raw), vars)
+		out = strings.TrimRight(out, "\n") + "\n"
+		p := filepath.Join(abs, filepath.FromSlash(t.Dst))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+			return 1
+		}
+		if err := os.WriteFile(p, []byte(out), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "错误：写 %s 失败：%v\n", p, err)
+			return 1
+		}
+		written++
+	}
+	// 空目录 git 不跟踪，给每个骨架目录落 .gitkeep，否则 clone / 换机后骨架就散架。
+	for _, d := range skeletonDirs {
+		_ = os.WriteFile(filepath.Join(abs, d, ".gitkeep"), []byte(""), 0o644)
+	}
+
+	fmt.Printf("✅ 已生成客户 ANC 运行层：%s\n\n", abs)
+	fmt.Printf("   客户：%s\n   判层：第 %d 层 · %s（%s）→ 老板要「%s」\n   形态：%s —— %s\n",
+		*client, ti.Code, ti.Name, ti.Size, ti.Want, formKey, formMean)
+	fmt.Printf("   模板：%d 个 → 写出 %d 个文件\n\n", countTemplates(td), written)
+	fmt.Println("   下一步：")
+	fmt.Println("   1) 填 30-delivery/00-判层卡.md —— 没填完不要开跑")
+	fmt.Println("   2) 填 30-delivery/01-计划书.md 第 9 节与「停止条件」，且必须让客户也认可")
+	fmt.Println("   3) 把客户的真实单据、群文件丢进 00-inbox/，原件放 00-inbox/_originals/")
+
+	if *doGit {
+		if _, err := exec.LookPath("git"); err != nil {
+			fmt.Println("\n⚠️  未找到 git，跳过 --git。")
+		} else {
+			steps := [][]string{
+				{"init", "-q"},
+				{"add", "-A"},
+				{"-c", "user.name=anc", "-c", "user.email=anc@local", "commit", "-q", "-m",
+					fmt.Sprintf("anc init: %s (T%d/%s, %s)", *client, ti.Code, ti.Name, formKey)},
+			}
+			for _, s := range steps {
+				c := exec.Command("git", s...)
+				c.Dir = abs
+				if out, err := c.CombinedOutput(); err != nil {
+					fmt.Printf("\n⚠️  git %s 失败：%v %s\n", strings.Join(s, " "), err, strings.TrimSpace(string(out)))
+					return 0
+				}
+			}
+			fmt.Println("\n   git：已 init 并完成首次提交（用局部身份 anc/anc@local，未改全局配置）")
+		}
+	}
+	return 0
+}
+
+func countTemplates(dir string) int {
+	n := 0
+	for _, t := range tplMap {
+		if _, err := os.Stat(filepath.Join(dir, t.Src)); err == nil {
+			n++
+		}
+	}
+	return n
+}
+
+func render(s string, vars map[string]string) string {
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		s = strings.ReplaceAll(s, k, vars[k])
+	}
+	return s
+}
+
+// splitArgs：Go 标准库 flag 遇到第一个非 flag 参数就停止解析，
+// 而驻场时人很自然会写 `anc init ./climax --client 某车队`（目录在前）。
+// 所以先把位置参数摘出来，让 flag 排在前后都能认。
+// boolFlags 列出「不带值」的开关，其余 `-x` 一律吃掉下一个参数当值。
+func splitArgs(args []string, boolFlags map[string]bool) (flags []string, positional []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			positional = append(positional, args[i+1:]...)
+			break
+		}
+		if len(a) > 1 && a[0] == '-' {
+			flags = append(flags, a)
+			name := strings.TrimLeft(a, "-")
+			if strings.Contains(name, "=") || boolFlags[name] {
+				continue
+			}
+			if i+1 < len(args) {
+				flags = append(flags, args[i+1])
+				i++
+			}
+			continue
+		}
+		positional = append(positional, a)
+	}
+	return flags, positional
+}
+
+// padRight：按「显示宽度」右补空格（中文按 2 列算），让 doctor 的输出对齐。
+func padRight(s string, width int) string {
+	w := 0
+	for _, r := range s {
+		if r < 0x1100 {
+			w++
+			continue
+		}
+		wide := r == 0x2329 || r == 0x232A ||
+			(r >= 0x1100 && r <= 0x115F) ||
+			(r >= 0x2E80 && r <= 0xA4CF && r != 0x303F) ||
+			(r >= 0xAC00 && r <= 0xD7A3) ||
+			(r >= 0xF900 && r <= 0xFAFF) ||
+			(r >= 0xFE30 && r <= 0xFE6F) ||
+			(r >= 0xFF00 && r <= 0xFF60) ||
+			(r >= 0xFFE0 && r <= 0xFFE6) ||
+			(r >= 0x1F300 && r <= 0x1FAFF) ||
+			(r >= 0x20000 && r <= 0x3FFFD)
+		if wide {
+			w += 2
+		} else {
+			w++
+		}
+	}
+	if w >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-w)
+}
+
+// resolveTemplates：优先 --templates，其次 exe 同级 templates/，最后 ./templates。
+func resolveTemplates(explicit string) (string, error) {
+	var cands []string
+	if explicit != "" {
+		cands = append(cands, explicit)
+	}
+	if exe, err := os.Executable(); err == nil {
+		cands = append(cands, filepath.Join(filepath.Dir(exe), "templates"))
+	}
+	cands = append(cands, "templates")
+	var tried []string
+	for _, c := range cands {
+		abs, _ := filepath.Abs(c)
+		tried = append(tried, abs)
+		if st, err := os.Stat(abs); err == nil && st.IsDir() {
+			if _, err := os.Stat(filepath.Join(abs, "README.md.tmpl")); err == nil {
+				return abs, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("找不到模板目录（需含 README.md.tmpl）。已试：\n  %s", strings.Join(tried, "\n  "))
+}
+
+// ---------- doctor ----------
+
+type check struct {
+	Name string
+	OK   bool
+	Info string
+}
+
+func cmdDoctor(args []string) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	tplDir := fs.String("templates", "", "模板目录")
+	skipNet := fs.Bool("skip-net", false, "跳过网络连通性检查")
+	flagArgs, posArgs := splitArgs(args, map[string]bool{"skip-net": true})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	target := ""
+	if len(posArgs) > 0 {
+		target = posArgs[0]
+	}
+	var cs []check
+
+	// 模板
+	if td, err := resolveTemplates(*tplDir); err != nil {
+		cs = append(cs, check{"模板目录", false, err.Error()})
+	} else {
+		cs = append(cs, check{"模板目录", true, fmt.Sprintf("%s（%d 个已登记模板）", td, countTemplates(td))})
+	}
+	// git
+	if p, err := exec.LookPath("git"); err != nil {
+		cs = append(cs, check{"git", false, "未找到 —— 没有 git 就没有「落盘即生效」和可回溯"})
+	} else {
+		cs = append(cs, check{"git", true, p})
+	}
+	// 目标目录可写
+	if target != "" {
+		abs, _ := filepath.Abs(target)
+		if st, err := os.Stat(abs); err != nil {
+			cs = append(cs, check{"目标目录", false, "不存在：" + abs})
+		} else if !st.IsDir() {
+			cs = append(cs, check{"目标目录", false, "不是目录：" + abs})
+		} else {
+			f, err := os.CreateTemp(abs, ".anc-write-*")
+			if err != nil {
+				cs = append(cs, check{"目标目录可写", false, err.Error()})
+			} else {
+				name := f.Name()
+				f.Close()
+				os.Remove(name)
+				cs = append(cs, check{"目标目录可写", true, abs})
+			}
+		}
+	} else {
+		cs = append(cs, check{"目标目录可写", true, "未指定（跳过）"})
+	}
+	// 代理环境（本地部署最常见的坑：全局代理把国内 API 绕到境外）
+	proxied := false
+	for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		if v := os.Getenv(k); v != "" {
+			cs = append(cs, check{"代理环境 " + k, false, v + " —— 确认它不会把国内 IM 接口绕到境外节点"})
+			proxied = true
+			break
+		}
+	}
+	if !proxied {
+		cs = append(cs, check{"代理环境", true, "未设置"})
+	}
+	// 网络
+	if !*skipNet {
+		for _, h := range []struct{ name, addr string }{
+			{"飞书 open API", "open.feishu.cn:443"},
+			{"钉钉 API", "api.dingtalk.com:443"},
+			{"企业微信 API", "qyapi.weixin.qq.com:443"},
+			{"Go 模块代理（备选）", "goproxy.cn:443"},
+		} {
+			conn, err := net.DialTimeout("tcp", h.addr, 4*time.Second)
+			if err != nil {
+				cs = append(cs, check{"连通 " + h.name, false, h.addr + " —— " + err.Error()})
+			} else {
+				conn.Close()
+				cs = append(cs, check{"连通 " + h.name, true, h.addr})
+			}
+		}
+	}
+
+	bad := 0
+	fmt.Println("anc doctor —— 驻场环境自检")
+	fmt.Println("（IM 平台都提供免公网 IP 的长连接，所以客户机器不需要公网 IP、不需要开端口、不需要备案）")
+	fmt.Println()
+	for _, c := range cs {
+		mark := "✅"
+		if !c.OK {
+			mark = "⚠️"
+			bad++
+		}
+		fmt.Printf("  %s %s %s\n", mark, padRight(c.Name, 22), c.Info)
+	}
+	fmt.Println()
+	if bad == 0 {
+		fmt.Println("结论：全部通过，可以 anc init。")
+		return 0
+	}
+	fmt.Printf("结论：%d 项需要处理（⚠️ 不一定是阻断项，但要知道它存在）。\n", bad)
+	return 1
+}
+
+// ---------- assets ----------
+
+func cmdAssets(args []string) int {
+	fs := flag.NewFlagSet("assets", flag.ContinueOnError)
+	tplDir := fs.String("templates", "", "模板目录")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	td, err := resolveTemplates(*tplDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	base := filepath.Dir(td)
+	for _, p := range []string{filepath.Join(base, "inventory", "assets.md"), filepath.Join(td, "..", "inventory", "assets.md")} {
+		b, err := os.ReadFile(p)
+		if err == nil {
+			fmt.Print(string(b))
+			return 0
+		}
+	}
+	fmt.Fprintln(os.Stderr, "错误：找不到 inventory/assets.md")
+	return 1
+}

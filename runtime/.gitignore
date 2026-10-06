@@ -1,0 +1,13 @@
+# 构建产出（build.ps1 生成，可重出，不入库）
+dist/
+anc
+anc.exe
+*.exe
+
+# 现场生成的客户目录（含客户机密，绝不入库）
+_tmp/
+clients/
+
+# 编辑器
+.vscode/
+.idea/
