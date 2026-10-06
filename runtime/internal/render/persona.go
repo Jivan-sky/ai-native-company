@@ -47,31 +47,22 @@ var (
 	reFrozen   = regexp.MustCompile(`当前仅有|目前只有|目前仅有`)
 )
 
-// Result 是渲染结果 + 体检结论。
+// Result 是渲染结果 + 体检发现（每条发现的档次由规则表定）。
 type Result struct {
-	Text  string
-	Warns []string
+	Text   string
+	Issues []org.Issue
 }
 
 // Persona 按七段式三层叠加渲染 persona。
 // base 层（段 3/4/6/7）逐字固定；role 层给 职责 / 风格 / 术语表；member 层整块作末段。
 func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, error) {
-	var warns []string
-	var errs []string
+	pol := o.Policy
+	var issues []org.Issue
 
 	// 先体检各来源层（带层名与行号），再拼装 —— 避免注入的路径干扰绝对路径检查。
-	for _, layer := range []struct {
-		name string
-		text string
-	}{
-		{"roles/" + role.Role + "/persona.md", strings.Join(nonEmpty(
-			role.Sections["职责"], role.Sections["风格"], role.Sections["术语表"]), "\n")},
-		{"members/" + m.Name + "/persona.md", m.Body},
-	} {
-		w, e := lintLayer(layer.name, layer.text)
-		warns = append(warns, w...)
-		errs = append(errs, e...)
-	}
+	issues = append(issues, lintLayer(pol, "roles/"+role.Role+"/persona.md",
+		strings.Join(roleLayerText(role), "\n"))...)
+	issues = append(issues, lintLayer(pol, "members/"+m.Name+"/persona.md", m.Body)...)
 
 	// 路由表：role.vault_scope 命中的行置顶并标「你的主力」。
 	main, other := splitRouting(o.Routing, role.VaultScope)
@@ -86,7 +77,7 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 	segs := []struct{ name, text string }{
 		{"1 身份", fmt.Sprintf("你是 **%s** 的 %s 助理，服务对象是 %s，在 %s 里通过 bot 交互。",
 			o.Company.Name, orDash(role.Title), orDash(m.DisplayName), o.Company.Platform)},
-		{"2 职责边界", orDash(role.Sections["职责"])},
+		{"2 职责边界", orDash(joinNonEmpty(append([]string{role.Sections["职责"]}, extraTexts(role)...)...))},
 		{"3 数据来源", fmt.Sprintf(baseDataSources, host.VaultRoot, strings.Join(rows, "\n"))},
 		{"4 诚实条款", baseHonesty},
 		{"5 风格", joinNonEmpty(role.Sections["风格"], role.Sections["术语表"])},
@@ -106,50 +97,70 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 	}
 	text := b.String()
 
-	if e := lintFinal(text); len(e) > 0 {
-		errs = append(errs, e...)
+	issues = append(issues, lintFinal(pol, text)...)
+	if f := org.FatalOf(issues); len(f) > 0 {
+		return Result{}, fmt.Errorf("persona lint 未通过（%d 项红，拒绝渲染）:\n  - %s",
+			len(f), strings.Join(org.IssueStrings(f), "\n  - "))
 	}
-	if len(errs) > 0 {
-		return Result{}, fmt.Errorf("persona lint 未通过（%d 项，拒绝渲染）:\n  - %s", len(errs), strings.Join(errs, "\n  - "))
-	}
-	return Result{Text: text, Warns: warns}, nil
+	return Result{Text: text, Issues: issues}, nil
 }
 
-// lintLayer 检查来源层：硬错误拒绝渲染，可疑项只告警。
-func lintLayer(name, text string) (warns, errs []string) {
+// roleLayerText 是角色层参与体检与渲染的全部文本：白名单段 + 被放行的额外段。
+func roleLayerText(role org.Role) []string {
+	parts := nonEmpty(role.Sections["职责"], role.Sections["风格"], role.Sections["术语表"])
+	for _, s := range role.Extra {
+		parts = append(parts, s.Text)
+	}
+	return parts
+}
+
+// extraTexts 是白名单之外、被降级放行的段的正文（按作者原文顺序）。
+func extraTexts(role org.Role) []string {
+	out := make([]string, 0, len(role.Extra))
+	for _, s := range role.Extra {
+		out = append(out, s.Text)
+	}
+	return out
+}
+
+// lintLayer 体检来源层。这里只负责「发现事实」，该红还是该黄由规则表定 ——
+// 实现里不许再硬编码档次，否则规则表就不是唯一出口了。
+func lintLayer(p *org.Policy, name, text string) []org.Issue {
+	var out []org.Issue
 	for i, line := range strings.Split(text, "\n") {
 		where := fmt.Sprintf("%s 第 %d 行", name, i+1)
 		if reSlots.MatchString(line) {
-			errs = append(errs, where+": 含未替换的 `{{` 槽位")
+			out = append(out, p.Issue("persona.slot.unreplaced", where, "含未替换的双花括号槽位（多半是模板没跑完）"))
 		}
 		if reTriQuote.MatchString(line) {
-			errs = append(errs, where+": 含 `'''`（会破坏 TOML 多行 literal，拒绝静默转义）")
+			out = append(out, p.Issue("persona.toml.quote_break", where, "含三个连续单引号（会破坏 TOML 多行 literal，拒绝静默转义）"))
 		}
 		if reEnvRef.MatchString(line) {
-			errs = append(errs, where+": 含 `${`（会被 gateway 的 env 替换吞掉，请改写）")
+			out = append(out, p.Issue("persona.env.substitution", where, "含美元大括号引用（会被 gateway 的 env 替换吞掉，请改写）"))
 		}
 		if loc := reAbsPath.FindStringSubmatch(line); loc != nil {
-			warns = append(warns, where+": 出现绝对路径 "+loc[1]+"（vault_root 之外的本机路径会被搬机器时打脸）")
+			out = append(out, p.Issue("persona.path.absolute", where,
+				"出现绝对路径 %s（vault_root 之外的本机路径会被搬机器时打脸）", loc[1]))
 		}
 		if reFrozen.MatchString(line) {
-			warns = append(warns, where+": 出现「当前仅有 / 目前只有」句式 —— 疑似把易变事实烤进了 persona")
+			out = append(out, p.Issue("persona.fact.frozen", where, "出现「当前仅有 / 目前只有」句式 —— 疑似把易变事实烤进了 persona"))
 		}
 	}
-	return warns, errs
+	return out
 }
 
-func lintFinal(text string) []string {
-	var errs []string
+func lintFinal(p *org.Policy, text string) []org.Issue {
+	var out []org.Issue
 	if reSlots.MatchString(text) {
-		errs = append(errs, "渲染结果里残留 `{{` 槽位")
+		out = append(out, p.Issue("persona.slot.unreplaced", "渲染结果", "残留双花括号槽位"))
 	}
 	if reTriQuote.MatchString(text) {
-		errs = append(errs, "渲染结果里含 `'''`")
+		out = append(out, p.Issue("persona.toml.quote_break", "渲染结果", "含三个连续单引号"))
 	}
 	if reEnvRef.MatchString(text) {
-		errs = append(errs, "渲染结果里含 `${`")
+		out = append(out, p.Issue("persona.env.substitution", "渲染结果", "含美元大括号引用"))
 	}
-	return errs
+	return out
 }
 
 func splitRouting(all []org.Routing, scope []string) (main, other []org.Routing) {

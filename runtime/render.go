@@ -16,7 +16,7 @@ import (
 const renderUsage = `anc render / anc org check —— org 真相源 → gateway config
 
 用法：
-  anc org check <vault 目录>                     只加载 + 校验 org，不渲染
+  anc org check <vault 目录> [--rules]           只加载 + 校验 org，不渲染
   anc render <vault 目录> [选项]                 渲染 gateway config（默认 dry-run）
 
 选项：
@@ -27,8 +27,12 @@ const renderUsage = `anc render / anc org check —— org 真相源 → gateway
   --check            与现有配置比对，有漂移就退出码 1
   --adopt            接管一份没有 anc 指纹的现有配置（否则拒绝覆盖）
   --allow-scale      允许这次渲染新增或删除 project（防一次误操作静默上线/下线 bot）
+  --rules            （org check）打印生效规则表
 
 退出码：0 一致/成功；1 校验或漂移；2 用法错误
+
+规则档次在 company.md 的 policy 段逐条可覆盖（fatal / warn / off），
+但标了红线的规则不许降级 —— 见 anc org check <vault> --rules。
 `
 
 func cmdRender(args []string) int {
@@ -98,6 +102,8 @@ func cmdRender(args []string) int {
 	fmt.Printf("  project    %d 个：%s\n", len(plan.Projects), strings.Join(plan.Projects, ", "))
 	fmt.Printf("  inputs     %s\n", plan.InputsHash)
 	fmt.Printf("  目标       %s（%s）\n", cfgPath, map[bool]string{true: "已存在", false: "不存在"}[hasExisting])
+	// 非红档发现：规则表产物 + org 层发现，一起回显。
+	printIssues(append(append([]org.Issue{}, o.Warnings...), plan.Issues...))
 	for _, w := range plan.Warns {
 		fmt.Printf("  ⚠️  %s\n", w)
 	}
@@ -125,7 +131,9 @@ func cmdRender(args []string) int {
 		}
 		sort.Strings(removed)
 		if len(added)+len(changed)+len(removed) == 0 && oldFP && oldInputs == plan.InputsHash {
-			fmt.Printf("\n结论：OK，0 处漂移。\n")
+			fmt.Printf("\n结论：与上一轮渲染一致，0 处漂移。\n")
+			fmt.Printf("口径：这只是「现在这份 == anc 上一轮生成的」。它**不等于** gateway 已接受 ——\n")
+			fmt.Printf("      真实拉起 + 功能探针（kickstart + 90s 窗口）在阶段 B 的服务单元里才落地。\n")
 			return 0
 		}
 		fmt.Printf("\n结论：检测到漂移 ——\n")
@@ -187,11 +195,17 @@ func cmdRender(args []string) int {
 
 // cmdOrgCheck 只加载 + 校验，不渲染。
 func cmdOrgCheck(args []string) int {
-	if len(args) != 1 {
+	fs := flag.NewFlagSet("org check", flag.ContinueOnError)
+	rules := fs.Bool("rules", false, "打印生效规则表")
+	flagArgs, posArgs := splitArgs(args, map[string]bool{"rules": true})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if len(posArgs) != 1 {
 		fmt.Fprint(os.Stderr, renderUsage)
 		return 2
 	}
-	abs, err := filepath.Abs(args[0])
+	abs, err := filepath.Abs(posArgs[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		return 2
@@ -206,7 +220,46 @@ func cmdOrgCheck(args []string) int {
 	fmt.Printf("  角色    %s\n", strings.Join(roleNames(o), ", "))
 	fmt.Printf("  成员    启用 %d / 共 %d\n", len(o.Enabled()), len(o.Members))
 	fmt.Printf("  路由    %s\n", routingDirs(o))
+	if over := o.Policy.OverrideIDs(); len(over) > 0 {
+		fmt.Printf("  规则覆盖 %s\n", strings.Join(over, ", "))
+	}
+	if *rules {
+		printRuleTable(o)
+	}
+	printIssues(o.Warnings)
 	return 0
+}
+
+// printRuleTable 回显生效规则表 —— 规则是数据，得能一眼看全，而不是读实现。
+func printRuleTable(o *org.Org) {
+	eff := o.Policy.Effective()
+	over := map[string]bool{}
+	for _, id := range o.Policy.OverrideIDs() {
+		over[id] = true
+	}
+	fmt.Printf("\n生效规则表（%d 条；★ = 被 company.md 覆盖过）\n", len(eff))
+	for _, r := range eff {
+		mark := " "
+		if over[r.ID] {
+			mark = "★"
+		}
+		lock := ""
+		if r.Locked {
+			lock = " [红线]"
+		}
+		fmt.Printf("  %s %-32s %-5s%s  %s\n", mark, r.ID, r.Level, lock, r.Why)
+	}
+}
+
+// printIssues 回显非红档发现。门禁不许静默：不拦的，必须让人看见。
+func printIssues(list []org.Issue) {
+	if len(list) == 0 {
+		return
+	}
+	fmt.Printf("\n⚠️  非红档发现 %d 条（不拦，但请过目）\n", len(list))
+	for _, i := range list {
+		fmt.Printf("  - %s\n", i.String())
+	}
 }
 
 func roleNames(o *org.Org) []string {
