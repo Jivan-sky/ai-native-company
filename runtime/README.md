@@ -71,6 +71,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 
 | 路径 | 说明 |
 |---|---|
+| `DESIGN.md` | 运行层落地设计 v0.1（草案，未实现；含 4 条待拍板） |
 | `main.go` | 装配器（`init` / `doctor` / `assets` / `version`） |
 | `templates/` | 客户库模板，**纯文件，现场可直接改** |
 | `inventory/assets.md` | 已有资产台账 |
