@@ -1,4 +1,4 @@
-# ai-active-company
+# ai-native-company
 
 > **本仓库是 ANC 的载体。** 一份真相源，三个消费面。
 
