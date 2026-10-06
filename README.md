@@ -1,5 +1,7 @@
 # ai-native-company
 
+![ANC 封面：一份真相源（SPEC.md），三个消费面（人读 / Agent 读 / 机器跑）](./assets/cover.png)
+
 > **本仓库是 ANC 的载体。** 一份真相源，三个消费面。
 
 ## ANC 是什么
@@ -28,6 +30,7 @@ ANC 的内容此前散在三处，各说各话：
 ai-native-company/
 ├─ SPEC.md          真相源：组织模型 · 四层两纵切 · 七连接件 · 三档可逆 · 判据
 ├─ ISSUES.md        开放问题台账：还没定的事，每条带选项、建议与验收
+├─ assets/          封面：cover.svg 为源，cover.png 为 2× 渲染（README 引用）
 ├─ docs/            给实现读：上游四份实现视图的副本（M1 设计 / 里程碑 / 轻形态 MVP / 调研）
 ├─ skill/           给 Agent 读（待建）：可单独安装，FDE skill 路线 B 指向这里
 └─ runtime/         给机器跑：ANC 驻场装配器（anc-onsite 已并入）
