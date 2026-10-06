@@ -94,6 +94,14 @@ func main() {
 		os.Exit(cmdDoctor(args))
 	case "assets":
 		os.Exit(cmdAssets(args))
+	case "render":
+		os.Exit(cmdRender(args))
+	case "org":
+		if len(args) > 0 && args[0] == "check" {
+			os.Exit(cmdOrgCheck(args[1:]))
+		}
+		fmt.Fprint(os.Stderr, renderUsage)
+		os.Exit(2)
 	case "version", "--version", "-v":
 		fmt.Println("anc " + version)
 	case "help", "--help", "-h":
@@ -112,6 +120,8 @@ func usage() {
   anc init <目录> --client <客户名> [--tier 1|2|3] [--form F1|F2|F3|F4] [--date YYYY-MM-DD] [--templates <模板目录>] [--git] [--force]
   anc doctor [目录]                 环境与网络自检（客户机器上跑）
   anc assets [--templates <模板目录>]  列出可复用资产台账
+  anc org check <vault>             只加载 + 校验 org 真相源
+  anc render <vault> [选项]         渲染 gateway config（默认 dry-run）
   anc version
 
 三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：
