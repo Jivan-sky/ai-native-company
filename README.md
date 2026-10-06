@@ -49,7 +49,7 @@ ai-native-company/
 | 块 | 状态 |
 |---|---|
 | `SPEC.md` | **v0.3 合并稿（2026-10-06）**· 骨架（工程实现层）来自上游 `HA7CH/ai-native-company` SPEC v0.1（MIT），组织模型与方法论层来自本仓库 v0.2 |
-| `ISSUES.md` | **6 条开放问题**（GitHub #1/#3/#4/#5/#6 的镜像 + N1–N6 本地新增）· 每条带选项、建议与验收 |
+| `ISSUES.md` | **11 条开放问题**（GitHub #1/#3/#4/#5/#6 的镜像 5 条 + 本地新增 N1–N6 共 6 条）· 每条带选项、建议与验收 |
 | `skill/` | 未建 |
 | `runtime/` | 已并入 `anc-onsite`。**阶段 A/B 已落地**：`anc init` / `org init` / `org check` / `render` / `service`。本机实测：`gofmt` / `go vet` / `go test ./...`（四包）全绿、六个目标交叉编译通过。**未验证**：gateway 是否接受渲染出的配置、服务是否真被拉起（`anc serve` 未实现） |
 | `runtime/DESIGN.md` | v0.1 草案（2026-10-06）· 6 条待拍板见其 §0；「必须实测清单」见其 §7 |
