@@ -2,101 +2,149 @@
   <title>ai-native-company (ANC)</title>
   <desc>封面：一份真相源（SPEC.md），三个消费面（人读 / Agent 读 / 机器跑）。</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#05080F"/>
-      <stop offset="1" stop-color="#0C1526"/>
-    </linearGradient>
-    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#5B8CFF"/>
-      <stop offset="1" stop-color="#35D0BA"/>
-    </linearGradient>
-    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+    <linearGradient id="base" x1="0" y1="0" x2="0.65" y2="1">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="0.5" stop-color="#9CB8FF"/>
-      <stop offset="1" stop-color="#35D0BA"/>
+      <stop offset="1" stop-color="#EDF2FA"/>
     </linearGradient>
-    <radialGradient id="glowA" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#2E5BFF" stop-opacity="0.38"/>
-      <stop offset="1" stop-color="#2E5BFF" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="glowB" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#12C2A0" stop-opacity="0.30"/>
-      <stop offset="1" stop-color="#12C2A0" stop-opacity="0"/>
-    </radialGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#07090D"/>
+      <stop offset="1" stop-color="#1C2533"/>
+    </linearGradient>
+    <linearGradient id="ruleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2F6BFF"/>
+      <stop offset="1" stop-color="#00B896"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.70"/>
+      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.08"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.98"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.20"/>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="72"/>
+    </filter>
+    <filter id="cardShadow" x="-40%" y="-40%" width="180%" height="220%">
+      <feGaussianBlur stdDeviation="11"/>
+    </filter>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-      <path d="M40 0H0V40" fill="none" stroke="#7BA7FF" stroke-opacity="0.10" stroke-width="1"/>
+      <path d="M40 0H0V40" fill="none" stroke="#0A0D12" stroke-opacity="0.05" stroke-width="1"/>
     </pattern>
-    <radialGradient id="gridFade" cx="0.5" cy="0.45" r="0.75">
+    <radialGradient id="gridFade" cx="0.5" cy="0.4" r="0.78">
       <stop offset="0" stop-color="#FFFFFF" stop-opacity="1"/>
       <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </radialGradient>
-    <mask id="gridMask">
-      <rect width="1280" height="640" fill="url(#gridFade)"/>
-    </mask>
+    <mask id="gridMask"><rect width="1280" height="640" fill="url(#gridFade)"/></mask>
+    <g id="bgArt">
+      <ellipse cx="205" cy="130" rx="340" ry="255" fill="#A9C6FF" fill-opacity="0.85"/>
+      <ellipse cx="1122" cy="62" rx="300" ry="205" fill="#CDBDFF" fill-opacity="0.52"/>
+      <ellipse cx="1228" cy="345" rx="265" ry="195" fill="#9EE6D4" fill-opacity="0.62"/>
+      <ellipse cx="1080" cy="615" rx="335" ry="200" fill="#FFD2A8" fill-opacity="0.44"/>
+      <ellipse cx="98" cy="578" rx="290" ry="195" fill="#FFC6DC" fill-opacity="0.42"/>
+      <ellipse cx="640" cy="665" rx="430" ry="165" fill="#BFE0FF" fill-opacity="0.42"/>
+    </g>
   </defs>
 
-  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#base)"/>
+  <g filter="url(#soft)"><use href="#bgArt"/></g>
+  <ellipse cx="650" cy="325" rx="735" ry="440" fill="#FFFFFF" fill-opacity="0.32" filter="url(#soft)"/>
   <rect width="1280" height="640" fill="url(#grid)" mask="url(#gridMask)"/>
-  <ellipse cx="1010" cy="170" rx="430" ry="300" fill="url(#glowA)"/>
-  <ellipse cx="1130" cy="530" rx="360" ry="250" fill="url(#glowB)"/>
+  <rect x="0.5" y="0.5" width="1279" height="639" fill="none" stroke="#0A0D12" stroke-opacity="0.10"/>
 
-  <g font-family="'Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,sans-serif">
+  <g font-family="'SF Pro Display','Segoe UI','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans CJK SC',system-ui,sans-serif">
 
-    <rect x="80" y="72" width="86" height="34" rx="11" fill="url(#brand)"/>
-    <text x="123" y="95" text-anchor="middle" font-size="16" font-weight="700" letter-spacing="2.5" fill="#05080F">ANC</text>
-    <text x="182" y="95" font-size="15" font-weight="600" letter-spacing="3.2" fill="#7FE3CE">一份真相源，三个消费面</text>
+    <rect x="80" y="72" width="86" height="34" rx="17" fill="#FFFFFF" fill-opacity="0.55"/>
+    <rect x="80.8" y="72.8" width="84.4" height="32.4" rx="16.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
+    <text x="123" y="95" text-anchor="middle" font-size="16" font-weight="700" letter-spacing="2.5" fill="#0A0D12">ANC</text>
+    <text x="182" y="95" font-size="15" font-weight="600" letter-spacing="3.2" fill="#2B3440">一份真相源，三个消费面</text>
 
-    <text x="80" y="234" font-size="72" font-weight="800" letter-spacing="0.5" fill="#FFFFFF">AI-NATIVE</text>
+    <text x="80" y="234" font-size="72" font-weight="800" letter-spacing="0.5" fill="url(#titleGrad)">AI-NATIVE</text>
     <text x="80" y="312" font-size="72" font-weight="800" letter-spacing="0.5" fill="url(#titleGrad)">COMPANY</text>
-    <text x="80" y="362" font-size="21" fill="#9FB3D1">把组织协调能力从人的职位上解绑，挂到系统上</text>
+    <text x="80" y="362" font-size="21" fill="#47515F">把组织协调能力从人的职位上解绑，挂到系统上</text>
 
-    <rect x="80" y="392" width="76" height="3" rx="1.5" fill="#35D0BA"/>
+    <rect x="80" y="392" width="76" height="3" rx="1.5" fill="url(#ruleGrad)"/>
 
-    <text x="80" y="428" font-size="13" font-weight="600" letter-spacing="2.5" fill="#5FE0C8">硬指标</text>
-    <text x="80" y="458" font-size="17" fill="#A9BCD6">新人或 Agent 不靠问人，拿到全部上下文、权限、工具，</text>
-    <text x="80" y="486" font-size="17" font-weight="600" fill="#E8EEF9">把活做完，并且有人能验证。</text>
+    <text x="80" y="428" font-size="13" font-weight="700" letter-spacing="2.5" fill="#0A0D12">硬指标</text>
+    <text x="80" y="458" font-size="17" fill="#3C4657">新人或 Agent 不靠问人，拿到全部上下文、权限、工具，</text>
+    <text x="80" y="486" font-size="17" font-weight="600" fill="#0A0D12">把活做完，并且有人能验证。</text>
 
-    <g font-size="15" fill="#A9BCD6">
-      <rect x="80" y="524" width="111" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.045" stroke="#FFFFFF" stroke-opacity="0.12"/>
+    <g font-size="15" fill="#131A22">
+      <rect x="80" y="524" width="111" height="38" rx="19" fill="#2F6BFF" fill-opacity="0.10"/>
+      <rect x="80" y="524" width="111" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.45"/>
+      <rect x="80.8" y="524.8" width="109.4" height="36.4" rx="18.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
       <text x="135" y="548" text-anchor="middle">四层两纵切</text>
-      <rect x="203" y="524" width="96" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.045" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <rect x="203" y="524" width="96" height="38" rx="19" fill="#00B896" fill-opacity="0.12"/>
+      <rect x="203" y="524" width="96" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.45"/>
+      <rect x="203.8" y="524.8" width="94.4" height="36.4" rx="18.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
       <text x="251" y="548" text-anchor="middle">七连接件</text>
-      <rect x="311" y="524" width="96" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.045" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <rect x="311" y="524" width="96" height="38" rx="19" fill="#D98200" fill-opacity="0.12"/>
+      <rect x="311" y="524" width="96" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.45"/>
+      <rect x="311.8" y="524.8" width="94.4" height="36.4" rx="18.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
       <text x="359" y="548" text-anchor="middle">三档可逆</text>
-      <rect x="419" y="524" width="114" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.045" stroke="#FFFFFF" stroke-opacity="0.12"/>
+      <rect x="419" y="524" width="114" height="38" rx="19" fill="#7C5CFF" fill-opacity="0.10"/>
+      <rect x="419" y="524" width="114" height="38" rx="19" fill="#FFFFFF" fill-opacity="0.45"/>
+      <rect x="419.8" y="524.8" width="112.4" height="36.4" rx="18.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
       <text x="476" y="548" text-anchor="middle">一人一 bot</text>
     </g>
 
     <g fill="none" stroke-width="2">
-      <path d="M852 324 C 926 324, 928 164, 1000 164" stroke="#FFB454" stroke-opacity="0.5"/>
-      <path d="M852 324 H 1000" stroke="#5FE0C8" stroke-opacity="0.55"/>
-      <path d="M852 324 C 926 324, 928 484, 1000 484" stroke="#7BA7FF" stroke-opacity="0.5"/>
+      <path d="M852 324 C 926 324, 928 164, 1000 164" stroke="#D98200" stroke-opacity="0.55"/>
+      <path d="M852 324 H 1000" stroke="#00A88E" stroke-opacity="0.55"/>
+      <path d="M852 324 C 926 324, 928 484, 1000 484" stroke="#2F6BFF" stroke-opacity="0.55"/>
     </g>
-    <circle cx="852" cy="324" r="4" fill="#5FE0C8"/>
-    <circle cx="1000" cy="164" r="3.5" fill="#FFB454"/>
-    <circle cx="1000" cy="324" r="3.5" fill="#5FE0C8"/>
-    <circle cx="1000" cy="484" r="3.5" fill="#7BA7FF"/>
-    <rect x="676" y="278" width="176" height="92" rx="20" fill="#16233D" fill-opacity="0.9" stroke="#7BA7FF" stroke-opacity="0.55"/>
-    <text x="764" y="318" text-anchor="middle" font-size="21" font-weight="700" fill="#E8EEF9">SPEC.md</text>
-    <text x="764" y="346" text-anchor="middle" font-size="14" fill="#8FA3C0">唯一真相源</text>
+    <circle cx="852" cy="324" r="4" fill="#00A88E"/>
+    <circle cx="1000" cy="164" r="3.5" fill="#D98200"/>
+    <circle cx="1000" cy="324" r="3.5" fill="#00A88E"/>
+    <circle cx="1000" cy="484" r="3.5" fill="#2F6BFF"/>
 
     <g>
-      <rect x="1000" y="131" width="200" height="66" rx="16" fill="#1A1A16" fill-opacity="0.55" stroke="#FFB454" stroke-opacity="0.45"/>
-      <circle cx="1022" cy="155" r="4" fill="#FFB454"/>
-      <text x="1038" y="161" font-size="17" font-weight="700" fill="#F2D6AE">人读</text>
-      <text x="1038" y="182" font-size="13" fill="#9A8E7C">文档 · 派生视图</text>
-
-      <rect x="1000" y="291" width="200" height="66" rx="16" fill="#0F2420" fill-opacity="0.55" stroke="#35D0BA" stroke-opacity="0.45"/>
-      <circle cx="1022" cy="315" r="4" fill="#35D0BA"/>
-      <text x="1038" y="321" font-size="17" font-weight="700" fill="#BDF0E4">Agent 读</text>
-      <text x="1038" y="342" font-size="13" fill="#8FB3AA">skill/</text>
-
-      <rect x="1000" y="451" width="200" height="66" rx="16" fill="#141C31" fill-opacity="0.6" stroke="#7BA7FF" stroke-opacity="0.45"/>
-      <circle cx="1022" cy="475" r="4" fill="#7BA7FF"/>
-      <text x="1038" y="481" font-size="17" font-weight="700" fill="#CBDAFF">机器跑</text>
-      <text x="1038" y="502" font-size="13" fill="#8C9BB8">runtime/</text>
+      <rect x="676" y="287" width="176" height="92" rx="20" fill="#1B2B4B" fill-opacity="0.14" filter="url(#cardShadow)"/>
+      <rect x="676" y="278" width="176" height="92" rx="20" fill="#FFFFFF" fill-opacity="0.52"/>
+      <rect x="676" y="278" width="176" height="92" rx="20" fill="url(#sheen)"/>
+      <rect x="676.5" y="278.5" width="175" height="91" rx="19.5" fill="none" stroke="#0A0D12" stroke-opacity="0.07"/>
+      <rect x="676.8" y="278.8" width="174.4" height="90.4" rx="19.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
+      <text x="764" y="318" text-anchor="middle" font-size="21" font-weight="700" fill="#0A0D12">SPEC.md</text>
+      <text x="764" y="346" text-anchor="middle" font-size="14" fill="#5A6472">唯一真相源</text>
     </g>
 
-    <text x="676" y="576" font-size="13" fill="#6C7F9B">真相源只有一份；skill/、runtime/、docs/ 都降为派生视图。</text>
+    <g>
+      <rect x="1000" y="140" width="200" height="66" rx="16" fill="#1B2B4B" fill-opacity="0.13" filter="url(#cardShadow)"/>
+      <rect x="1000" y="131" width="200" height="66" rx="16" fill="#D98200" fill-opacity="0.10"/>
+      <rect x="1000" y="131" width="200" height="66" rx="16" fill="#FFFFFF" fill-opacity="0.52"/>
+      <rect x="1000" y="131" width="200" height="66" rx="16" fill="url(#sheen)"/>
+      <rect x="1000.5" y="131.5" width="199" height="65" rx="15.5" fill="none" stroke="#0A0D12" stroke-opacity="0.07"/>
+      <rect x="1000.8" y="131.8" width="198.4" height="64.4" rx="15.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
+      <circle cx="1022" cy="155" r="4" fill="#D98200"/>
+      <text x="1038" y="161" font-size="17" font-weight="700" fill="#0A0D12">人读</text>
+      <text x="1038" y="182" font-size="13" fill="#5A6472">文档 · 派生视图</text>
+    </g>
+
+    <g>
+      <rect x="1000" y="300" width="200" height="66" rx="16" fill="#1B2B4B" fill-opacity="0.13" filter="url(#cardShadow)"/>
+      <rect x="1000" y="291" width="200" height="66" rx="16" fill="#00B896" fill-opacity="0.10"/>
+      <rect x="1000" y="291" width="200" height="66" rx="16" fill="#FFFFFF" fill-opacity="0.52"/>
+      <rect x="1000" y="291" width="200" height="66" rx="16" fill="url(#sheen)"/>
+      <rect x="1000.5" y="291.5" width="199" height="65" rx="15.5" fill="none" stroke="#0A0D12" stroke-opacity="0.07"/>
+      <rect x="1000.8" y="291.8" width="198.4" height="64.4" rx="15.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
+      <circle cx="1022" cy="315" r="4" fill="#00A88E"/>
+      <text x="1038" y="321" font-size="17" font-weight="700" fill="#0A0D12">Agent 读</text>
+      <text x="1038" y="342" font-size="13" fill="#5A6472">skill/</text>
+    </g>
+
+    <g>
+      <rect x="1000" y="460" width="200" height="66" rx="16" fill="#1B2B4B" fill-opacity="0.13" filter="url(#cardShadow)"/>
+      <rect x="1000" y="451" width="200" height="66" rx="16" fill="#2F6BFF" fill-opacity="0.10"/>
+      <rect x="1000" y="451" width="200" height="66" rx="16" fill="#FFFFFF" fill-opacity="0.52"/>
+      <rect x="1000" y="451" width="200" height="66" rx="16" fill="url(#sheen)"/>
+      <rect x="1000.5" y="451.5" width="199" height="65" rx="15.5" fill="none" stroke="#0A0D12" stroke-opacity="0.07"/>
+      <rect x="1000.8" y="451.8" width="198.4" height="64.4" rx="15.2" fill="none" stroke="url(#edge)" stroke-width="1.6"/>
+      <circle cx="1022" cy="475" r="4" fill="#2F6BFF"/>
+      <text x="1038" y="481" font-size="17" font-weight="700" fill="#0A0D12">机器跑</text>
+      <text x="1038" y="502" font-size="13" fill="#5A6472">runtime/</text>
+    </g>
+
+    <text x="676" y="576" font-size="13" fill="#66707E">真相源只有一份；skill/、runtime/、docs/ 都降为派生视图。</text>
   </g>
 </svg>
