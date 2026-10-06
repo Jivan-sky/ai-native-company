@@ -207,9 +207,15 @@ type Report struct {
 }
 
 // Add 记录一条发现；off 档的直接丢弃。
+// 逐字相同的重复发现只留一条：两个成员共用一个角色时，角色层的问题不该报两遍。
 func (r *Report) Add(i Issue) {
 	if i.Level == LevelOff || i.Rule == "" {
 		return
+	}
+	for _, e := range r.Issues {
+		if e == i {
+			return
+		}
 	}
 	r.Issues = append(r.Issues, i)
 }

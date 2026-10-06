@@ -1,0 +1,23 @@
+---
+name: {{CLIENT}}
+id: {{ID}}
+language: zh-CN
+timezone: Asia/Shanghai
+platform: feishu
+admins: [{{ADMIN}}]
+sync_interval_min: 15
+defaults:
+  model: claude-sonnet-5
+  mode: dontAsk
+# policy: 段用来逐条改校验规则的处置档（fatal / warn / off），全表见 `anc org check <vault> --rules`
+# policy:
+#   member.feishu.open_id.format: off
+---
+
+{{CLIENT}} 的 org 真相源（`anc org init` 生成于 {{DATE}}，anc {{ANC_VERSION}}）。
+
+这个目录是**唯一真相源**：`anc render` 从它生成 gateway 配置，手改生成物视为事故。
+只存岗位与职责，不存个人身份数据（SPEC §2.3）—— 需要人的身份时按请求实时去源头系统取。
+
+下一步：把每个成员的真实 `feishu.app_id` / `feishu.open_id` 填进 members/*/persona.md，
+把每个角色的 `allowed_tools` 填成它真正需要的工具，然后 `anc org check .`。

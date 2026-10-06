@@ -79,10 +79,7 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		b.WriteString("\n[projects.agent]\ntype = \"claudecode\"\n")
 
 		b.WriteString("\n[projects.agent.options]\n")
-		workDir := opt.Host.HomesRoot + "/" + m.Name
-		if m.Role == "devbot" {
-			workDir = opt.Host.VaultRoot
-		}
+		workDir := WorkDir(m, opt.Host)
 		fmt.Fprintf(&b, "work_dir = %s\n", tomlString(workDir))
 		if mode := role.Mode; mode != "" {
 			fmt.Fprintf(&b, "mode = %s\n", tomlString(mode))
@@ -123,6 +120,16 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		p.Warns = append(p.Warns, "defaults.auto_compress_max_tokens 已配置，但渲染器**未输出** auto_compress 段：字段名在上游设计里也标为待实测（W1 实测项 ④）")
 	}
 	return p, nil
+}
+
+// WorkDir 是这个 bot 的 cwd：成员各自的家目录，devbot 是仓库本体（改坏能回滚）。
+// 服务单元里也用它 —— 单元的工作目录必须和配置里写的 work_dir 是同一个地方，
+// 不然 bot 起来读的是另一个目录里的 AGENTS.md。
+func WorkDir(m org.Member, host org.Host) string {
+	if m.Role == "devbot" {
+		return host.VaultRoot
+	}
+	return host.HomesRoot + "/" + m.Name
 }
 
 // adminOpenIDs 把 company.admins 翻成 open_id 列表（顺序即 admins 声明顺序，保证 diff 稳定）。

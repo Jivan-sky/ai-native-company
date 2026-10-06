@@ -114,6 +114,10 @@ var (
 	reH2     = regexp.MustCompile(`(?m)^##\s+(.+?)\s*$`)
 )
 
+// ValidCompanyID 判断公司 id 合不合法。导出它是为了在生成骨架时就能拦住 ——
+// 等渲染到一半才报，人已经填了一堆东西了。
+func ValidCompanyID(s string) bool { return reID.MatchString(s) }
+
 // Load 读取并校验一棵 org 真相源树。
 func Load(root string) (*Org, error) {
 	o := &Org{Root: root, Roles: map[string]Role{}}

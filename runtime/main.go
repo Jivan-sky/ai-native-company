@@ -96,9 +96,14 @@ func main() {
 		os.Exit(cmdAssets(args))
 	case "render":
 		os.Exit(cmdRender(args))
+	case "service":
+		os.Exit(cmdService(args))
 	case "org":
 		if len(args) > 0 && args[0] == "check" {
 			os.Exit(cmdOrgCheck(args[1:]))
+		}
+		if len(args) > 0 && args[0] == "init" {
+			os.Exit(cmdOrgInit(args[1:]))
 		}
 		fmt.Fprint(os.Stderr, renderUsage)
 		os.Exit(2)
@@ -121,7 +126,11 @@ func usage() {
   anc doctor [目录]                 环境与网络自检（客户机器上跑）
   anc assets [--templates <模板目录>]  列出可复用资产台账
   anc org check <vault>             只加载 + 校验 org 真相源
+  anc org init <目录> --client <客户名> --id <ascii-id>
+                                    生成 org 真相源骨架（vault 模板）
   anc render <vault> [选项]         渲染 gateway config（默认 dry-run）
+  anc service <render|status|install|uninstall> --org <vault> --bot <成员>
+                                    生成/装载用户级服务单元（默认 dry-run）
   anc version
 
 三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：

@@ -20,6 +20,17 @@ anc init ./climax --client 某车队 --tier 1 --form F1 --git
 
 # 3. 看我们已有的可复用资产（别重造）
 anc assets
+
+# 4. 生成 org 真相源骨架（vault）—— 公司 / 角色 / 成员 / 数据目录路由
+anc org init ./climax-vault --client 某车队 --id climax --members alice,bob
+
+# 5. 校验骨架（--rules 打印生效规则表），然后渲染 gateway 配置
+anc org check ./climax-vault --rules
+anc render ./climax-vault --apply
+
+# 6. 服务单元：默认只打印，--apply 才真落盘；install 再加 --apply 才真装载
+anc service render --org ./climax-vault --bot alice --goos darwin
+anc service status --org ./climax-vault --bot alice
 ```
 
 `--tier` 就是九宫格判层：`1` 降本增效型（约 30 人，要省钱）/ `2` 进步型（约 200 人，要进步）/ `3` 战略型（国央企，要战略变革）。**答错层＝后面全错。**
@@ -87,6 +98,37 @@ policy:
   负面断言（**只断规则 id，不断文案**）、一个结构快照 `testdata/golden/one.snapshot`（`-update` 重写）。
   不存全文 golden —— 它的失败模式是「改一个字就红」，然后人就会习惯性 `-update`，测试就死了。
 
+## 服务单元（`anc service`）
+
+一个 bot 一套**用户级**服务定义 —— macOS LaunchAgent / systemd --user / Windows 登录时计划任务。
+不写系统级 daemon、不需要管理员权限；**要哪个账号跑，就以哪个账号执行 install**，
+所以单元里不写账号（D1 隔离档没拍板也不影响这份单元）。
+
+| 平台 | 落点 | 装载 |
+|---|---|---|
+| darwin | `~/Library/LaunchAgents/com.anc.<公司>.<成员>.plist` | `launchctl load -w` |
+| linux | `~/.config/systemd/user/anc-<公司>-<成员>.service` | `systemctl --user enable --now` |
+| windows | `~/anc/tasks/<公司>-<成员>.task.xml` | `schtasks /Create /XML` |
+
+- `render` 默认只打印，`--apply` 落盘；`install` / `uninstall` 没有 `--apply` 就只打印将执行的命令。
+- 单元同样带 `anc:generated` 指纹：没有指纹的现有文件（手写或他源）拒绝覆盖，`--adopt` 才接管。
+- `status` 是只读的：看单元在不在、指纹对不对、服务管理器认不认它。
+- **注意**：`anc serve` 尚未实现（阶段 C/D），现在 install 只会得到一个反复退出的服务 ——
+  命令会自己把这句话打出来，别把「装上了」当成「跑起来了」。
+
+### `anc org init` 生成的骨架
+
+```
+<vault>/
+├─ company/company.md         公司自描述 + defaults + policy（规则覆盖）
+├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + allowed_tools 等
+├─ members/<name>/persona.md  成员层：display_name / role / feishu.app_id / feishu.open_id
+└─ <数据目录>/CLAUDE.md        首句即 persona 路由表里的说明
+```
+
+**骨架不是成品**：`app_id` / `open_id` 是占位符，`allowed_tools` 故意留空（会一直告警顶着），
+直到人把它们填成真的。生成完会自动跑一次校验并把非红档发现打出来。
+
 ## 构建
 
 ```powershell
@@ -120,8 +162,12 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；含 4 条待拍板） |
 | `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `org check` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
+| `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元） |
+| `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、规则表（`rules.go`） |
 | `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读 |
+| `internal/service/` | 纯函数生成三平台服务单元 + 指纹 + `~/` 展开 |
+| `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |
 | `testdata/orgs/` | 校验正/负例 vault（one / six / disabled / broken-validate / broken-section） |
 | `testdata/golden/` | 结构快照（只锁语义） |
 | `templates/` | 客户库模板，**纯文件，现场可直接改** |
