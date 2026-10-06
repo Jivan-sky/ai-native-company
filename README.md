@@ -25,7 +25,7 @@ ANC 的内容此前散在三处，各说各话：
 ## 结构
 
 ```
-ai-active-company/
+ai-native-company/
 ├─ SPEC.md      真相源：组织模型 · 四层两纵切 · 七连接件 · 判据
 ├─ skill/       给 Agent 读（待建）：可单独安装，FDE skill 路线 B 指向这里
 └─ runtime/     给机器跑：ANC 驻场装配器（anc-onsite 已并入）
