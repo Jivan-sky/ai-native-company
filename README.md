@@ -27,13 +27,14 @@ ANC 的内容此前散在三处，各说各话：
 ```
 ai-native-company/
 ├─ SPEC.md          真相源：组织模型 · 四层两纵切 · 七连接件 · 三档可逆 · 判据
+├─ ISSUES.md        开放问题台账：还没定的事，每条带选项、建议与验收
 ├─ docs/            给实现读：上游四份实现视图的副本（M1 设计 / 里程碑 / 轻形态 MVP / 调研）
 ├─ skill/           给 Agent 读（待建）：可单独安装，FDE skill 路线 B 指向这里
 └─ runtime/         给机器跑：ANC 驻场装配器（anc-onsite 已并入）
-   └─ DESIGN.md     运行层落地设计（v0.1 草案，含 4 条待拍板）
+   └─ DESIGN.md     运行层落地设计（v0.1 草案，含 6 条待拍板）
 ```
 
-**真相源只有一份。** `skill/` 和 `runtime/` 都是 `SPEC.md` 的派生视图——改口径改 SPEC，不在这两处各改一遍。
+**真相源只有一份。** `skill/`、`runtime/`、`ISSUES.md` 都是 `SPEC.md` 的派生视图——改口径改 SPEC，不在这几处各改一遍。
 
 ## 与 FDE 48h sprint 的关系
 
@@ -48,9 +49,10 @@ ai-native-company/
 | 块 | 状态 |
 |---|---|
 | `SPEC.md` | **v0.3 合并稿（2026-10-06）**· 骨架（工程实现层）来自上游 `HA7CH/ai-native-company` SPEC v0.1（MIT），组织模型与方法论层来自本仓库 v0.2 |
+| `ISSUES.md` | **6 条开放问题**（GitHub #1/#3/#4/#5/#6 的镜像 + N1–N6 本地新增）· 每条带选项、建议与验收 |
 | `skill/` | 未建 |
-| `runtime/` | 已并入 `anc-onsite`；实测通过：`go vet` / `gofmt` / `go build` / `anc version` / `anc doctor` / `anc init` |
-| `runtime/DESIGN.md` | v0.1 草案（2026-10-06）· 未实现、未现场验证；4 条待拍板见其 §0 |
+| `runtime/` | 已并入 `anc-onsite`。**阶段 A/B 已落地**：`anc init` / `org init` / `org check` / `render` / `service`。本机实测：`gofmt` / `go vet` / `go test ./...`（四包）全绿、六个目标交叉编译通过。**未验证**：gateway 是否接受渲染出的配置、服务是否真被拉起（`anc serve` 未实现） |
+| `runtime/DESIGN.md` | v0.1 草案（2026-10-06）· 6 条待拍板见其 §0；「必须实测清单」见其 §7 |
 
 
 ## 与上游的关系
