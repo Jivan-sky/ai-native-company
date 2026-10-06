@@ -26,7 +26,7 @@ ANC 的内容此前散在三处，各说各话：
 
 ```
 ai-native-company/
-├─ SPEC.md          真相源：组织模型 · 四层两纵切 · 七连接件 · 判据
+├─ SPEC.md          真相源：组织模型 · 四层两纵切 · 七连接件 · 三档可逆 · 判据
 ├─ skill/           给 Agent 读（待建）：可单独安装，FDE skill 路线 B 指向这里
 └─ runtime/         给机器跑：ANC 驻场装配器（anc-onsite 已并入）
    └─ DESIGN.md     运行层落地设计（v0.1 草案，含 4 条待拍板）
@@ -46,10 +46,17 @@ ai-native-company/
 
 | 块 | 状态 |
 |---|---|
-| `SPEC.md` | v0.2 立项稿（2026-10-06）· ANC = AI Native Company |
+| `SPEC.md` | **v0.3 合并稿（2026-10-06）**· 骨架（工程实现层）来自上游 `HA7CH/ai-native-company` SPEC v0.1（MIT），组织模型与方法论层来自本仓库 v0.2 |
 | `skill/` | 未建 |
 | `runtime/` | 已并入 `anc-onsite`；实测通过：`go vet` / `gofmt` / `go build` / `anc version` / `anc doctor` / `anc init` |
 | `runtime/DESIGN.md` | v0.1 草案（2026-10-06）· 未实现、未现场验证；4 条待拍板见其 §0 |
+
+
+## 与上游的关系
+
+`SPEC.md` v0.3 是**合并稿**：工程实现层（三层架构 / cc-connect / harness 双后端 / persona 七段式 / vault 规范 / inbox 写路径 / onboarding 五阶段 / 运维）以**上游 `HA7CH/ai-native-company`**（MIT，含 Climax Racing reference deployment 生产经验）为骨架；组织模型（中层五类工作 → 拆给谁 / 两类 Agent / 只存岗位）、七连接件、可逆性三档与单一出口、三个阶段与双节奏、判据，来自本仓库 v0.2。
+
+上游的 `docs/LIGHT-MVP.md`、`docs/M1-DESIGN.md`、`docs/PLAN.md`、`docs/RESEARCH.md` 是**实现视图**：它们细化实现，不改口径。本仓库与上游的长期关系（跟随 / 分叉 / 回提 PR）见 SPEC §13 Q10，**待定**。
 
 ## 边界
 
