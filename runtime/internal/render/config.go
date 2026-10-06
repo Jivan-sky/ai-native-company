@@ -24,7 +24,8 @@ type Plan struct {
 	InputsHash  string
 	Projects    []string // 渲染进配置的 project 名（顺序即输出顺序）
 	PersonaHash map[string]string
-	Warns       []string
+	Issues      []org.Issue // 规则表定的校验发现（warn 档必须回显）
+	Warns       []string    // 不由规则表管的散装提示（例如未实测字段）
 }
 
 // Build 全量生成 gateway config.toml。全量生成、不打补丁；手改视为事故。
@@ -61,7 +62,7 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		p.Warns = append(p.Warns, pr.Warns...)
+		p.Issues = append(p.Issues, pr.Issues...)
 
 		name := o.Company.ID + "-" + m.Name
 		p.Projects = append(p.Projects, name)

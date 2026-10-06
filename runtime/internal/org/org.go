@@ -39,6 +39,12 @@ type FallbackProvider struct {
 	Model   string
 }
 
+// Section 是 persona 正文里的一个 H2 段。保留声明顺序 —— 渲染要按作者的原文顺序走。
+type Section struct {
+	Name string
+	Text string
+}
+
 // Role 是 roles/<role>/persona.md。
 type Role struct {
 	Role         string
@@ -48,7 +54,8 @@ type Role struct {
 	AllowedTools []string
 	VaultScope   []string
 	Skills       []string
-	Sections     map[string]string // 只允许 职责 / 风格 / 术语表
+	Sections     map[string]string // 白名单段名 → 正文（清单见 company.persona_sections）
+	Extra        []Section         // 白名单之外、但被降级放行的段：原样保留，不倒掉作者的稿子
 }
 
 // Feishu 是成员的平台接入信息。open_id 是本系统里唯一的「人」标识，且只在渲染时进 allow_from。
@@ -79,11 +86,13 @@ type Routing struct {
 
 // Org 是加载并校验过的组织真相源。
 type Org struct {
-	Root    string
-	Company Company
-	Roles   map[string]Role
-	Members []Member // 按 Name 排序
-	Routing []Routing
+	Root     string
+	Company  Company
+	Roles    map[string]Role
+	Members  []Member // 按 Name 排序
+	Routing  []Routing
+	Policy   *Policy // 生效规则表（出厂默认 + company.md 的 policy 段覆盖）
+	Warnings []Issue // 非红档的校验发现；调用方必须回显，不许吞
 }
 
 // Host 是本机层输入（不进 git）；参与 inputs 指纹，改主机参数同样触发重渲染。
@@ -163,6 +172,23 @@ func Load(root string) (*Org, error) {
 	c.Body = cd.Body
 	o.Company = c
 
+	// 生效规则表：出厂默认 → company.md 的 policy 段覆盖。
+	// 覆盖本身也要被校验（拼错规则 id = 你以为关了其实没关），所以它的发现跟主校验一起报。
+	pol := DefaultPolicy()
+	polIssues := pol.Apply(cd)
+	o.Policy = pol
+
+	sections := []string{"职责", "风格", "术语表"}
+	if v, err := cd.StrList("persona_sections"); err != nil {
+		return nil, err
+	} else if len(v) > 0 {
+		sections = v
+	}
+	allowedSection := map[string]bool{}
+	for _, s := range sections {
+		allowedSection[s] = true
+	}
+
 	roleDirs, err := subdirs(filepath.Join(root, "roles"))
 	if err != nil {
 		return nil, err
@@ -196,8 +222,17 @@ func Load(root string) (*Org, error) {
 		if r.Skills, err = d.StrList("skills"); err != nil {
 			return nil, err
 		}
-		if r.Sections, err = splitH2(d.Body, []string{"职责", "风格", "术语表"}); err != nil {
-			return nil, fmt.Errorf("角色 %s: %w", name, err)
+		r.Sections = map[string]string{}
+		for _, s := range splitH2(d.Body) {
+			if allowedSection[s.Name] {
+				r.Sections[s.Name] = s.Text
+				continue
+			}
+			polIssues = append(polIssues, pol.Issue("role.persona.section_unknown",
+				"roles/"+name+"/persona.md",
+				"正文出现未约定的 H2 段「%s」；白名单是 %s —— 角色层不许私藏事实（canonical registry 纪律）。要放行就在 company.md 写 persona_sections，或在 policy 段把本规则降到 warn/off",
+				s.Name, strings.Join(sections, " / ")))
+			r.Extra = append(r.Extra, s)
 		}
 		o.Roles[r.Role] = r
 	}
@@ -251,9 +286,12 @@ func Load(root string) (*Org, error) {
 	if o.Routing, err = scanRouting(root); err != nil {
 		return nil, err
 	}
-	if err := o.Validate(); err != nil {
-		return nil, err
+	rep := o.Validate(pol)
+	rep.Merge(&Report{Issues: polIssues})
+	if len(rep.Fatal()) > 0 {
+		return nil, &LoadError{Report: rep}
 	}
+	o.Warnings = rep.Warns()
 	return o, nil
 }
 
@@ -289,25 +327,28 @@ func (o *Org) ModelFor(m Member) string {
 	return o.Company.Defaults.Model
 }
 
-// Validate 校验全量口径。一次返回所有问题，方便一次改完。
-func (o *Org) Validate() error {
-	var errs []string
-	bad := func(f string, a ...any) { errs = append(errs, fmt.Sprintf(f, a...)) }
+// Validate 校验全量口径。一次返回所有发现，再由规则表的档次分流：红的拦，其余回显。
+func (o *Org) Validate(p *Policy) *Report {
+	rep := &Report{}
+	companyFile := "company/company.md"
 
 	if o.Company.Name == "" {
-		bad("company/company.md: 缺 name")
+		rep.Add(p.Issue("company.name.missing", companyFile, "缺 name"))
 	}
 	if !reID.MatchString(o.Company.ID) {
-		bad("company/company.md: id=%q 必须是 ASCII 前缀（^[a-z][a-z0-9-]*$），它会进 launchd label 与项目名前缀", o.Company.ID)
+		rep.Add(p.Issue("company.id.format", companyFile,
+			"id=%q 必须是 ASCII 前缀（%s），它会进 launchd label 与项目名前缀", o.Company.ID, reID))
 	}
 	if o.Company.Platform != "feishu" {
-		bad("company/company.md: platform=%q，v1 只支持 feishu", o.Company.Platform)
+		rep.Add(p.Issue("company.platform.unsupported", companyFile, "platform=%q，v1 只支持 feishu", o.Company.Platform))
 	}
 	if o.Company.Defaults.Model == "" {
-		bad("company/company.md: 缺 defaults.model（成员与角色都没写 model 时没有回退值）")
+		rep.Add(p.Issue("company.defaults.model.missing", companyFile,
+			"缺 defaults.model（成员与角色都没写 model 时没有回退值）"))
 	}
 	if o.Company.Defaults.Mode == "bypassPermissions" {
-		bad("company/company.md: defaults.mode 不许是 bypassPermissions（角色 bot 一律不授予 bypass，SPEC §6-5，无豁免开关）")
+		rep.Add(p.Issue("company.defaults.mode.bypass", companyFile,
+			"defaults.mode 不许是 bypassPermissions（SPEC §6-5，无豁免开关）"))
 	}
 
 	var devbots int
@@ -317,71 +358,72 @@ func (o *Org) Validate() error {
 	for _, m := range o.Members {
 		where := "members/" + m.Name + "/persona.md"
 		if seenName[m.Name] {
-			bad("%s: 成员 id 重复", where)
+			rep.Add(p.Issue("member.name.duplicate", where, "成员 id 重复"))
 		}
 		seenName[m.Name] = true
 		if m.DisplayName == "" {
-			bad("%s: 缺 display_name", where)
+			rep.Add(p.Issue("member.display_name.missing", where, "缺 display_name"))
 		}
 		if m.Role == "devbot" && !m.Disabled {
 			devbots++
 		}
 		if m.Feishu.OpenID == "" {
-			bad("%s: 缺 feishu.open_id（渲染 allow_from 用；发 /whoami 给 bot 可取）", where)
+			rep.Add(p.Issue("member.feishu.open_id.missing", where,
+				"缺 feishu.open_id（渲染 allow_from 用；发 /whoami 给 bot 可取）"))
 		} else if !reOpenID.MatchString(m.Feishu.OpenID) {
-			bad("%s: feishu.open_id=%q 不符合 ^ou_", where, m.Feishu.OpenID)
+			rep.Add(p.Issue("member.feishu.open_id.format", where, "feishu.open_id=%q 不符合 ^ou_", m.Feishu.OpenID))
 		} else if prev, dup := seenOpenID[m.Feishu.OpenID]; dup {
-			bad("%s: feishu.open_id 与 members/%s 重复", where, prev)
+			rep.Add(p.Issue("member.feishu.open_id.duplicate", where, "feishu.open_id 与 members/%s 重复", prev))
 		} else {
 			seenOpenID[m.Feishu.OpenID] = m.Name
 		}
 		if m.Feishu.AppID == "" {
-			bad("%s: 缺 feishu.app_id", where)
+			rep.Add(p.Issue("member.feishu.app_id.missing", where, "缺 feishu.app_id"))
 		} else if prev, dup := seenAppID[m.Feishu.AppID]; dup {
-			bad("%s: feishu.app_id 与 members/%s 重复（app_id 必须全局唯一）", where, prev)
+			rep.Add(p.Issue("member.feishu.app_id.duplicate", where, "feishu.app_id 与 members/%s 重复（app_id 必须全局唯一）", prev))
 		} else {
 			seenAppID[m.Feishu.AppID] = m.Name
 		}
 		for _, s := range append([]string{m.Feishu.OpenID}, append(m.Feishu.ExtraAllowFrom, m.Feishu.AllowChat...)...) {
 			if s == "*" {
-				bad("%s: allow_from / allow_chat 出现 \"*\"（等于对所有人开放，SPEC §6-1）", where)
+				rep.Add(p.Issue("feishu.wildcard", where, "allow_from / allow_chat 出现 \"*\"（等于对所有人开放，SPEC §6-1）"))
 			}
 		}
 		// 角色相关检查放最后：角色不存在时，成员自身的问题也要一并报出来。
 		r, ok := o.Roles[m.Role]
 		if !ok {
-			bad("%s: role=%q 在 roles/ 下不存在", where, m.Role)
+			rep.Add(p.Issue("member.role.missing", where, "role=%q 在 roles/ 下不存在", m.Role))
 			continue
 		}
 		if r.Mode == "bypassPermissions" && m.Role != "devbot" {
-			bad("roles/%s/persona.md: mode=bypassPermissions 只有 devbot 可以有（SPEC §6-5）", m.Role)
+			rep.Add(p.Issue("role.bypass.not_devbot", "roles/"+m.Role+"/persona.md",
+				"mode=bypassPermissions 只有 devbot 可以有（SPEC §6-5）"))
 		}
 		if m.Role != "devbot" && len(r.AllowedTools) == 0 {
-			bad("roles/%s/persona.md: allowed_tools 为空；除 devbot 外必须给工具白名单（空 = 全开）", m.Role)
+			rep.Add(p.Issue("role.allowed_tools.empty", "roles/"+m.Role+"/persona.md",
+				"allowed_tools 为空；除 devbot 外应给工具白名单（「空 = 全开」尚未实测，故只告警）"))
 		}
 	}
 	if devbots != 1 {
-		bad("全公司必须恰好一个启用中的 devbot，当前 %d 个", devbots)
+		rep.Add(p.Issue("company.devbot.count", companyFile, "全公司必须恰好一个启用中的 devbot，当前 %d 个", devbots))
 	}
 	for _, a := range o.Company.Admins {
 		m, ok := o.Member(a)
 		if !ok {
-			bad("company/company.md: admins 里的 %q 不是任何成员", a)
+			rep.Add(p.Issue("company.admins.unknown", companyFile, "admins 里的 %q 不是任何成员", a))
 			continue
 		}
 		if m.Disabled {
-			bad("company/company.md: admins 里的 %q 已停用", a)
+			rep.Add(p.Issue("company.admins.disabled", companyFile, "admins 里的 %q 已停用", a))
 		}
 	}
 	for _, m := range o.Members {
 		if _, ok := o.Roles[m.Role]; ok && o.ModelFor(m) == "" {
-			bad("members/%s: 没写 model，role 与 company 也没写，无处回退", m.Name)
+			rep.Add(p.Issue("member.model.unresolved", "members/"+m.Name,
+				"没写 model，role 与 company 也没写，无处回退"))
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("org 校验未通过（%d 项）:\n  - %s", len(errs), strings.Join(errs, "\n  - "))
-	}
-	return nil
+	return rep
 }
 
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
@@ -395,8 +437,8 @@ func (o *Org) InputsHash(h Host) string {
 		c.Defaults.Model, c.Defaults.Mode, c.Defaults.AutoCompressMaxTokens, c.Body)
 	for _, name := range sortedKeys(o.Roles) {
 		r := o.Roles[name]
-		fmt.Fprintf(&b, "role|%s|%s|%s|%s|%v|%v|%v|%s|%s|%s\n", r.Role, r.Title, r.Model, r.Mode,
-			r.AllowedTools, r.VaultScope, r.Skills, r.Sections["职责"], r.Sections["风格"], r.Sections["术语表"])
+		fmt.Fprintf(&b, "role|%s|%s|%s|%s|%v|%v|%v|%s|%s|%s|%v\n", r.Role, r.Title, r.Model, r.Mode,
+			r.AllowedTools, r.VaultScope, r.Skills, r.Sections["职责"], r.Sections["风格"], r.Sections["术语表"], r.Extra)
 	}
 	for _, m := range o.Members {
 		fmt.Fprintf(&b, "member|%s|%s|%s|%s|%v|%v|%s|%s|%v|%v|%s\n", m.Name, m.DisplayName, m.Role, m.Model,
@@ -451,28 +493,21 @@ func subdirs(dir string) ([]string, error) {
 	return out, nil
 }
 
-// splitH2 把正文按 H2 段切开，只接受白名单里的段名（防止角色层私藏事实）。
-func splitH2(body string, allowed []string) (map[string]string, error) {
-	ok := map[string]bool{}
-	for _, a := range allowed {
-		ok[a] = true
-	}
+// splitH2 把正文按 H2 段全量切开，保留声明顺序。
+// 段名合不合规由调用方按规则表定档 —— 这里不丢内容：静默丢掉作者写的段，
+// 等于偷偷改了真相源。
+func splitH2(body string) []Section {
 	idx := reH2.FindAllStringSubmatchIndex(body, -1)
-	out := map[string]string{}
+	out := make([]Section, 0, len(idx))
 	for i, loc := range idx {
-		name := body[loc[2]:loc[3]]
-		if !ok[name] {
-			return nil, fmt.Errorf("正文出现未约定的 H2 段「%s」；只允许 %s —— 角色层不许私藏事实（canonical registry 纪律）",
-				name, strings.Join(allowed, " / "))
-		}
 		start := loc[1]
 		end := len(body)
 		if i+1 < len(idx) {
 			end = idx[i+1][0]
 		}
-		out[name] = strings.TrimSpace(body[start:end])
+		out = append(out, Section{Name: body[loc[2]:loc[3]], Text: strings.TrimSpace(body[start:end])})
 	}
-	return out, nil
+	return out
 }
 
 // scanRouting 扫 vault 顶层数据目录，取目录 CLAUDE.md 的首句作说明。

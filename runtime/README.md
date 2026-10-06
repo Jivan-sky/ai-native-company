@@ -41,6 +41,52 @@ anc assets
 └─ company/             公司自描述（onboarding 产物）
 ```
 
+## org 真相源 → gateway config（`anc render`）
+
+真相源是 git 里的 markdown + frontmatter，**只存岗位与职责**。`anc render <vault>` 把它编译成
+cc-connect 的 `config.toml`；**默认 dry-run**，落盘必须显式 `--apply`（时间戳备份 + 原子写）。
+
+```
+vault/
+├─ company/company.md         公司自描述 + defaults + policy（规则覆盖）
+├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + model / mode / allowed_tools
+├─ members/<name>/persona.md  成员层：display_name / role / model / feishu.*
+└─ <数据目录>/CLAUDE.md        顶层数据目录 → persona 段 3 的路由表（首句即说明）
+```
+
+两道差分门，防的都是「不可逆」而不是「你不听话」：
+
+- `--adopt`：目标配置没有 anc 指纹 → 拒绝覆盖（那是别人的文件，不是我们的产物）。
+- `--allow-scale`：本次会新增 / 删除 project → 拒绝落盘（防一次误操作静默把 bot 上下线）。
+
+两道门互相独立：接管他源配置时 project 集合必然全变，所以 `--adopt` 与 `--allow-scale` 都要显式过。
+
+### 规则表：校验住在数据里，不埋在实现里
+
+`company.md` 的 `policy:` 段可以逐条改规则的处置档：
+
+```yaml
+policy:
+  member.feishu.open_id.format: off      # 平台是可变层，格式不该拦人
+  role.allowed_tools.empty: fatal        # 这个客户要求更严
+```
+
+- 三档：`fatal` 拦落盘 / `warn` 照走但回显 / `off` 不报。默认档只有一条判据 ——
+  **拦不可逆的**（bot 下线、对外答错、覆盖人的手写文件）；可逆的小事只告警。
+- 标 `[红线]` 的不许降级（SPEC §6-5 无例外红线、§171 生产事故）。
+- 规则 id 拼错、级别值非法 → 直接拦：拼错等于「你以为关了其实没关」。
+- 全表随时可查：`anc org check <vault> --rules`。
+- 非红档发现**必须回显**（`anc render` / `anc org check` 都会打），门禁不许静默。
+
+### 验证到了哪一步（别把「一致」当成「已验证」）
+
+- `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
+  **抓不到渲染器自己的 bug**，也**不代表 gateway 已经吃下这份配置**。
+- 真实拉起 + 功能探针（kickstart + 90s 窗口）在阶段 B 的服务单元里落地。
+- 测试三层（`go test ./...`）：性质测试（确定性 / 往返读回 / 时间只影响指纹头）、
+  负面断言（**只断规则 id，不断文案**）、一个结构快照 `testdata/golden/one.snapshot`（`-update` 重写）。
+  不存全文 golden —— 它的失败模式是「改一个字就红」，然后人就会习惯性 `-update`，测试就死了。
+
 ## 构建
 
 ```powershell
@@ -71,8 +117,13 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 
 | 路径 | 说明 |
 |---|---|
-| `DESIGN.md` | 运行层落地设计 v0.1（草案，未实现；含 4 条待拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `version`） |
+| `DESIGN.md` | 运行层落地设计 v0.1（草案；含 4 条待拍板） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `org check` / `version`） |
+| `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
+| `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、规则表（`rules.go`） |
+| `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读 |
+| `testdata/orgs/` | 校验正/负例 vault（one / six / disabled / broken-validate / broken-section） |
+| `testdata/golden/` | 结构快照（只锁语义） |
 | `templates/` | 客户库模板，**纯文件，现场可直接改** |
 | `inventory/assets.md` | 已有资产台账 |
 | `build.ps1` | 本机编译 + 交叉编译 + 打包 |
