@@ -2,7 +2,7 @@
 
 > 本文是 `../SPEC.md` 的**工程派生视图**：SPEC 管口径，本文管「口径怎么落到一台客户机器上」。冲突一律以 SPEC 为准；实现过程中若被迫改口径，先改 SPEC，再回来改本文。
 >
-> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、**我们自己那套**服务单元（systemd / launchd / schtasks 一个都没装过 —— D4 之后常驻交给上游 daemon，装载走 `anc apply`；上游那份 Windows 计划任务已实测装载成功）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。**`anc trail` 的判断层已落地**（2026-10-07：判据是**数据**不是代码，`--rules` 可整份替换、不用重编译；只出结论不设门禁，每条结论都带来源与证据，见 §7.1.7）。**`anc apply` 已落地（Windows 腿，2026-10-07）**：一条命令走完七步 —— 校验 org → 渲染（与 `anc render` 同一套门禁：同一份 `commitConfig`）→ 凭据体检 → `cc-connect daemon install --no-capture-secrets --force` → 凭据桥 → `restart --force` → 回读（platform ready + 只读探针）；沙箱真跑通（`platform ready 1/1`、探针绿、任务定义里既无键名也无密钥值、重跑幂等），dry-run 与真装载各一次，见 §7.1.8。**仍未实测**：Linux / macOS 腿的凭据注入（各自方式不同，未实现即报错，不假装成功）、登录自启（上游写的是 `-AtLogOn`，要注销 / 重启才验得到）。**`anc doctor` 多了一组「断电兜底」只读自检**（Linux 三条前提 / Windows 触发器 + 电源条件；真机实测，见 §7.1.11）。**看板三分区接齐了**（2026-10-08：运行态 = 防假绿探针、数据流 = 策略面 + 执行面事实、原料 = 数据目录清单；**事件面与沉淀层仍未实现**，页内如实列缺 —— 见 `README.md` 看板一节）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
+> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、**我们自己那套**服务单元（systemd / launchd / schtasks 一个都没装过 —— D4 之后常驻交给上游 daemon，装载走 `anc apply`；上游那份 Windows 计划任务已实测装载成功）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。**`anc trail` 的判断层已落地**（2026-10-07：判据是**数据**不是代码，`--rules` 可整份替换、不用重编译；只出结论不设门禁，每条结论都带来源与证据，见 §7.1.7）。**`anc apply` 已落地（Windows 腿 2026-10-07；**Linux 腿 2026-10-08**）**：一条命令走完七步 —— 校验 org → 渲染（与 `anc render` 同一套门禁：同一份 `commitConfig`）→ 凭据体检 → `cc-connect daemon install --no-capture-secrets --force` → 凭据桥 → `restart --force` → 回读（platform ready + 只读探针）；沙箱真跑通（`platform ready 1/1`、探针绿、任务定义里既无键名也无密钥值、重跑幂等），dry-run 与真装载各一次，见 §7.1.8。**仍未实测**：**macOS 腿的凭据注入**（零实现）；Windows 腿的**登录自启**（上游任务写的是 `-AtLogOn`，要注销 / 重启才验得到 —— 归 #42）。Linux 腿的凭据注入与「重启 / 断电后自己起来」都已实测（§7.1.10 / §7.1.11）。**`anc doctor` 多了一组「断电兜底」只读自检**（Linux 三条前提 / Windows 触发器 + 电源条件；真机实测，见 §7.1.11）。**看板三分区接齐了**（2026-10-08：运行态 = 防假绿探针、数据流 = 策略面 + 执行面事实、原料 = 数据目录清单；**事件面与沉淀层仍未实现**，页内如实列缺 —— 见 `README.md` 看板一节）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
 >
 > **语言交代：Go**（复用 `anc` 单 exe，新增 `bootstrap` / `render` / `service` / `serve`）。理由：同一份源码跨 macOS / Windows / Linux，常驻进程不许自带运行时，装配器已经是 Go。代价：现场改**逻辑**要重编（约 10 秒）；对应缓解是 persona、模板、业务规则全部外置成纯文件，改这些不用重编译。
 
@@ -599,16 +599,23 @@ Linux 腿反过来：上游按 euid 落单元（root → `/etc/systemd/system/cc
 | 幂等 | 重跑 `--apply`，比对 drop-in SHA256 | `0970b11a…` 不变，`fp 1104018a058f` 不变 |
 | 端到端 | 日志里数 `platform ready` | `platform ready 3/3` + `engine started … agent=claudecode` |
 | 探针 | `anc probe <vault>` | 三个 project 都是 🟡「没观测到任何会话」—— 没发消息就不许报绿 |
+ 探针的退出码口径：**不是全绿就 `exit 1`**（`probe.go:108` 的 `rep.AllGreen()`）—— 于是刚装好、还没人
+发过消息的机器上 `anc probe` **必然返回 1**（三个 🟡）。这是「不许报绿」的直接后果，**别把它当
+健康门禁串进 `&&`**：`anc apply` 第 7 步就是因此只回显、不采信它的退出码。
 
-**一处如实记**：VM 的 NAT 出不去飞书（`open.feishu.cn` 连接被 reset），日志里有
-`feishu: failed to get bot open_id … connection reset by peer`。**不影响本轮结论** ——
-`platform ready` 判的是 gateway 自己起没起来，它照常报了 ready；回消息那条路要等出网通了才验得到。
+**一处已更正（2026-10-08 复测）**：曾记「VM 的 NAT 出不去飞书（`open.feishu.cn` 连接被 reset）」——
+那是**当时主机侧透明代理那一分钟的状态**，不是这台沙箱的固有属性。取证：日志里 `connection reset by peer`
+只出现在 2026-10-07T17:40Z 前后（对端是 fake-IP `198.18.0.75:443`，Clash 类代理的特征段）；此后同一条
+出网路径拿到的是**真飞书响应** —— `curl -X POST https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal`
+→ `{"code":10003,"msg":"invalid param"}`（HTTP 200，真服务端 JSON），cc-connect 自己的日志也从传输错误
+变成服务端错误（`1000040346: app_id is invalid`、`msg:invalid param,code:10003`）。结论：**Linux 腿「真回话」
+只缺一个真 app_id，不缺出网。** `platform ready` 判的仍是 gateway 自己起没起来。
 
 **没做（明确标出）**：
 
 - **macOS 腿**：零覆盖（议题 #23）。
 - **登录自启**：本条当时只验了「现在这一次拉起」；「重启 / 断电后自己起来」后来补验了，见 §7.1.11。
-- **真回话**：探针停在 🟡，需要一条能出网的网 + 真实飞书应用。
+- **真回话**：探针停在 🟡，缺的是**一个真实飞书应用**（出网已复测通过，见上）。
 
 ### 7.1.11 断电 / 重启之后，谁把它拉回来（2026-10-08，Linux 腿三层实测）
 
@@ -632,6 +639,12 @@ Linux 腿反过来：上游按 euid 落单元（root → `/etc/systemd/system/cc
 **为什么它起得来**：上游单元是 `WantedBy=default.target` 且已 `enable`，加上 `loginctl` 的 `Linger=yes`
 —— 用户级 systemd 管理器在开机时就起，不等人登录。**三条缺一条都不成立**，
 所以这三条都得在（该由 `anc doctor` 查，归 #17）。
+
+**2026-10-08 复验（换了 HEAD 的装载体再走一遍）**：把 HEAD 的 `anc_linux_amd64` 落到客机后，
+`anc apply --apply` 全 7 步真做成功（退出码 0、`platform ready 3/3`、探针三个 🟡）。**关键是第 4 步
+`daemon install --force` 会把单元整份重写成上游自己那份** —— 重写之后 `is-enabled=enabled`、
+`Linger=yes` 都还在，`systemctl reboot` 后服务再自己起来（新 `MainPID`、`NRestarts=0`、无人登录）。
+幂等：紧接着第二次 `--apply` 同样 exit 0、`fp 1104018a058f` 不变、`MainPID` 又换了一个、ready 仍 3/3。
 
 **一处如实记（客机时钟）**：这台 VM 的 RTC 存的是**本地时间**，而系统声明 `RTC in local TZ: no`，
 于是每次开机内核先把系统时钟读快 8 小时，几十秒后才被 NTP 拉回（实测：daemon 就在那个偏窗里启动，
