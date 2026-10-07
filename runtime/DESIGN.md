@@ -187,7 +187,7 @@ anc doctor                   # 环境与网络自检（已实现）
 | `bootstrap` 的动作清单 | `--dry-run` 逐条核对后再真跑 | 实际动作与清单完全一致，没有清单外的系统改动 |
 | 会话回收与订阅额度 | 并发 N 个会话，观察额度、内存与回收 | 不触发上游限流；空闲进程被回收 |
 | Windows 计划任务装载 | 在目标机上 `anc apply --apply`（= 上游 `daemon install --no-capture-secrets --force`） | 任务出现在计划任务库里；`platform ready` 到齐；凭据不进任务定义 —— **已实测，见 §7.1.8** | 
-| Linux / macOS 腿的装载 | 在目标机上跑 `anc apply` | 凭据注入按平台落地（systemd `EnvironmentFile=` / launchd 包装脚本）—— **未实现，命令直接报错** |
+| Linux / macOS 腿的装载 | 在目标机上跑 `anc apply` | 凭据注入按平台落地（systemd `EnvironmentFile=` / launchd 包装脚本）—— **Linux 已实测，见 §7.1.10；macOS 未实现，命令直接报错** |
 | 登录自启（`-AtLogOn` / linger / launchd） | 注销或重启一次，不人工登录 GUI | 服务被拉起且凭据可用 —— **未实测** |
 | `anc trail` 在别的 harness 上 | 用 codex / hermes 各跑一轮，再 `anc trail` | 账能跟那个 harness 自己的成本记录对上（现在是 claude 专属解析） |
 
@@ -538,8 +538,8 @@ claude cost-state（harness 自己的账本）          in 146005  out 16486  cr
 
 **没做（明确标出）**：
 
-- **Linux / macOS 腿**：注入方式与 Windows 不同（systemd `EnvironmentFile=`、launchd 包装脚本）。
-  **未实现即报错**：`anc apply` 在非 Windows 上直接拒绝，不退化成「前四步做完、留个读不到凭据的 daemon」。
+- **macOS 腿**：launchd 包装脚本未实现（议题 #23）。**未实现即报错**：`anc apply` 在 macOS 上直接拒绝，
+  不退化成「前四步做完、留个读不到凭据的 daemon」。Linux 腿见 §7.1.10。
 - **登录自启**：上游写的是 `-AtLogOn`，要注销 / 重启才验得到；本轮只验了「现在这一次拉起」。
 - **ACL**：`~/.cc-connect` 整棵树与 `~/.anc` 其余部分仍是默认继承（归议题 #4；`secrets.env` 已收紧）。
 ### 7.1.9 退役记录：`anc service`（2026-10-07）
@@ -563,6 +563,53 @@ claude cost-state（harness 自己的账本）          in 146005  out 16486  cr
 **顺带得到的判据**：常驻这件事上游已经做完了（`cc-connect daemon`），我们自研的那一套
 除了多一个失败面没有任何增量 —— **能不自研就不自研**；同理，「一个 bot 一套进程」在
 上游「一个 daemon 管全部 project」的现实下本来就不成立。
+### 7.1.10 装载：Linux 腿（2026-10-08，Ubuntu 24.04 / systemd 255，真 VM 真跑）
+
+**沙箱**：VMware Workstation 里的 Ubuntu 24.04 cloud image —— `pid1=systemd`、`systemctl is-system-running=running`、
+用户级 `systemctl --user` 也是 running、linger 已开。WSL 不行：没有 systemd 就没有 `systemctl --user`，
+而 `daemon install` 在 Linux 上只走 systemd，没有用户会话它会直接拒绝。
+
+**机制：我们自己的 drop-in，不碰上游的单元文件。**
+Windows 腿接管的是**上游生成**的 `cc-connect-daemon.ps1`（所以要维护边界 + 指纹 + 「被重装冲掉看得出来」）。
+Linux 腿反过来：上游按 euid 落单元（root → `/etc/systemd/system/cc-connect.service`，
+非 root → `~/.config/systemd/user/cc-connect.service`），`daemon install --force` 每次把它整份重写回自己那份；
+而 systemd 的 drop-in（`<单元名>.d/anc-secrets.conf`）是**我们完全拥有**的文件，上游不碰它 ——
+天然幂等，也不用去解析别人的文件。装载时只去这两个位置里**找**真落点（不猜），找不到就明说试过哪些。
+
+**两个真 bug（都是实测抓出来的，别再踩）**：
+
+1. **systemd 的 `EnvironmentFile=` 不给去引号。** 写成 `EnvironmentFile="…"` → systemd 报
+   `EnvironmentFile= path is not absolute, ignoring: "/home/anc/.anc/secrets.env"`，整条被忽略，
+   daemon 起来后报「引用了没定义的环境变量」。修：**不加引号**，且路径不能带空白（测试里加了「不许有引号」的断言）。
+2. **上游 `daemon restart` 不认新写的 drop-in，必须我们自己 reload。** 实测：写完 drop-in 后
+   `systemctl --user show cc-connect -p EnvironmentFiles` 是空的，跑一次 `systemctl --user daemon-reload`
+   之后才出现 `/home/anc/.anc/secrets.env (ignore_errors=no)`。修：`bridgeLinux` 写完文件自己 reload 并回显。
+
+**这两条正好解释「引擎绿但起不来」**：不 reload 或带引号 → daemon 起来了却报
+`config: env var placeholder references unset variable`，而表面上 `platform ready` 还在。
+
+**实测（真跑，逐条可复现）**：
+
+| 验的 | 怎么验 | 结果 |
+|---|---|---|
+| 装得上 | `anc apply <vault> --apply` | 第 4 步 `cc-connect daemon installed and started. Platform: systemd (user)` |
+| **systemd 真认这份 drop-in** | `systemctl --user show cc-connect -p EnvironmentFiles` | `EnvironmentFiles=/home/anc/.anc/secrets.env (ignore_errors=no)`（reload 之前为空） |
+| **凭据真进了进程环境** | `/proc/<MainPID>/environ` 里数键名 | `ANC_FEISHU_SECRET_{ALICE,BOB,DEVBOT}` 三个都在（只报键名，不打印值） |
+| **凭据不进单元文件** | 在 `~/.config/systemd/user/` 下 grep 键名与密钥值 | 空 —— 单元与 drop-in 里没有任何明文密钥 |
+| 幂等 | 重跑 `--apply`，比对 drop-in SHA256 | `0970b11a…` 不变，`fp 1104018a058f` 不变 |
+| 端到端 | 日志里数 `platform ready` | `platform ready 3/3` + `engine started … agent=claudecode` |
+| 探针 | `anc probe <vault>` | 三个 project 都是 🟡「没观测到任何会话」—— 没发消息就不许报绿 |
+
+**一处如实记**：VM 的 NAT 出不去飞书（`open.feishu.cn` 连接被 reset），日志里有
+`feishu: failed to get bot open_id … connection reset by peer`。**不影响本轮结论** ——
+`platform ready` 判的是 gateway 自己起没起来，它照常报了 ready；回消息那条路要等出网通了才验得到。
+
+**没做（明确标出）**：
+
+- **macOS 腿**：零覆盖（议题 #23）。
+- **登录自启**：linger 已开，但「注销 / 重启后自己起来」本轮没验 —— 只验了「现在这一次拉起」。
+- **真回话**：探针停在 🟡，需要一条能出网的网 + 真实飞书应用。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
