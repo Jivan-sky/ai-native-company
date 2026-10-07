@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -267,25 +268,22 @@ func printRuleTable(o *org.Org) {
 	}
 }
 
-// printIssues 回显非红档发现。门禁不许静默：不拦的，必须让人看见。
-func printIssues(list []org.Issue) {
+// printIssues 回显非红档发现（走 stdout）。
+func printIssues(list []org.Issue) { printIssuesTo(os.Stdout, list) }
+
+// printIssuesTo 回显非红档发现。门禁不许静默：不拦的，必须让人看见。
+// 带 writer 是因为 `org export` 的 stdout 必须是纯 JSON —— 提示只能走 stderr。
+func printIssuesTo(w io.Writer, list []org.Issue) {
 	if len(list) == 0 {
 		return
 	}
-	fmt.Printf("\n⚠️  非红档发现 %d 条（不拦，但请过目）\n", len(list))
+	fmt.Fprintf(w, "\n⚠️  非红档发现 %d 条（不拦，但请过目）\n", len(list))
 	for _, i := range list {
-		fmt.Printf("  - %s\n", i.String())
+		fmt.Fprintf(w, "  - %s\n", i.String())
 	}
 }
 
-func roleNames(o *org.Org) []string {
-	out := make([]string, 0, len(o.Roles))
-	for k := range o.Roles {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
+func roleNames(o *org.Org) []string { return o.RoleKeys() }
 
 func routingDirs(o *org.Org) string {
 	if len(o.Routing) == 0 {

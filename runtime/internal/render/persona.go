@@ -240,7 +240,7 @@ func domainSection(o *org.Org, m org.Member) string {
 		}
 		rows++
 		fmt.Fprintf(&b, "\n| %s | %s | %s | %s | %s |",
-			d.Slug, cell(d.Name), cell(d.What), cell(d.Data), whoLabel(o, d.Who))
+			d.Slug, cell(d.Name), cell(d.What), cell(d.Data), o.WhoLabel(d.Who))
 		if s := strings.Join(nonEmpty(d.Terms, d.Sources), "；"); s != "" {
 			notes = append(notes, "- "+d.Slug+"："+cell(s))
 		}
@@ -259,43 +259,12 @@ func domainSection(o *org.Org, m org.Member) string {
 			continue
 		}
 		other++
-		fmt.Fprintf(&b, "\n| %s | %s | %s | %s |", d.Slug, cell(d.Name), cell(d.What), whoLabel(o, d.Who))
+		fmt.Fprintf(&b, "\n| %s | %s | %s | %s |", d.Slug, cell(d.Name), cell(d.What), o.WhoLabel(d.Who))
 	}
 	if other == 0 {
 		b.WriteString("\n| — | 暂无其他域 | — | — |")
 	}
 	return b.String()
-}
-
-// whoLabel 把 who 里的岗位解成「岗位（人名）」。
-// 岗位稳定、人易变，所以表里只维护岗位，人名在渲染时从 members/ 现算 ——
-// 看板与 persona 因此不会各存一份名单，也就不会互相漂移。
-func whoLabel(o *org.Org, role string) string {
-	title := ""
-	if r, ok := o.Roles[role]; ok {
-		title = strings.TrimSpace(r.Title)
-	}
-	if title == "" {
-		title = strings.TrimSpace(role)
-	}
-	if title == "" {
-		return "—"
-	}
-	var names []string
-	for _, mem := range o.Enabled() {
-		if mem.Role != role {
-			continue
-		}
-		if n := strings.TrimSpace(mem.DisplayName); n != "" {
-			names = append(names, n)
-		} else {
-			names = append(names, mem.Name)
-		}
-	}
-	if len(names) == 0 {
-		return title + "（暂无人）"
-	}
-	return title + "（" + strings.Join(names, "、") + "）"
 }
 
 // cell 是表单元的渲染：空值给「—」；竖线与换行会拆歪表格，就地压平。

@@ -481,6 +481,10 @@ func sortedKeys(m map[string]Role) []string {
 	return out
 }
 
+// RoleKeys 是全部角色 id（已排序）。渲染、看板、报错文案共用这一处 ——
+// 免得每多一个消费面，就多一份「怎么排序」的小抄。
+func (o *Org) RoleKeys() []string { return sortedKeys(o.Roles) }
+
 func readDoc(path string) (*Doc, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

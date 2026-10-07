@@ -227,14 +227,7 @@ func (o *Org) validateDomains(p *Policy, rep *Report) {
 }
 
 // roleNames / routingDirs 给报错文案用（排序，保证同输入同输出）。
-func (o *Org) roleNames() []string {
-	out := make([]string, 0, len(o.Roles))
-	for k := range o.Roles {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
+func (o *Org) roleNames() []string { return o.RoleKeys() }
 
 func (o *Org) routingDirs() []string {
 	out := make([]string, 0, len(o.Routing))
@@ -243,4 +236,33 @@ func (o *Org) routingDirs() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// WhoLabel 把域表 who（以及立项书 owner / members）里的**岗位**解成「岗位（人名）」。
+//
+// 表里只维护岗位，人名在渲染时从 members/ 现算 —— persona 与看板拿的是同一份派生结果，
+// 所以两处都不会各存一份名单，也就不会互相漂移（SPEC §3.5 一处维护）。
+func (o *Org) WhoLabel(role string) string {
+	title := strings.TrimSpace(role)
+	if r, ok := o.Roles[role]; ok && strings.TrimSpace(r.Title) != "" {
+		title = strings.TrimSpace(r.Title)
+	}
+	if title == "" {
+		return "—"
+	}
+	var names []string
+	for _, m := range o.Enabled() {
+		if m.Role != role {
+			continue
+		}
+		if n := strings.TrimSpace(m.DisplayName); n != "" {
+			names = append(names, n)
+		} else {
+			names = append(names, m.Name)
+		}
+	}
+	if len(names) == 0 {
+		return title + "（暂无人）"
+	}
+	return title + "（" + strings.Join(names, "、") + "）"
 }
