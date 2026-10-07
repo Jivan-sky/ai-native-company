@@ -31,9 +31,9 @@ anc render ./climax-vault --apply
 # 6. 起只读看板（本地；前端已嵌在二进制里 —— 不需要 node、不需要外网）
 anc board serve ./climax-vault          # http://127.0.0.1:8787
 
-# 7. 服务单元：默认只打印，--apply 才真落盘；install 再加 --apply 才真装载
-anc service render --org ./climax-vault --bot alice --goos darwin
-anc service status --org ./climax-vault --bot alice
+# 7. 装载：渲染 + 校验 + 装上游 daemon + 凭据桥 + 重启 + 回读（默认 dry-run，--apply 才真做）
+anc apply ./climax-vault
+anc apply ./climax-vault --apply
 ```
 
 `--tier` 就是九宫格判层：`1` 降本增效型（约 30 人，要省钱）/ `2` 进步型（约 200 人，要进步）/ `3` 战略型（国央企，要战略变革）。**答错层＝后面全错。**
@@ -240,7 +240,41 @@ anc board serve <vault> [--addr 127.0.0.1:8787]
   **仍未验证**：真机观感（字体、毛玻璃、你的屏宽下的折行）—— 自己跑一次
   `anc board serve <vault>` 打开看才算数。
 
-## 服务单元（`anc service`）
+## 装载（`anc apply`）
+
+一条命令把 org 变成**一台机器上真在跑的东西**。默认 dry-run，`--apply` 才真做。
+
+```powershell
+anc apply ./climax-vault                    # 打印这七步要看的东西，什么都不动
+anc apply ./climax-vault --apply            # 真做
+```
+
+七步，顺序固定，失败即停：
+
+| # | 这一步 | 做什么 |
+|---|---|---|
+| 1 | 校验 | org 真相源；红档即停（一个文件都不用动） |
+| 2 | 渲染 | 与 `anc render` **同一份实现**（同一条 `commitConfig`、同一套门禁 `--adopt` / `--allow-scale`） |
+| 3 | 体检 | 产物引用的 `${ENV}`，`~/.anc/secrets.env` 里齐不齐（缺键 = 装载前就停） |
+| 4 | 装载 | `cc-connect daemon install --config <cfg> --no-capture-secrets --force` |
+| 5 | 凭据桥 | 把 `secrets.env` 读进 daemon 的进程环境（上游没有 dotenv，这一步不能省） |
+| 6 | 重启 | `cc-connect daemon restart --force` |
+| 7 | 回读 | 日志里 `platform ready` 到齐没有 + 只读探针（探针只回显，不参与退出码） |
+
+**为什么第 5 步必须存在**：上游 `${ENV}` 只从**进程环境**解析（实测 v1.3.4 没有 dotenv），
+而 `daemon install` 默认会把 `${ENV}` **捕获成明文**写进服务文件 —— 所以装载必须带
+`--no-capture-secrets`，凭据只能靠这一步在拉起 gateway 之前注入。
+注入的是**上游生成**的装载体（Windows 上是 `~/.cc-connect/cc-connect-daemon.ps1`），
+托管区带边界标记与指纹：幂等、且能一眼看出「被上游重装冲掉了」。
+
+**平台**：目前只落了 Windows 腿。Linux / macOS 的注入方式不同（systemd `EnvironmentFile=` /
+launchd 包装脚本），**未实现即报错** —— 不许「装一半、留个读不到凭据的 daemon」。
+
+## 服务单元（`anc service`）—— 已被 D4 取代
+
+> 这一节讲的是阶段 B 的产物：一个 bot 一套用户级服务单元，跑 `anc serve --bot`。
+> **D4 已把 `serve` 降级为 `apply`、且 serve 永不存在**，所以这份单元装上去只会反复退出。
+> 常驻交给上游 `cc-connect daemon`，装载走 `anc apply`（上一节）。
 
 一个 bot 一套**用户级**服务定义 —— macOS LaunchAgent / systemd --user / Windows 登录时计划任务。
 不写系统级 daemon、不需要管理员权限；**要哪个账号跑，就以哪个账号执行 install**，
@@ -314,12 +348,14 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/board/ui/` | 看板前端**产物**（手写 `index.html` + 构建出的 `app.js`）；`go:embed` 进二进制 |
 | `boardui/` | 看板前端**源码**（TS + esbuild；`npm run build` 出到 `internal/board/ui/`） |
 | `boardserve.go` | `anc board serve` 的 CLI（默认只绑本机、优雅退出） |
-| `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元） |
+| `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
+| `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元；**与 D4 冲突，待退役**） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
-| `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读 |
-| `internal/service/` | 纯函数生成三平台服务单元 + 指纹 + `~/` 展开 |
+| `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读、`${ENV}` 引用提取（装载前体检用） |
+| `internal/apply/` | 装载的纯逻辑：secrets.env 解析 / 缺键判定 + 上游装载体的托管区注入（幂等、带指纹） |
+| `internal/service/` | 纯函数生成三平台服务单元 + 指纹 + `~/` 展开（**与 D4 冲突，待退役**） |
 | `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |
 | `testdata/orgs/` | 校验正/负例 vault（one / six / disabled / broken-validate / broken-section） |
 | `testdata/golden/` | 结构快照（只锁语义） |

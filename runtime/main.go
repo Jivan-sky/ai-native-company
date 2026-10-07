@@ -96,6 +96,8 @@ func main() {
 		os.Exit(cmdAssets(args))
 	case "render":
 		os.Exit(cmdRender(args))
+	case "apply":
+		os.Exit(cmdApply(args))
 	case "probe":
 		os.Exit(cmdProbe(args))
 	case "notify":
@@ -148,6 +150,7 @@ func usage() {
   anc board serve <vault> [--addr 127.0.0.1:8787]
                                     起只读看板（前端已嵌在二进制里；默认只绑本机）
    anc render <vault> [选项]         渲染 gateway config（默认 dry-run）
+   anc apply <vault> [选项]          渲染 → 装载上游 daemon → 凭据桥 → 回读（默认 dry-run）
    anc probe <vault> [选项]          运行态探针：每个 bot 到底能不能回话（只读，不烧 token）
    anc notify <vault> [选项]         把报红推到负责人面前（默认 dry-run，--send 才真发）
    anc trail <vault> [选项]          只读聚合：谁问了什么、agent 干了什么、花了多少

@@ -2,7 +2,7 @@
 
 > 本文是 `../SPEC.md` 的**工程派生视图**：SPEC 管口径，本文管「口径怎么落到一台客户机器上」。冲突一律以 SPEC 为准；实现过程中若被迫改口径，先改 SPEC，再回来改本文。
 >
-> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、服务单元（systemd / launchd / schtasks 一个都没装过）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。**`anc trail` 的判断层已落地**（2026-10-07：判据是**数据**不是代码，`--rules` 可整份替换、不用重编译；只出结论不设门禁，每条结论都带来源与证据，见 §7.1.7）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
+> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、**我们自己那套**服务单元（systemd / launchd / schtasks 一个都没装过 —— D4 之后常驻交给上游 daemon，装载走 `anc apply`；上游那份 Windows 计划任务已实测装载成功）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。**`anc trail` 的判断层已落地**（2026-10-07：判据是**数据**不是代码，`--rules` 可整份替换、不用重编译；只出结论不设门禁，每条结论都带来源与证据，见 §7.1.7）。**`anc apply` 已落地（Windows 腿，2026-10-07）**：一条命令走完七步 —— 校验 org → 渲染（与 `anc render` 同一套门禁：同一份 `commitConfig`）→ 凭据体检 → `cc-connect daemon install --no-capture-secrets --force` → 凭据桥 → `restart --force` → 回读（platform ready + 只读探针）；沙箱真跑通（`platform ready 1/1`、探针绿、任务定义里既无键名也无密钥值、重跑幂等），dry-run 与真装载各一次，见 §7.1.8。**仍未实测**：Linux / macOS 腿的凭据注入（各自方式不同，未实现即报错，不假装成功）、登录自启（上游写的是 `-AtLogOn`，要注销 / 重启才验得到）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
 >
 > **语言交代：Go**（复用 `anc` 单 exe，新增 `bootstrap` / `render` / `service` / `serve`）。理由：同一份源码跨 macOS / Windows / Linux，常驻进程不许自带运行时，装配器已经是 Go。代价：现场改**逻辑**要重编（约 10 秒）；对应缓解是 persona、模板、业务规则全部外置成纯文件，改这些不用重编译。
 
@@ -34,6 +34,14 @@
   （`company.md` 的 `defaults.reset_on_idle_mins`），**不再是代码里的字面量**
   —— 这一行原本写死成 30、没有任何拍板依据，而且客户改不了（见议题 #41）。
   D3 的其余部分（单轮 / 多轮 / 混合）**仍未拍板**。
+- **`company.devbot.count` 出厂档（2026-10-07 拍板）**：**保持 fatal、不改代码**。
+  理由：SPEC §1 那条是红线，而「首跑只服务一个 bot」这个现场问题**已经有现成的数据出口** ——
+  `company.md` 的 `policy:` 段一行（`company.devbot.count = warn`）就能降档。沙箱实测：`anc org check`
+  打印「规则覆盖 company.devbot.count」+「⚠️ 非红档发现 1 条」，退出码 0。
+  不给它开实现里的特例：门禁要留一条能一键降级的数据出口，而不是逐个在代码里放行。
+- **阶段 C 的装载（2026-10-07 落地）**：`anc serve` **不写** —— 装载 = 上游 daemon（见 D4）。
+  一条 `anc apply`：渲染 → 校验 → `cc-connect daemon install --no-capture-secrets --force`
+  → 凭据桥（把 secrets.env 读进 daemon 进程环境）→ `restart --force` → 回读。实测见 §7.1.8。
 - **D1 / D2 与 D3 的其余部分**：**仍未拍板**。
 - **域表（罗盘）落点**（2026-10-07 拍板）：一条业务域 = `domains.md` 里一行；
   `slug`（ASCII）/ `name`（中文）分列，`who` **填岗位**、人名渲染时从 `members/` 现算，
@@ -49,7 +57,8 @@
 
 | 进程 | 生命周期 | 职责 | 不做什么 |
 |---|---|---|---|
-| `anc serve --bot <id>` | **常驻**（服务管理器拉起） | IM 长连接、消息路由、会话调度、健康探针、**单一出口** | **不跑 agent loop**、不解析业务规则（规则在数据里，见 §3） |
+| `cc-connect daemon`（上游，**常驻**） | **常驻**（Windows 计划任务 / systemd --user / launchd） | IM 长连接、消息路由、会话调度、**单一出口** | **不跑 agent loop**、不解析业务规则（规则在数据里，见 §3） |
+| `anc apply`（我们，**一次**） | 按需执行，装完即退 | 渲染 + 校验 + 装载 `cc-connect daemon` + 凭据桥 + 重启 + 回读 | 不做常驻、不跑 agent loop、不自己实现长连接（D4） |
 | harness 进程（官方 CLI） | **按需拉起**，一次问答一个进程 | 真正的推理与工具调用 | 不持有跨会话状态；不直接对外发消息（回给 serve） |
 | `ingest`（服务 Bot） | 常驻 | 把 IM 附件 / 工单 / 邮件里的原件落 `_originals/`（只追加） | 不改写原件、不外发 |
 | `watchdog`（服务 Bot） | 常驻 | 跨 bot 健康交叉 + 告警外发 | 不碰业务数据 |
@@ -59,10 +68,10 @@
 
 **拉起方式（一个实现，三套模板）**：`anc service install/status/uninstall` 生成并向当前账号装载服务定义 —— macOS `launchd` LaunchAgent、Linux `systemd --user`、Windows 计划任务（登录时触发）。这是**用户级**服务，不写系统级 daemon。
 
-> **已实现（阶段 B）**：`anc service render / status / install / uninstall`，三平台单元由纯函数生成（`internal/service/`）。
-> 单元里**不写账号** —— 用户级服务「谁装就是谁」，所以 D1 没拍板也能先跑；Windows 计划任务的 `UserId` 由 `--account` 给。
-> 装卸两类动作默认只打印，`--apply` 才真做；单元同样带 `anc:generated` 指纹，他源文件拒绝覆盖。
-> **仍未实现**：`anc serve` 本身（阶段 C/D），所以现在装载只会得到反复退出的服务 —— 命令会自己把这句话打出来。
+> **装载已实现（阶段 C，2026-10-07）**：`anc apply` —— 常驻交给上游 daemon（D4），我们**不写** `serve`。
+> 上面表里 `cc-connect daemon` 那一行就是它；实测证据见 §7.1.8。
+> **与阶段 B 的冲突**：`anc service render / status / install / uninstall` 生成的单元跑的是 `anc serve --bot`，
+> 而 serve 永不存在（D4）—— 装载它会得到一个反复退出的服务。处置见 §7.1.9。
 
 ---
 
@@ -153,9 +162,9 @@
 ```
 anc bootstrap --dry-run      # 打印将要建什么，人核对
 anc bootstrap                # 建账号 / 目录 / 只读挂载 / 本体（需管理员）
-anc init <客户库> ...         # 已实现并实测通过
-anc render                   # 生成 persona / 路由表 / 权限声明
-anc service install          # 装载用户级服务
+anc org init <客户库> ...     # 已实现并实测通过
+anc render --apply           # org → gateway config（落盘；persona / 路由表 / 权限声明都在这一份里）
+anc apply                    # 渲染 + 校验 + 装载上游 daemon + 凭据桥 + 重启 + 回读（一条命令，幂等）
 anc doctor                   # 环境与网络自检（已实现）
 →  给 bot 发第一条私聊，等回复  # 这才是「装好了」
 ```
@@ -497,6 +506,38 @@ claude cost-state（harness 自己的账本）          in 146005  out 16486  cr
 
 ---
 
+### 7.1.8 装载：`anc apply`（2026-10-07，Windows 腿，沙箱真跑）
+
+**一条命令七步**：校验 org → 渲染（与 `anc render` 共用同一份落盘实现与门禁）→ 凭据体检 →
+`cc-connect daemon install --no-capture-secrets --force` → 凭据桥 → `daemon restart --force` → 回读。
+
+**为什么「凭据桥」要单独一步**：上游 daemon 的装载体**没有 dotenv**（实测 v1.3.4 二进制里搜不到），
+`${ENV}` 只从**进程环境**解析；而 `daemon install` 默认会把 `${ENV}` **捕获成明文**写进服务文件。
+所以两头都必须在：装载带 `--no-capture-secrets`，拉起 gateway 之前把 `secrets.env` 读进进程环境。
+注入的是**上游生成的** `cc-connect-daemon.ps1`，因此托管区带边界标记与指纹，幂等可重入、被冲掉看得出来。
+
+**实测（沙箱 `anc-demo`，真跑）**：
+
+| 验的 | 怎么验 | 结果 |
+|---|---|---|
+| dry-run 不碰任何东西 | `anc apply <vault>` | 退出 0；`config.toml` 不存在、没跑任何 daemon 命令 |
+| 真装载 | `anc apply <vault> --apply` | `platform ready 1/1`、探针 🟢；装载体顶部出现托管区（`fp 720cbfde3d11`），上游原文逐字保留在下面 |
+| **凭据不进任务定义** | `Export-ScheduledTask -TaskName cc-connect` 的 XML 里找键名与密钥值 | 键名 → False，32 位密钥值 → False；任务动作只是一句 `powershell.exe -File <家目录>\.cc-connect\cc-connect-daemon.ps1` |
+| 幂等 | 重跑 `--apply`，比对装载体 SHA256 | 哈希不变、`platform ready 1/1` |
+| 缺键 = 停 | 凭据文件留空跑一次 | 退出 1，**在装载之前**就停（不装载一个必然起不来的 daemon，否则这台机器上原来在跑的 bot 会全部下线） |
+
+**一处如实记**：上游 `install --force` 每次都会把装载体整份重写回它自己那份，所以重跑在**文件层面**
+是「重写回原样 → 再放回托管区」。命令不把它说成「没动过」，而是说「重注（内容与上次一致）」。
+
+**踩到并修掉的一处**：`render.EnvRefs` 第一次跑就把产物头部注释里的 `${ENV}`（讲口径用的那句话）
+当成了真实的键名，于是体检报「缺键 ENV」。修法：**整行注释不算引用**。这是「先跑 dry-run」的价值。
+
+**没做（明确标出）**：
+
+- **Linux / macOS 腿**：注入方式与 Windows 不同（systemd `EnvironmentFile=`、launchd 包装脚本）。
+  **未实现即报错**：`anc apply` 在非 Windows 上直接拒绝，不退化成「前四步做完、留个读不到凭据的 daemon」。
+- **登录自启**：上游写的是 `-AtLogOn`，要注销 / 重启才验得到；本轮只验了「现在这一次拉起」。
+- **ACL**：`~/.cc-connect` 整棵树与 `~/.anc` 其余部分仍是默认继承（归议题 #4；`secrets.env` 已收紧）。
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
