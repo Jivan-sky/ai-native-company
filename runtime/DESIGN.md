@@ -200,6 +200,41 @@ INFO msg="cc-connect is running" projects=3
    要验 systemd 用户单元得先开 systemd（改本机 WSL 全局配置，属需授权动作），
    `launchd` 更需要真 mac。所以 §7 表里「服务单元被真正拉起」那行**依然没动过**。
 
+#### 7.1.2 服务单元：Linux 腿的离线校验（2026-10-07）—— 抓到一个硬 bug
+
+真装载还没做，但**单元文件能不能被 systemd 接受**这一层可以离线判：`systemd-analyze verify`
+（WSL2 Ubuntu 里的 systemd 259）。**不需要 systemd 当 PID 1**，只要以 root 跑一次
+—— WSL 默认没有 `/run/systemd/`，非 root 会 `Permission denied`。
+
+**当场抓到**：`anc service render --goos linux` 的产出一处**前缀重复**，单元根本装不上。
+
+```
+StandardOutput=append:append:<homes>/alice/state/serve.log
+StandardError=append:append:<homes>/alice/state/serve.err.log
+```
+
+systemd 的判定（修复前，原文）：
+
+```
+anc-alice.service:12: StandardOutput= path is not absolute: append:/home/<user>/.../state/serve.log
+anc-alice.service:13: StandardError= path is not absolute: append:/home/<user>/.../state/serve.err.log
+```
+
+成因：模板里写的是 `StandardOutput=append:%s`，传参时又拼了一次 `"append:"+path`。
+systemd 剥掉一个 `append:` 后，剩下的 `append:/...` 不是绝对路径 → 拒收。
+修复：模板去掉 `append:`（改为 `StandardOutput=%s`，前缀只由参数带）。
+**修复后 `systemd-analyze verify` 无输出（通过）。**
+
+这个 bug 从阶段 B 首次提交（`1a5d03e`）就在，`internal/service` 的测试**没覆盖这两行**，
+而且它从没在任何真 systemd 上跑过 —— 正是 N5「装上了 ≠ 跑起来了」的实例。
+
+**同批做掉的**：darwin 的 plist 与 windows 的 task XML 用 XML 解析器验证**良构**
+（Windows 侧，两份都 OK）。**注意这只证明「结构合法」，不证明「launchd / schtasks 接受」**
+—— 后者要真机。
+
+**仍未覆盖**：`systemctl --user enable --now` 真装载、linger、`launchctl load`、
+`schtasks /Create /XML`（要往本机任务库写东西，属需授权动作）、以及 `anc serve` 真跑（尚未实现）。
+
 ---
 
 ## 8. 与 SPEC 的映射
