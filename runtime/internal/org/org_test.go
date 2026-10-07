@@ -225,3 +225,57 @@ func TestUnknownSectionKeepsBody(t *testing.T) {
 		t.Fatalf("顺序或正文被改动：%+v", got)
 	}
 }
+
+// setDefaults 在 company.md 的 defaults: 段里插一行 —— 模拟「客户自己写这个键」。
+func setDefaults(t *testing.T, vault, line string) {
+	t.Helper()
+	path := filepath.Join(vault, "company", "company.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(b), "\r\n", "\n")
+	const anchor = "defaults:\n"
+	i := strings.Index(text, anchor)
+	if i < 0 {
+		t.Fatalf("%s 里找不到 defaults: 段", path)
+	}
+	out := text[:i+len(anchor)] + "  " + line + "\n" + text[i+len(anchor):]
+	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// 空闲重置（reset_on_idle_mins）：**0 = 关掉**，也是「没写」时的值。
+// 2026-10-07 拍板 —— 换新会话由人显式发 /new，不靠计时器替人猜。
+func TestResetOnIdleDefaultsToOff(t *testing.T) {
+	o, err := Load(fixture(t, "one"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Company.Defaults.ResetOnIdleMins != 0 {
+		t.Fatalf("没写这个键应当是 0（关掉），实际 %d", o.Company.Defaults.ResetOnIdleMins)
+	}
+}
+
+// 写了就照写 —— 定制落在数据里，改一行就够，不用改代码。
+func TestResetOnIdleFollowsData(t *testing.T) {
+	v := copyVault(t, "one")
+	setDefaults(t, v, "reset_on_idle_mins: 45")
+	o, err := Load(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.Company.Defaults.ResetOnIdleMins != 45 {
+		t.Fatalf("数据写 45，读到 %d", o.Company.Defaults.ResetOnIdleMins)
+	}
+}
+
+// 写负数要当场拦下：上游 cc-connect 的规矩是 reset_on_idle_mins >= 0，
+// 写负它**拒绝启动** = 该 bot 直接下线。所以给红档，不静默、也不悄悄改成 0。
+func TestResetOnIdleRejectsNegative(t *testing.T) {
+	v := copyVault(t, "one")
+	setDefaults(t, v, "reset_on_idle_mins: -5")
+	_, err := Load(v)
+	assertRule(t, err, "company.defaults.reset_on_idle.invalid")
+}

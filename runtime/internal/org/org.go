@@ -65,6 +65,9 @@ type Defaults struct {
 	Model                 string
 	Mode                  string
 	AutoCompressMaxTokens int
+	// ResetOnIdleMins 是「空闲超过多少分钟就换新会话」。**0 = 关掉**，也是「没写」时的值。
+	// 关掉是 2026-10-07 的拍板：换新会话由人**显式发 /new**，不靠计时器替人猜。
+	ResetOnIdleMins int
 }
 
 // FallbackProvider 是兜底 provider 声明（api_key 只允许 env 引用）。
@@ -200,6 +203,9 @@ func Load(root string) (*Org, error) {
 		return nil, err
 	}
 	if c.Defaults.AutoCompressMaxTokens, err = cd.Int("defaults.auto_compress_max_tokens"); err != nil {
+		return nil, err
+	}
+	if c.Defaults.ResetOnIdleMins, err = cd.Int("defaults.reset_on_idle_mins"); err != nil {
 		return nil, err
 	}
 	if cd.Has("fallback_provider.name") || cd.Has("fallback_provider.base_url") || cd.Has("fallback_provider.model") {
@@ -445,6 +451,12 @@ func (o *Org) Validate(p *Policy) *Report {
 	if o.Company.Defaults.Mode == "bypassPermissions" {
 		rep.Add(p.Issue("company.defaults.mode.bypass", companyFile,
 			"defaults.mode 不许是 bypassPermissions（SPEC §6-5，无豁免开关）"))
+	}
+	// 上游的规矩是 reset_on_idle_mins must be >= 0，写负它**拒绝启动** —— 那是「让在跑的 bot 下线」，
+	// 按 rules.go 的判据归红档（0 = 关掉空闲重置，是正当值）。
+	if o.Company.Defaults.ResetOnIdleMins < 0 {
+		rep.Add(p.Issue("company.defaults.reset_on_idle.invalid", companyFile,
+			"defaults.reset_on_idle_mins=%d 不能为负（0 = 关掉空闲重置）", o.Company.Defaults.ResetOnIdleMins))
 	}
 	// 这个值直接进 cc-connect 的 [display].mode；上游只认 full / compact / quiet，
 	// 写错它**拒绝启动** —— 不是「显示难看」，是全部 bot 下线，所以是红档。
