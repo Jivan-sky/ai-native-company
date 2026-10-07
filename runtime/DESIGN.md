@@ -280,6 +280,51 @@ level=INFO msg="turn complete" session=s1 tools=0 response_len=166 turn_duration
 **仍未覆盖**：多 bot 并发（本次只一个 project）；订阅制下 usage 的真伪（`input_tokens` 的来源未核）；
 bot 家目录与个人配置的隔离（#28）。
 
+#### 7.1.4 usage 的取数路径：读 harness 原生记录（2026-10-07）—— 三方对拍
+
+§4.6 承诺了 token 计量 / 成本分账，但一直没定「数从哪来」。查清了，结论是**读 harness 原生记录**。
+
+**先排掉三条不行的路**：内部 HTTP API（`data_dir/run/api.sock`）的 `GET /sessions` 只回
+`project` / `session_key` / `platform`，**没有 usage**；会话落盘 JSON（`data/sessions/*.json`）只有 `history`；
+cc-connect 的 `turn complete` 日志行**只打 `input_tokens` / `output_tokens`**，
+而 `core.Event` 上明明有 `CacheCreationInputTokens` / `CacheReadInputTokens`（`engine.go:5101` 没打）。
+回复页脚有全量（`<model> · out N · in N cw N cr N · ctx N%`），但它在 interactive card 里，解析脆弱。
+
+**日志这条可以用**：`CC_LOG_FILE` 把 slog 重定向到可轮转文件（实测落地）。但**轮转只留 `.1` 一个备份**，
+最旧的丢 —— 归集必须**持续消费**，不能事后翻。且格式是 TextHandler，**没有 JSON 选项**。
+
+**真正可用的是原生记录。** cc-connect 的 `agent_session` 就是 claude 的 session id，用它直接定位
+`~/.claude/projects/<slug>/<session>.jsonl`，逐轮抽 `message.usage`：
+
+| 轮 | 原生 `in` / `out` | 原生 `cache_read` | cc-connect 日志 |
+|---|---|---|---|
+| 1 | 42923 / 223 | 0 | `input_tokens=42923 output_tokens=223` **逐字一致** |
+| 2 | 203 / 2 | 43008 | `input_tokens=203 output_tokens=2`（cr 缺） |
+| 3 | 23194 / 88 | 27008 | 无 `turn complete` 行 |
+
+全天汇总（Agent=Claude）：原生逐轮相加 = `ccusage daily` = `66320 / 313 / 70016`，
+而 cc-connect 日志累加只有 `66320 / 313 / **0**`（字段不存在）。
+
+**三个结论**：
+
+1. **cc-connect 的 in/out 是转述不是估算** —— 与原生记录逐字一致。
+2. **原生记录字段最全**（in/out/cr/cw），连 `costUSD` 都有（见下）。
+3. **不必为 cw/cr 去 fork cc-connect，也不必抓页脚。**
+
+**代价（必须记住）**：这条路**绑死 claude 的存储格式**
+（`<HOME>/.claude/projects/<slug>/<session>.jsonl`、行式 JSON、`message.usage`），**不是稳定契约**
+—— 同一次就撞见 `cost-state` / `atis-latch` / `last-prompt` 这些未公开行类型。换 harness 就要换一套解析。
+
+**意外收获**：原生记录里有 `type: "cost-state"` 行，claude **自己算成本并按模型分账**：
+`totalCostUSD` + `modelUsage{ "<model>[<window>]": { inputTokens, outputTokens, cacheReadInputTokens,
+cacheCreationInputTokens, thinkingTokens, costUSD } }`，且**未知模型会标 `hasUnknownModelCost: true`**。
+「未知模型显式报无价格、不猜」这个口径**上游已经实现了**，照抄即可。
+**但**：本文件里 `cost-state` 只出现 1 条且只含第 1 轮，是**快照不是账本**，写盘时机**未验**。
+
+**参照实现**：本机装了 `ccusage`，一次认出 Claude / Codex / Hermes / OpenClaw / Qwen，
+覆盖 14 种 harness，把 cache create / cache read 单列，并对缺价格的模型打 WARN。
+**说明「每种 harness 写一个 adapter」不是天量工作**；用它当参照（或依赖）比自己从零写更划算。
+
 ---
 
 ## 8. 与 SPEC 的映射
