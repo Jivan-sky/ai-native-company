@@ -2,7 +2,7 @@
 
 > 本文是 `../SPEC.md` 的**工程派生视图**：SPEC 管口径，本文管「口径怎么落到一台客户机器上」。冲突一律以 SPEC 为准；实现过程中若被迫改口径，先改 SPEC，再回来改本文。
 >
-> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`（本机 Windows，`go build / vet / test` 全绿；目标配置已能生成、`--check` 能报漂移），以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7 与 `../docs/M1-DESIGN.md` §10.1）。**尚未实测**：服务单元、探针、会话与 agent 真交互（只验到「配置被接受、引擎起来了」，没验到「bot 真回话」）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
+> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**尚未实测**：**macOS 腿（零覆盖）**、服务单元（systemd / launchd / schtasks 一个都没装过）、探针、会话与 agent 真交互（只验到「配置被接受、引擎起来了」，没验到「bot 真回话」）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
 >
 > **语言交代：Go**（复用 `anc` 单 exe，新增 `bootstrap` / `render` / `service` / `serve`）。理由：同一份源码跨 macOS / Windows / Linux，常驻进程不许自带运行时，装配器已经是 Go。代价：现场改**逻辑**要重编（约 10 秒）；对应缓解是 persona、模板、业务规则全部外置成纯文件，改这些不用重编译。
 
@@ -144,7 +144,7 @@ anc doctor                   # 环境与网络自检（已实现）
 | systemd 无人值守常驻 | 目标机上开 linger 后退出登录 | 服务继续跑（未开 linger 时退出登录即停） |
 | 服务单元被真正拉起 | 目标机上 `anc service status` | 服务在跑；日志文件有内容；`serve` 已实现（阶段 C/D 之后才可能） |
 
-### 7.1 已实测（2026-10-07，本机 Windows，cc-connect v1.3.4 / commit 27c1de8f）
+### 7.1 已实测（2026-10-07，Windows + Linux 两腿，cc-connect v1.3.4 / commit 27c1de8f）
 
 **「gateway 是否接受这份配置」—— 已通过。** `anc org init` + `anc render --apply` 产出的三项目 config
 （alice / bob = `dontAsk`，devbot = `bypassPermissions`，`append_system_prompt` 为七段 persona 的 TOML
@@ -170,6 +170,35 @@ INFO msg="cc-connect is running" projects=3
 |---|---|---|
 | 渲染产物的字段名白名单 | 拿 1.3.4 的 `config.example.toml` 当 schema 语料，对我们产出的每个键断言「在样例里出现过」 | 键名全部命中；命中不了的要么补样例、要么删字段 |
 | 每次升级后的形态回归 | 升级 cc-connect 时先跑字段白名单，再跑一次烟测拉起 | 两项都过才允许换 pin |
+
+#### 7.1.1 跨平台对照（Linux 腿，WSL2 Ubuntu x86_64）
+
+同一份 `anc` 源码交叉编译出 linux/amd64（`GOOS=linux GOARCH=amd64 go build -trimpath`），
+配 cc-connect 的 `cc-connect-v1.3.4-linux-amd64` 发布件（SHA256 `86a8c00d…4c997`，
+`sha256sum -c` 通过），在 WSL2 Ubuntu 上重跑同一条链路。**结论与 Windows 一致：**
+
+```
+INFO msg="platform ready" project=smoke-alice platform=feishu
+INFO msg="engine started" project=smoke-alice agent=claudecode platforms=1
+…（smoke-bob / smoke-devbot 同形）
+INFO msg="api server started" socket=/home/<user>/anc-linux-smoke/data/run/api.sock
+INFO msg="cc-connect is running" projects=3
+```
+
+`org init` + `render --apply` 在 Linux 上直接产出 POSIX 路径（`work_dir = /home/<user>/…`、
+`data_dir = /home/<user>/…`），**没有 Windows 路径泄漏**；未定义 `${ENV}` 的行为与 Windows 逐字一致
+（三条 `WARN` → `config loaded` → `failed to create platform … app_id and app_secret are required`、exit 1）。
+`data_dir` 下同样长出 `agent-prompts/`（长 prompt 落文件那条路径在 Linux 也走通）、`crons/`、`timers/`、`run/`。
+
+三处必须记住的平台差异：
+
+1. **socket 形态不同** —— Windows 是文件路径，Linux 是**Unix domain socket**。探针/看门狗不许假定其中一种。
+2. **渲染路径是本机原生的** —— 我们只验过「在哪个 OS 渲染就给哪个 OS 的路径」；
+   **跨 OS 渲染（Windows 上渲染给 Linux 用）未验，也没设计**。发布流程（§3「运维机 render → 生产机 pull → 重渲染」）
+   靠的是生产机本地重渲染，所以这条路是安全的，但别想着把渲染产物跨 OS 搬运。
+3. **服务单元这一段仍是零覆盖** —— WSL2 默认 PID 1 是 `init(Ubuntu)`、`systemctl --user` 返回 `offline`，
+   要验 systemd 用户单元得先开 systemd（改本机 WSL 全局配置，属需授权动作），
+   `launchd` 更需要真 mac。所以 §7 表里「服务单元被真正拉起」那行**依然没动过**。
 
 ---
 
