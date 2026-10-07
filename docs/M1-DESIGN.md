@@ -353,6 +353,7 @@ TS 模板函数,三原型参数化:`{label, program_args, archetype: keepalive|i
 - **`data_dir` 生效**:`INFO msg="api server started" socket=<data_dir>\run\api.sock`(`data_dir` 取的就是我们渲染进 config 的那个值)—— 指定目录被认,没回流到默认 `~/.cc-connect`。
 - **长 persona 走文件不走命令行**:`append_system_prompt` 的合入内容由 `agent/claudecode/session.go:257-291` 写进临时文件,以 `--append-system-prompt-file` 传给 claude(注释写明规避 Windows 8192 字节命令行上限,#1376)。对我们有利:七段 persona 再长也不撞命令行长度。
 - **未知键静默忽略**(登记为 ISSUES N10):往 config 里塞 `bogus_key_xyz = "hello"` / `bogus_child = 1`,`INFO config loaded` 照常、零告警。**渲染器的字段漂移不会被上游拦住**,需要自己有白名单测试。
+- **Linux 腿同样通过**(2026-10-07 补):`anc` 由 HEAD 交叉编译成 linux/amd64,配 `cc-connect-v1.3.4-linux-amd64`(SHA256 核对一致),在 WSL2 Ubuntu 上重跑同一条链路 —— 结论与 Windows 逐条一致(三项目 `platform ready` / `engine started` / `cc-connect is running projects=3`),渲染产物是纯 POSIX 路径,未定义 `${ENV}` 的行为也逐字相同。**平台差异**:socket 在 Linux 是 Unix domain socket(Windows 是文件路径);服务单元(systemd / launchd / schtasks)三段全零覆盖。细节见 `../runtime/DESIGN.md` §7.1.1。
 
 ## 11. 排期(4 + 2 周)
 
