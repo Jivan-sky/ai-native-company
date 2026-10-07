@@ -270,29 +270,13 @@ anc apply ./climax-vault --apply            # 真做
 **平台**：目前只落了 Windows 腿。Linux / macOS 的注入方式不同（systemd `EnvironmentFile=` /
 launchd 包装脚本），**未实现即报错** —— 不许「装一半、留个读不到凭据的 daemon」。
 
-## 服务单元（`anc service`）—— 已被 D4 取代
+### 退役：`anc service`（2026-10-07）
 
-> 这一节讲的是阶段 B 的产物：一个 bot 一套用户级服务单元，跑 `anc serve --bot`。
-> **D4 已把 `serve` 降级为 `apply`、且 serve 永不存在**，所以这份单元装上去只会反复退出。
-> 常驻交给上游 `cc-connect daemon`，装载走 `anc apply`（上一节）。
+阶段 B 那套「一个 bot 一套用户级服务单元」已经删掉：它生成的单元跑的是 `anc serve --bot`，
+而 D4 之后 serve 永不存在 —— 装上去只会得到一个反复退出的服务。常驻交给上游
+`cc-connect daemon`，装载走 `anc apply`（上一节）。留下的教训记在 `DESIGN.md` §7.1.9。
 
-一个 bot 一套**用户级**服务定义 —— macOS LaunchAgent / systemd --user / Windows 登录时计划任务。
-不写系统级 daemon、不需要管理员权限；**要哪个账号跑，就以哪个账号执行 install**，
-所以单元里不写账号（D1 隔离档没拍板也不影响这份单元）。
-
-| 平台 | 落点 | 装载 |
-|---|---|---|
-| darwin | `~/Library/LaunchAgents/com.anc.<公司>.<成员>.plist` | `launchctl load -w` |
-| linux | `~/.config/systemd/user/anc-<公司>-<成员>.service` | `systemctl --user enable --now` |
-| windows | `~/anc/tasks/<公司>-<成员>.task.xml` | `schtasks /Create /XML` |
-
-- `render` 默认只打印，`--apply` 落盘；`install` / `uninstall` 没有 `--apply` 就只打印将执行的命令。
-- 单元同样带 `anc:generated` 指纹：没有指纹的现有文件（手写或他源）拒绝覆盖，`--adopt` 才接管。
-- `status` 是只读的：看单元在不在、指纹对不对、服务管理器认不认它。
-- **注意**：`anc serve` 尚未实现（阶段 C/D），现在 install 只会得到一个反复退出的服务 ——
-  命令会自己把这句话打出来，别把「装上了」当成「跑起来了」。
-
-### `anc org init` 生成的骨架
+## `anc org init` 生成的骨架
 
 ```
 <vault>/
@@ -339,8 +323,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 
 | 路径 | 说明 |
 |---|---|
-| `DESIGN.md` | 运行层落地设计 v0.1（草案；含 4 条待拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `org check` / `version`） |
+| `DESIGN.md` | 运行层落地设计 v0.1（草案；D4/D5/D6 已拍板，D1/D2 未拍板） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
@@ -349,13 +333,11 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `boardui/` | 看板前端**源码**（TS + esbuild；`npm run build` 出到 `internal/board/ui/`） |
 | `boardserve.go` | `anc board serve` 的 CLI（默认只绑本机、优雅退出） |
 | `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
-| `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元；**与 D4 冲突，待退役**） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
 | `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读、`${ENV}` 引用提取（装载前体检用） |
 | `internal/apply/` | 装载的纯逻辑：secrets.env 解析 / 缺键判定 + 上游装载体的托管区注入（幂等、带指纹） |
-| `internal/service/` | 纯函数生成三平台服务单元 + 指纹 + `~/` 展开（**与 D4 冲突，待退役**） |
 | `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |
 | `testdata/orgs/` | 校验正/负例 vault（one / six / disabled / broken-validate / broken-section） |
 | `testdata/golden/` | 结构快照（只锁语义） |

@@ -66,12 +66,12 @@
 
 **为什么 harness 不常驻**：官方 CLI 是交互式程序，常驻吃内存、占订阅并发额度；按需拉起才能做到「一次问答 = 一个可审计的进程」。这同时是 §4 会话边界的基础。
 
-**拉起方式（一个实现，三套模板）**：`anc service install/status/uninstall` 生成并向当前账号装载服务定义 —— macOS `launchd` LaunchAgent、Linux `systemd --user`、Windows 计划任务（登录时触发）。这是**用户级**服务，不写系统级 daemon。
+**拉起方式**：装载 = `anc apply` —— 它调上游 `cc-connect daemon install --no-capture-secrets --force`，单元形态（Windows 计划任务 / Linux `systemd` / macOS `launchd`）由上游按平台决定；凭据由**凭据桥**在拉起 gateway 之前读进进程环境（§7.1.8）。这是**用户级**服务，不写系统级 daemon。
 
 > **装载已实现（阶段 C，2026-10-07）**：`anc apply` —— 常驻交给上游 daemon（D4），我们**不写** `serve`。
 > 上面表里 `cc-connect daemon` 那一行就是它；实测证据见 §7.1.8。
-> **与阶段 B 的冲突**：`anc service render / status / install / uninstall` 生成的单元跑的是 `anc serve --bot`，
-> 而 serve 永不存在（D4）—— 装载它会得到一个反复退出的服务。处置见 §7.1.9。
+> **阶段 B 的 `anc service` 已退役（2026-10-07）**：它生成的单元跑的是 `anc serve --bot`，而 serve 永不存在 ——
+> 装上去只会得到一个反复退出的服务。退役记录与教训见 §7.1.9。
 
 ---
 
@@ -186,9 +186,9 @@ anc doctor                   # 环境与网络自检（已实现）
 | 无人值守启动（含钥匙串能否解锁） | 按 §0-D2 拍板的档位重启机器，不人工登录 GUI | 服务被拉起，且凭据可用（能回话） |
 | `bootstrap` 的动作清单 | `--dry-run` 逐条核对后再真跑 | 实际动作与清单完全一致，没有清单外的系统改动 |
 | 会话回收与订阅额度 | 并发 N 个会话，观察额度、内存与回收 | 不触发上游限流；空闲进程被回收 |
-| Windows 计划任务装载 | 在目标机上 `anc service install --apply` | `schtasks /XML` 接受我们写的 UTF-8 XML；任务出现在计划任务库里 | 
-| systemd 无人值守常驻 | 目标机上开 linger 后退出登录 | 服务继续跑（未开 linger 时退出登录即停） |
-| 服务单元被真正拉起 | 目标机上 `anc service status` | 服务在跑；日志文件有内容；`serve` 已实现（阶段 C/D 之后才可能） |
+| Windows 计划任务装载 | 在目标机上 `anc apply --apply`（= 上游 `daemon install --no-capture-secrets --force`） | 任务出现在计划任务库里；`platform ready` 到齐；凭据不进任务定义 —— **已实测，见 §7.1.8** | 
+| Linux / macOS 腿的装载 | 在目标机上跑 `anc apply` | 凭据注入按平台落地（systemd `EnvironmentFile=` / launchd 包装脚本）—— **未实现，命令直接报错** |
+| 登录自启（`-AtLogOn` / linger / launchd） | 注销或重启一次，不人工登录 GUI | 服务被拉起且凭据可用 —— **未实测** |
 | `anc trail` 在别的 harness 上 | 用 codex / hermes 各跑一轮，再 `anc trail` | 账能跟那个 harness 自己的成本记录对上（现在是 claude 专属解析） |
 
 ### 7.1 已实测（2026-10-07，Windows + Linux 两腿，cc-connect v1.3.4 / commit 27c1de8f）
@@ -243,11 +243,14 @@ INFO msg="cc-connect is running" projects=3
 2. **渲染路径是本机原生的** —— 我们只验过「在哪个 OS 渲染就给哪个 OS 的路径」；
    **跨 OS 渲染（Windows 上渲染给 Linux 用）未验，也没设计**。发布流程（§3「运维机 render → 生产机 pull → 重渲染」）
    靠的是生产机本地重渲染，所以这条路是安全的，但别想着把渲染产物跨 OS 搬运。
-3. **服务单元这一段仍是零覆盖** —— WSL2 默认 PID 1 是 `init(Ubuntu)`、`systemctl --user` 返回 `offline`，
-   要验 systemd 用户单元得先开 systemd（改本机 WSL 全局配置，属需授权动作），
-   `launchd` 更需要真 mac。所以 §7 表里「服务单元被真正拉起」那行**依然没动过**。
+3. **我们自己那套服务单元从没在真 systemd / launchd 上跑过** —— WSL2 默认 PID 1 是 `init(Ubuntu)`、
+   `systemctl --user` 返回 `offline`，要验 systemd 用户单元得先开 systemd（改本机 WSL 全局配置，
+   属需授权动作），`launchd` 更需要真 mac。**D4 之后这件事不再由我们承担**（常驻交给上游 daemon）——
+   这套代码已于 2026-10-07 退役，教训见 §7.1.9。
 
 #### 7.1.2 服务单元：Linux 腿的离线校验（2026-10-07）—— 抓到一个硬 bug
+
+> **这一节讲的是已退役的 `internal/service`（2026-10-07 退役，见 §7.1.9）。代码删了，教训留着。**
 
 真装载还没做，但**单元文件能不能被 systemd 接受**这一层可以离线判：`systemd-analyze verify`
 （WSL2 Ubuntu 里的 systemd 259）。**不需要 systemd 当 PID 1**，只要以 root 跑一次
@@ -281,6 +284,7 @@ systemd 剥掉一个 `append:` 后，剩下的 `append:/...` 不是绝对路径 
 
 **仍未覆盖**：`systemctl --user enable --now` 真装载、linger、`launchctl load`、
 `schtasks /Create /XML`（要往本机任务库写东西，属需授权动作）、以及 `anc serve` 真跑（尚未实现）。
+**这些都不再由我们承担** —— D4 之后装载走上游 daemon（§7.1.8），代码在 §7.1.9 退役。
 
 #### 7.1.3 端到端真腿：真飞书 app 走通一轮对话（2026-10-07）
 
@@ -538,6 +542,27 @@ claude cost-state（harness 自己的账本）          in 146005  out 16486  cr
   **未实现即报错**：`anc apply` 在非 Windows 上直接拒绝，不退化成「前四步做完、留个读不到凭据的 daemon」。
 - **登录自启**：上游写的是 `-AtLogOn`，要注销 / 重启才验得到；本轮只验了「现在这一次拉起」。
 - **ACL**：`~/.cc-connect` 整棵树与 `~/.anc` 其余部分仍是默认继承（归议题 #4；`secrets.env` 已收紧）。
+### 7.1.9 退役记录：`anc service`（2026-10-07）
+
+**为什么退**：D4 把 `serve` 降级成 `apply`、且 serve 永不存在，而 `anc service render/install`
+生成的单元跑的就是 `anc serve --bot` —— 装载它只会得到一个反复退出的服务。
+留着等于留一条「看起来能用、装了就坏」的路径，**比没有更糟**。
+
+**删了什么**：`internal/service/`（三平台单元生成 + 指纹 + `~/` 展开）、`runtime/service.go`（CLI）、
+`runtime/service_cli_test.go`（4 条 CLI 测试）。装载的职责归 `anc apply`（§7.1.8）。
+删除前先在机器上查过：没有我们自己装过的计划任务（`ANC\*`）、也没有 `~/anc/tasks/` 残留，
+所以**没有任何东西需要卸载**。
+
+**留下的教训**（代码删了，这三条不许忘）：
+
+1. **模板 + 参数拼接是 bug 温床**：模板写 `StandardOutput=append:%s`、传参又拼一次 `"append:"+path`，
+   产出 `append:append:/…`，systemd 直接拒收（§7.1.2 抓到的那处）。
+2. **「结构合法」不等于「对方接受」**：XML 良构、`systemd-analyze verify` 通过，都只是离线判据。
+3. **单测没覆盖的行等于没写**：那个 bug 从阶段 B 首次提交就在，测试恰好绕过了它。
+
+**顺带得到的判据**：常驻这件事上游已经做完了（`cc-connect daemon`），我们自研的那一套
+除了多一个失败面没有任何增量 —— **能不自研就不自研**；同理，「一个 bot 一套进程」在
+上游「一个 daemon 管全部 project」的现实下本来就不成立。
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
