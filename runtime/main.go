@@ -98,6 +98,8 @@ func main() {
 		os.Exit(cmdRender(args))
 	case "probe":
 		os.Exit(cmdProbe(args))
+	case "notify":
+		os.Exit(cmdNotify(args))
 	case "service":
 		os.Exit(cmdService(args))
 	case "org":
@@ -145,6 +147,7 @@ func usage() {
                                     起只读看板（前端已嵌在二进制里；默认只绑本机）
    anc render <vault> [选项]         渲染 gateway config（默认 dry-run）
    anc probe <vault> [选项]          运行态探针：每个 bot 到底能不能回话（只读，不烧 token）
+   anc notify <vault> [选项]         把报红推到负责人面前（默认 dry-run，--send 才真发）
    anc service <render|status|install|uninstall> --org <vault> --bot <成员>
                                     生成/装载用户级服务单元（默认 dry-run）
   anc version

@@ -2,7 +2,7 @@
 
 > 本文是 `../SPEC.md` 的**工程派生视图**：SPEC 管口径，本文管「口径怎么落到一台客户机器上」。冲突一律以 SPEC 为准；实现过程中若被迫改口径，先改 SPEC，再回来改本文。
 >
-> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、服务单元（systemd / launchd / schtasks 一个都没装过）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
+> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、服务单元（systemd / launchd / schtasks 一个都没装过）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发未实测**，见 §7.1.5）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
 >
 > **语言交代：Go**（复用 `anc` 单 exe，新增 `bootstrap` / `render` / `service` / `serve`）。理由：同一份源码跨 macOS / Windows / Linux，常驻进程不许自带运行时，装配器已经是 Go。代价：现场改**逻辑**要重编（约 10 秒）；对应缓解是 persona、模板、业务规则全部外置成纯文件，改这些不用重编译。
 
@@ -175,6 +175,7 @@ anc doctor                   # 环境与网络自检（已实现）
 | Windows 计划任务装载 | 在目标机上 `anc service install --apply` | `schtasks /XML` 接受我们写的 UTF-8 XML；任务出现在计划任务库里 | 
 | systemd 无人值守常驻 | 目标机上开 linger 后退出登录 | 服务继续跑（未开 linger 时退出登录即停） |
 | 服务单元被真正拉起 | 目标机上 `anc service status` | 服务在跑；日志文件有内容；`serve` 已实现（阶段 C/D 之后才可能） |
+| `anc notify` 真发到人面前 | 造一个真红档，`anc notify <vault> --send` | 负责人的聊天里收到消息；游标落盘；修好后自动收到一条「已恢复」 |
 
 ### 7.1 已实测（2026-10-07，Windows + Linux 两腿，cc-connect v1.3.4 / commit 27c1de8f）
 
@@ -356,6 +357,36 @@ cacheCreationInputTokens, thinkingTokens, costUSD } }`，且**未知模型会标
 **参照实现**：本机装了 `ccusage`，一次认出 Claude / Codex / Hermes / OpenClaw / Qwen，
 覆盖 14 种 harness，把 cache create / cache read 单列，并对缺价格的模型打 WARN。
 **说明「每种 harness 写一个 adapter」不是天量工作**；用它当参照（或依赖）比自己从零写更划算。
+
+### 7.1.5 报红送人：`anc notify`（2026-10-07）
+
+§6 的观测只做到「看得见」。用户拍板：**报红要由 bot 主动送到负责人面前**，
+不能躺在 CLI / 看板里等人来看。落地成 `anc notify`，与 `probe` 分成两条命令 ——
+probe 只读、永远无副作用；notify 有副作用（往人的聊天里推消息）。合在一起会毁掉
+probe 的立身之本（只读命令被随手跑），所以判据仍是同一份 `internal/probe`，不写两套。
+
+**判据（纯函数 `notify.Decide`，无时钟、无盘、无网，18 条档位用例覆盖）**：
+
+- **只看红。** 黄 = 运行中 / 这一窗口没观测到，不要人动手；把黄也推给人 → 人静音 → 红的告警一起死。
+- **边沿触发 + 冷却**（默认 30m，同 probe 的 `--stale` / `--stall` 一样是参数）：
+  没喊过 + 红 → `alert`；红着且过冷却期 → `reminder`（否则就成了「没消息 = 没事」）；
+  红转绿 → `recovery` 并清账；冷却期内 → 只落 `Plan.Silent`（**让「没喊」说得出来**）。
+- **网关挂了只喊 `gateway` 一条**，且此时不评估 bot —— 底下每个 bot 判红是同一根因，逐个喊就是刷屏。
+- 没喊过的账转绿 → **不欠谁一声**（不发 recovery）。
+
+**通道**：走 cc-connect 的 unix socket `POST /send`（`{"project","message"}`，`core/api.go`）。
+与探针判活**同一条通道** —— 不直连飞书 API，换平台（钉钉 / 企业微信）是 cc-connect 那侧的事。
+
+**游标**：`<data_dir>/state/notify.json`（不进 git）。**dry-run 不写**（写了会吞掉下一次真发的告警）；
+推送失败（一个都没送到）也不写 —— 不把失败当成「喊过了」；坏 JSON 报错，不当空游标静默吞。
+
+**推给谁**：`company.admins` 各自的 bot，**不是出故障那个 bot**（它可能连话都回不了）。
+不是成员 / 已停用的收进 `unresolved` 明说，不静默少喊一个人。
+
+**实测**：`gofmt` / `go vet` / `go test ./...` 全绿（notify 包 18 条，含真 unix socket 上验请求体与错误路径）；
+活体 dry-run 沙箱 🟢 →「没有要喊的」exit 0；负例（临时现场无 socket）→ `[新告警] gateway`、exit 1、
+**且未落游标**；无动作时 `--send` 写空游标成功。
+**未实测：真往飞书推一条** —— 要真红档才有动作（等于真往人的聊天里推消息），等人在场再跑，见 §7 表。
 
 ---
 
