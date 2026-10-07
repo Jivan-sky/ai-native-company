@@ -59,7 +59,7 @@ type AssetsFile struct {
 func (s *Server) handleAssets(w http.ResponseWriter, r *http.Request) {
 	view := AssetsView{
 		Schema: AssetsSchema, Dirs: []AssetsDir{},
-		Note: "这是**原料**清单，不是沉淀：目录里有文件 ≠ 有可复用的产出。" +
+		Note: "这是原料清单，不是沉淀：目录里有文件 ≠ 有可复用的产出。" +
 			"沉淀层（条目化、来源、可复用性）见议题 #26 / #27，未定。",
 	}
 	o, err := org.Load(s.Vault)

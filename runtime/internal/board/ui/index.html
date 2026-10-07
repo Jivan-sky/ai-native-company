@@ -105,6 +105,8 @@
   .dot.ok { background: #1db954; }
   .dot.warn { background: #e8a33d; }
   .dot.bad { background: #e0483d; }
+  /* 灰档：status 是个认不出的词 —— 原样显示，不硬塞进三档里 */
+  .dot.gray { background: #9aa7b4; }
 
   section { margin-top: 20px; padding: 20px 24px 24px; }
   section > h2 {
@@ -130,6 +132,11 @@
   .cannot { color: #8a3b34; }
   /* 状态点 + 文字：.dot 是固定宽高，得靠 inline-flex 才撑得开 */
   .st { display: inline-flex; align-items: center; gap: 8px; }
+  /* 时间线页：一个 case 一个原生 <details> 折叠（不写 JS），summary 里点 + 字一行排 */
+  details { margin-top: 12px; }
+  details > summary { cursor: pointer; padding: 7px 2px; }
+  details > summary .st { flex-wrap: wrap; }
+  details > summary:hover { color: var(--sea); }
 
   .tw { overflow-x: auto; margin-top: 16px; }
   .tw > table { margin-top: 0; }

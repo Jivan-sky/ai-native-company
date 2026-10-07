@@ -123,10 +123,10 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		p.Warns = append(p.Warns, warns...)
 	}
 	if o.Company.Fallback != nil {
-		p.Warns = append(p.Warns, "company.fallback_provider 已配置，但渲染器**未输出** providers 段：cc-connect 的 providers 字段形态尚未核对（W1 实测项）")
+		p.Warns = append(p.Warns, "company.fallback_provider 已配置，但渲染器未输出 providers 段：cc-connect 的 providers 字段形态尚未核对（W1 实测项）")
 	}
 	if o.Company.Defaults.AutoCompressMaxTokens > 0 {
-		p.Warns = append(p.Warns, "defaults.auto_compress_max_tokens 已配置，但渲染器**未输出** auto_compress 段：字段名在上游设计里也标为待实测（W1 实测项 ④）")
+		p.Warns = append(p.Warns, "defaults.auto_compress_max_tokens 已配置，但渲染器未输出 auto_compress 段：字段名在上游设计里也标为待实测（W1 实测项 ④）")
 	}
 	return p, nil
 }
