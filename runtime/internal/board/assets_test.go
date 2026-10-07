@@ -156,3 +156,18 @@ func TestAssetsIsReadOnly(t *testing.T) {
 		t.Fatalf("状态码 %d，期望 405", rec.Code)
 	}
 }
+
+// charters 只该出现在它自己的那一栏（Charters），**不许再作为「数据目录」出现一次** ——
+// 否则资产页把同一批东西数两遍，人看到的原料体积是虚的。
+func TestAssetsChartersNotCountedAsDataDir(t *testing.T) {
+	v, _ := assetsOf(t, &Server{Vault: assetsFixture(t)})
+	for _, d := range v.Dirs {
+		if d.Dir == "charters" {
+			t.Fatalf("charters 进了数据目录列表（会和 charters 计数重复）：%v", v.Dirs)
+		}
+	}
+	// 这个 fixture 的 charters/ 下有一个项目副本目录。
+	if v.Charters != 1 {
+		t.Fatalf("charters 计数应当 = 1，实际 %d", v.Charters)
+	}
+}
