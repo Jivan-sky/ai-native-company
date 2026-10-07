@@ -108,6 +108,11 @@ var DefaultRules = []Rule{
 	{"project.domain.unknown", LevelWarn, false, "挂的域不在 domains.md 里 —— 多半是拼错；项目会分不到区块"},
 	{"project.owner.unknown_role", LevelWarn, false, "owner 不在 roles/ 里，渲染时解不出人，只会原样显示岗位名"},
 
+	// —— 立项书副本（接入链的**落点**）——
+	// 落点的目录名要能与表行对上，否则「谁在做哪个项目」就有一半材料是孤岛。
+	// 仍然只告警：副本目录可能比表行**早到**（材料先丢进来、抽取还没做），那是进度问题不是错。
+	{"charter.entry.unmatched", LevelWarn, false, "落点里的副本目录在 projects.md 里没有对应 slug —— 多半是名字写错，或这一项还没抽成表行"},
+
 	// —— 策略层（策略自己也要被校验，否则拼错规则名 = 你以为关了其实没关）——
 	{"policy.override.unknown", LevelFatal, true, "policy 段写了不存在的规则 id 或非法级别值"},
 	{"policy.override.locked", LevelFatal, true, "试图降级 / 关闭无例外红线（SPEC §6-5 / §171）"},

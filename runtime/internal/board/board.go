@@ -15,7 +15,10 @@ import (
 	"anc/internal/org"
 )
 
-// Schema 是这个视图的版本。字段增删一律改它 —— 消费方据此判断能不能吃。
+// Schema 是这个视图的版本。**有消费方之后**，字段增删一律改它 —— 消费方据此判断能不能吃。
+//
+// 现在还没有消费方（前端壳未开工），所以 v1 期间补齐了 projects / charter 两个字段；
+// 等前端吃上 v1，再动字段就必须升 v2 —— 换句话说，这条纪律从现在开始生效。
 const Schema = "anc.board/v1"
 
 // View 是看板的全部输入。字段**恒在**（不做 omitempty）：schema 稳定比省几个字节值钱。
@@ -84,6 +87,7 @@ type Routing struct {
 
 // Project 是项目表一行。Owner 是岗位，OwnerLabel 是派生的「岗位（人名）」。
 // Period 是**原文照搬**的自由文本 —— ANC 不解读周期，只把它显示出来。
+// Charter 是立项书**副本**在 vault 里的相对路径；空 = 还没有副本（真源在客户侧，缺了不算错）。
 type Project struct {
 	Slug       string `json:"slug"`
 	Name       string `json:"name"`
@@ -92,6 +96,7 @@ type Project struct {
 	OwnerLabel string `json:"owner_label"`
 	Period     string `json:"period"`
 	Source     string `json:"source"`
+	Charter    string `json:"charter"`
 }
 
 // Of 做投影。纯函数：同样的 org + 同样的 now → 同样的字节（可快照、可 diff）。
@@ -138,10 +143,14 @@ func Of(o *org.Org, now time.Time) *View {
 		v.Routing = append(v.Routing, Routing{Dir: r.Dir, Summary: r.Summary})
 	}
 	for _, pr := range o.Projects {
+		charter := ""
+		if c, ok := o.Charter(pr.Slug); ok {
+			charter = c.Path
+		}
 		v.Projects = append(v.Projects, Project{
 			Slug: pr.Slug, Name: pr.Name, Domain: pr.Domain,
 			Owner: pr.Owner, OwnerLabel: o.WhoLabel(pr.Owner),
-			Period: pr.Period, Source: pr.Source,
+			Period: pr.Period, Source: pr.Source, Charter: charter,
 		})
 	}
 	return v

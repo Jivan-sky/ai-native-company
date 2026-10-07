@@ -97,6 +97,10 @@ func TestViewProjectsProjected(t *testing.T) {
 	if pr.Period != "2026-07-01 → 2026-09-30" {
 		t.Fatalf("period 被改动了：%q", pr.Period)
 	}
+	// 立项书副本的落点：看板要能显示「这个项目的材料进来了没」。
+	if pr.Charter != "charters/trade-q3" {
+		t.Fatalf("charter（副本落点）投影不对：%q", pr.Charter)
+	}
 }
 
 // nil 切片一律归一成 []：JSON 里 null 会让前端多一层判空。
