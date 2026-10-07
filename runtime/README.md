@@ -117,6 +117,24 @@ policy:
 
 规则默认整组 `warn`：域表是新能力，先观察；想卡死在 `policy:` 段写 `domain.slug.format: fatal`。
 
+### 只读投影出口（`anc org export`）
+
+```
+anc org export <vault>            # stdout 出一份 JSON，消费方自己重定向
+```
+
+给**看板 / 前端**吃的只读视图：公司 / 角色 / 成员 / 业务域 / 数据路由，
+带 `schema`（`anc.board/v1`）—— 字段增删一律改版本号，前端据此判断能不能吃。
+
+- **纯函数**：同一份真相源 + 同一时刻 → 逐字节相同，可以按字节 diff。
+- **只读**：不写真相源、不碰机器、不生成任何能给 gateway 吃的东西。
+  这也是它和 `internal/render` **分两个包**的原因 —— 混在一起，迟早有人拿「生成看板」的路径去生成配置。
+- **刻意不导出** `feishu.app_id` / `open_id` / `extra_allow_from` / `allow_chat`：
+  看板是**观测面，不是凭据面**（SPEC §2.3 / §6-3）。「这人绑没绑好飞书」属于阶段 C 的探针。
+- `who` 是岗位，投影里派生成 `who_label`（`经理（Alice Wang）`），
+  与 persona 用的是**同一处口径**（`org.WhoLabel`）—— 免得看板和 persona 各存一份名单。
+- 非红档发现走 **stderr**，stdout 恒为纯 JSON（有测试盯着这条）。
+
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
 - `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
@@ -190,6 +208,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；含 4 条待拍板） |
 | `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `org check` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
+| `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
+| `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
 | `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、规则表（`rules.go`） |

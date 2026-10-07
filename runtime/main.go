@@ -105,7 +105,11 @@ func main() {
 		if len(args) > 0 && args[0] == "init" {
 			os.Exit(cmdOrgInit(args[1:]))
 		}
+		if len(args) > 0 && args[0] == "export" {
+			os.Exit(cmdOrgExport(args[1:]))
+		}
 		fmt.Fprint(os.Stderr, renderUsage)
+		fmt.Fprint(os.Stderr, boardUsage)
 		os.Exit(2)
 	case "version", "--version", "-v":
 		fmt.Println("anc " + version)
@@ -128,6 +132,7 @@ func usage() {
   anc org check <vault>             只加载 + 校验 org 真相源
   anc org init <目录> --client <客户名> --id <ascii-id>
                                     生成 org 真相源骨架（vault 模板）
+  anc org export <vault>            投影成看板消费的只读 JSON（打到 stdout）
   anc render <vault> [选项]         渲染 gateway config（默认 dry-run）
   anc service <render|status|install|uninstall> --org <vault> --bot <成员>
                                     生成/装载用户级服务单元（默认 dry-run）
