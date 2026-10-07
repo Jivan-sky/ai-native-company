@@ -83,6 +83,21 @@ var DefaultRules = []Rule{
 	{"persona.path.absolute", LevelWarn, false, "绝对路径写死本机布局，搬机器 / 换 vault 就打脸"},
 	{"persona.fact.frozen", LevelWarn, false, "「当前仅有 / 目前只有」疑似把易变事实烤进 persona"},
 
+	// —— 业务域（罗盘）——
+	// 域表是新能力：没有这张表的存量 vault 不该被拦（LoadDomains 在文件缺席时一声不吭），
+	// 但一旦建了表，表里的结构问题必须被看见 —— 所以整组默认 warn，一条红线都不设。
+	// 想让某条变红，在 company.md 的 policy 段写 `规则id = fatal`（本组全部允许上调）。
+	{"domain.table.missing", LevelWarn, false, "有 domains.md 但没找到带 slug 列的表 —— 表建歪了，域一个都读不出来"},
+	{"domain.slug.format", LevelWarn, false, "slug 要进文件名与代码；中文/大写会撞 macOS 的 NFC/NFD 与跨平台差异"},
+	{"domain.slug.duplicate", LevelWarn, false, "同 slug 两行 = 域身份有歧义，取哪一行只看行的先后"},
+	{"domain.name.missing", LevelWarn, false, "缺显示名，persona 里只剩机器标识"},
+	{"domain.what.missing", LevelWarn, false, "缺「这块业务是什么」—— agent 少一条判断口径的依据"},
+	{"domain.who.missing", LevelWarn, false, "缺「谁在做」—— 这一域卡住时没人可找"},
+	{"domain.data.missing", LevelWarn, false, "缺「数据在哪」—— 这一域没有作用域，授权无从落脚"},
+	{"domain.who.unknown_role", LevelWarn, false, "who 不在 roles/ 里，渲染时解不出人，只会原样显示岗位名"},
+	{"domain.data.unknown_dir", LevelWarn, false, "data 不是 vault 顶层数据目录，作用域指不到地方"},
+	{"member.domains.unknown", LevelWarn, false, "成员写了未定义的域，多半是拼错 —— 等于悄悄少给他一块业务"},
+
 	// —— 策略层（策略自己也要被校验，否则拼错规则名 = 你以为关了其实没关）——
 	{"policy.override.unknown", LevelFatal, true, "policy 段写了不存在的规则 id 或非法级别值"},
 	{"policy.override.locked", LevelFatal, true, "试图降级 / 关闭无例外红线（SPEC §6-5 / §171）"},

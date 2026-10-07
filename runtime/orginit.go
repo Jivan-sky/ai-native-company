@@ -136,6 +136,11 @@ func cmdOrgInit(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
 	}
+	// 域表（罗盘）随骨架一起给：能力默认可用，内容默认空着 —— 由 agent 在访谈后自己填。
+	if err := write("domains.md.tmpl", "domains.md", map[string]string{"{{DOMAIN_DATA}}": dirs[0]}); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
 	if err := write("role-manager.md.tmpl", "roles/manager/persona.md",
 		map[string]string{"{{ROLE_TITLE}}": "经理"}); err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)

@@ -69,7 +69,8 @@ func addPolicy(t *testing.T, vault string, lines ...string) {
 }
 
 func TestLoadCleanFixtures(t *testing.T) {
-	for _, name := range []string{"one", "six", "disabled"} {
+	// domains 也在列：划了域的正例必须零发现 —— 否则没人愿意建这张表。
+	for _, name := range []string{"one", "six", "disabled", "domains"} {
 		o, err := Load(fixture(t, name))
 		if err != nil {
 			t.Fatalf("%s: 应当加载通过，实际 %v", name, err)
