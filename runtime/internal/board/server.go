@@ -45,6 +45,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/runtime", s.handleRuntime)
 	mux.HandleFunc("/api/dataflow", s.handleDataflow)
 	mux.HandleFunc("/api/assets", s.handleAssets)
+	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.Handle("/", http.FileServerFS(UIFS()))
 	return readOnly(mux)
 }

@@ -72,12 +72,35 @@ type AssetsView = {
   charters: number; note: string; error?: string;
 };
 
+// 决策与执行的留存（`/api/timeline`，schema = anc.timeline/v1）—— 读者：跟进的人 / 老板。
+// 这一页给的是**人和 agent 自己写下来的**记录（`anc timeline add`），不是从会话里推出来的。
+// 三档只按 status 配色；**认不出的词原样留着、画灰** —— 以后加词只改数据，不用改这里。
+type TimelineEntryView = {
+  id: string; case?: string; at: string; kind?: string; status?: string;
+  by?: string; role?: string; to?: string; domain?: string; project?: string;
+  title: string; detail?: string; refs?: string[]; band: string;
+};
+type TimelineCaseView = {
+  key: string; title: string; status: string; band: string;
+  first_at: string; last_at: string;
+  by?: string; role?: string; to?: string; domain?: string; project?: string;
+  entries: number; recent: TimelineEntryView[];
+};
+type TimelineView = {
+  schema: string; wired: boolean;
+  counts: { green: number; yellow: number; red: number; unknown: number };
+  total: number; entries: number; cases: TimelineCaseView[];
+  bad: string[]; limit: number; next_before?: string;
+  missing: string[]; note: string; error?: string;
+};
+
 // 一次取数、全程共用：已接入的页吃的是同一份投影，切页不重新打网络（按「刷新」才重取）。
 type Data = {
   board: BoardView | null; issues: Issues;
   runtime: RuntimeView | null; runtimeErr: string;
   dataflow: DataflowView | null; dataflowErr: string;
   assets: AssetsView | null; assetsErr: string;
+  timeline: TimelineView | null; timelineErr: string;
   err: string;
 };
 
@@ -205,8 +228,8 @@ async function getJSON<T>(url: string): Promise<Fetched<T>> {
 
 const emptyIssues = (err: string): Issues => ({ ok: false, fatal: [], warn: [], error: err });
 
-// 「读到了一份能吃的契约」= body 在、schema 是非空字符串。四份契约（board / runtime /
-// dataflow / assets）各判各的 —— 一份坏了不该让别的页跟着空着。
+// 「读到了一份能吃的契约」= body 在、schema 是非空字符串。五份契约（board / runtime /
+// dataflow / assets / timeline）各判各的 —— 一份坏了不该让别的页跟着空着。
 function contract<T extends { schema?: string }>(res: Fetched<T>, label: string): { v: T | null; err: string } {
   const body = res.body;
   if (body && typeof body.schema === "string" && body.schema !== "") return { v: body, err: "" };
@@ -217,17 +240,19 @@ function contract<T extends { schema?: string }>(res: Fetched<T>, label: string)
 }
 
 async function fetchData(): Promise<Data> {
-  const [boardRes, issuesRes, runtimeRes, dataflowRes, assetsRes] = await Promise.all([
+  const [boardRes, issuesRes, runtimeRes, dataflowRes, assetsRes, timelineRes] = await Promise.all([
     getJSON<BoardView & { error?: string }>("/api/board"),
     getJSON<Issues>("/api/issues"),
     getJSON<RuntimeView>("/api/runtime"),
     getJSON<DataflowView>("/api/dataflow"),
     getJSON<AssetsView>("/api/assets"),
+    getJSON<TimelineView>("/api/timeline"),
   ]);
   const issues = issuesRes.body ?? emptyIssues(issuesRes.err);
   const rt = contract(runtimeRes, "运行态");
   const df = contract(dataflowRes, "数据流");
   const as = contract(assetsRes, "原料清单");
+  const tl = contract(timelineRes, "时间线");
   const schema = boardRes.body?.schema;
   if (boardRes.body && typeof schema === "string" && schema !== "") {
     return {
@@ -235,6 +260,7 @@ async function fetchData(): Promise<Data> {
       runtime: rt.v, runtimeErr: rt.err,
       dataflow: df.v, dataflowErr: df.err,
       assets: as.v, assetsErr: as.err,
+      timeline: tl.v, timelineErr: tl.err,
     };
   }
   const why = boardRes.body?.error ?? boardRes.err ?? ("看板数据读取失败（HTTP " + boardRes.status + "）");
@@ -243,6 +269,7 @@ async function fetchData(): Promise<Data> {
     runtime: rt.v, runtimeErr: rt.err,
     dataflow: df.v, dataflowErr: df.err,
     assets: as.v, assetsErr: as.err,
+    timeline: tl.v, timelineErr: tl.err,
   };
 }
 
@@ -290,13 +317,17 @@ function linkTo(id: string): Kid {
   return el("a", { href: "#/" + id }, p ? p.label : id);
 }
 
+// 从 PAGES 现算「哪几页还没接数据源」—— 手抄一份清单，迟早跟导航上说的不一样
+// （以前这里写着「两块还没接」，而导航早把那两页标成「已接入」了）。
 function notWiredIndex(): Kid {
-  const rows: Kid[][] = [
-    [linkTo("dataflow"), "谁授权了谁、通道开着吗、有没有越权？", "通道表 / 授权表 / 审计流水"],
-    [linkTo("assets"), "沉淀了什么、哪些能复用？", "agent 每日产出"],
-  ];
-  return section("两块还没接数据源", "各自一页，如实写明缺什么 —— 不编数据填界面",
-    table(["页面", "将回答的问题", "缺的数据源"], rows));
+  const left = PAGES.filter((p) => !p.wired);
+  if (left.length === 0) {
+    return section("没有还没接数据源的页面", "导航上的「已接入 / 未接入」就是从这张表现算的",
+      emptyNote("全部 " + PAGES.length + " 页都接上了。看板照样能显示「还没开始」这个真实状态，但不该再留白页。"));
+  }
+  const rows: Kid[][] = left.map((p) => [linkTo(p.id), p.question]);
+  return section(left.length + " 页还没接数据源", "如实写明缺什么 —— 不编数据填界面",
+    table(["页面", "将回答的问题"], rows));
 }
 
 function domainSection(v: BoardView): Kid {
@@ -608,6 +639,129 @@ function renderAssets(d: Data): Kid[] {
   return out;
 }
 
+// 时间线 —— 读者：跟进的人 / 老板。数据源是人和 agent 用 `anc timeline add` 写下的留存记录。
+//
+// 这一页的纪律（与后端 timeline 包同一条口径）：
+//   - 这些行是**写下来的**，不是看板从会话里推出来的 —— 没记就是没记，不替谁总结、更不编一条；
+//   - 三档只按 status 配色，认不出的词**原样保留**（画灰），以后加词只改数据、不改这里；
+//   - 一个 case 多行 = 一次推进：表里取最后一条当当前态，历史留在「每一步」里，一行不删。
+const BAND_DOT: Record<string, string> = {
+  green: "dot ok", yellow: "dot warn", red: "dot bad", unknown: "dot gray",
+};
+const bandDot = (b: string): string => BAND_DOT[b] ?? "dot";
+const BAND_WORD: Record<string, string> = {
+  green: "绿 · 已完成", yellow: "黄 · 运行中", red: "红 · 卡点 / 失败", unknown: "灰 · 认不出的词",
+};
+const bandWord = (b: string): string => BAND_WORD[b] ?? "灰 · 认不出的词";
+
+// 状态原词照排（不翻译、不吞）：认不出的词也得让人看见它长什么样。
+const statusCell = (status: string | undefined): Kid =>
+  (status ?? "").trim() === "" ? cannot("没写 status") : el("span", { class: "mono" }, status ?? "");
+
+// 「谁 → 交给谁」：两头都可能没写 —— 缺哪个就说缺哪个，不拿一个「—」糊过去。
+// 这一列是这一页的重点：**下一手是谁的决定**。
+function handOff(by: string | undefined, to: string | undefined): Kid {
+  const b = (by ?? "").trim();
+  const t = (to ?? "").trim();
+  if (b === "" && t === "") return cannot("没写谁在跟、也没说交给谁");
+  return el("span", {},
+    b === "" ? cannot("没写谁记的") : el("span", { class: "mono" }, b),
+    el("span", {}, " → "),
+    t === "" ? cannot("还没说交给谁") : el("strong", {}, t));
+}
+
+function renderTimeline(d: Data): Kid[] {
+  const v = d.timeline;
+  if (!v) {
+    return [banner("bad", "读不到时间线", [
+      el("span", {}, d.timelineErr === "" ? "服务没回 anc.timeline/v1" : d.timelineErr),
+    ])];
+  }
+  if (!v.wired) {
+    return [banner("warn", "时间线还没接上", [
+      el("span", {}, dash(v.error)),
+      el("br"),
+      el("span", { class: "mono" }, "anc timeline add <vault> -by <谁> -title <一句话>"),
+    ])];
+  }
+
+  const out: Kid[] = [];
+  if ((v.error ?? "") !== "") out.push(banner("bad", "这一页读不动", [el("span", {}, dash(v.error))]));
+  out.push(banner("warn", "这些行是人 / agent 自己写下来的", [el("span", {}, dash(v.note))]));
+  if (v.bad.length > 0) {
+    out.push(banner("warn", "有 " + v.bad.length + " 行读不懂（逐行列出来，不静默跳过）",
+      v.bad.map((b) => el("span", { class: "mono" }, b))));
+  }
+
+  out.push(section("三档", "只按 status 配色：done=绿 / running=黄 / blocked·failed=红 —— 认不出的词原样留着、画灰",
+    el("div", { class: "grid stats" },
+      statCard(String(v.counts.green), "绿 · 已完成", "status=done"),
+      statCard(String(v.counts.yellow), "黄 · 运行中", "status=running"),
+      statCard(String(v.counts.red), "红 · 卡点 / 失败", "blocked · failed"),
+      statCard(String(v.counts.unknown), "灰 · 认不出的词",
+        v.counts.unknown === 0 ? "没有，词表没跑偏" : "原样保留，不吞"),
+      statCard(String(v.entries), "流水条数", "折叠成 " + v.total + " 个 case"))));
+
+  const rows: Kid[][] = v.cases.map((c) => [
+    dotLine(bandDot(c.band), statusCell(c.status)),
+    el("div", {}, el("span", { class: "mono" }, dash(c.key)), el("div", {}, dash(c.title))),
+    handOff(c.by, c.to),
+    dash([c.domain, c.project].filter((x) => (x ?? "").trim() !== "").join(" · ")),
+    String(c.entries),
+    localTime(c.last_at),
+  ]);
+  out.push(section("每个 case 现在在哪一步",
+    "取最后一条当当前态 —— 它写着「遇到了什么、走到了哪一步、这一步是谁的决定」",
+    v.cases.length === 0
+      ? emptyNote("时间线还是空的（`timeline/` 里一行都没有）。空不是错 —— 「还没开始记」是个真实状态。")
+      : table(["档 / status", "case", "谁 → 交给谁", "业务域 · 项目", "几条", "最近活动"], rows)));
+
+  const steps: Kid[] = v.cases.map((c) => {
+    const head: Kid[] = [
+      el("span", { class: bandDot(c.band) }),
+      el("span", { class: "mono" }, dash(c.key)), " ",
+      el("strong", {}, dash(c.title)), " ",
+      chip(bandWord(c.band) + " · " + ((c.status ?? "").trim() === "" ? "没写 status" : c.status)),
+      chip("共 " + c.entries + " 条", true),
+    ];
+    const inner: Kid[][] = c.recent.map((e) => [
+      dotLine(bandDot(e.band), statusCell(e.status)),
+      localTime(e.at),
+      el("div", {},
+        (e.kind ?? "").trim() === "" ? cannot("没写 kind") : el("span", { class: "chip mono" }, (e.kind ?? "").trim()),
+        el("div", {}, dash(e.title)),
+        (e.detail ?? "").trim() === "" ? "" : el("p", { class: "empty" }, dash(e.detail)),
+        (e.refs ?? []).length === 0 ? "" : el("p", { class: "empty mono" }, (e.refs ?? []).join(" · "))),
+      handOff(e.by, e.to),
+    ]);
+    return el("details", {}, el("summary", {}, el("span", { class: "st" }, ...head)),
+      table(["档 / status", "时间", "这一步（kind + 一句话）", "谁 → 交给谁"], inner));
+  });
+  if (steps.length > 0) {
+    out.push(section("每一步都留着",
+      "每个 case 带最近几步（最新在上）；完整流水在 `timeline/*.jsonl` 里 —— 一行都没删",
+      ...steps));
+  }
+
+  if (v.total > v.cases.length) {
+    out.push(section("还有更早的",
+      "按「最近动过的排前面」，这一页只铺了 " + v.cases.length + " 个（共 " + v.total + " 个）",
+      el("p", { class: "empty" },
+        el("span", {}, "往后翻："), el("span", { class: "mono" }, "anc timeline list <vault> --before " + dash(v.next_before)),
+        el("span", {}, "；按档筛："), el("span", { class: "mono" }, "anc timeline list <vault> --band red"))));
+  }
+
+  out.push(section("这一页答不了什么", "答不了的照写 —— 这一页是「卡在哪、谁在跟」，不是审计",
+    v.missing.length === 0
+      ? emptyNote("后端没列缺。")
+      : el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
+  return out;
+}
+// 时间线 —— 读者：跟进的人 / 老板。它排在「项目」后面：一个讲「有哪几件事」，一个讲「卡在哪一步」。
+const timelinePage: Page = {
+  id: "timeline", label: "时间线", wired: true,
+  question: "卡在哪、谁在跟、下一步是谁的决定？", view: renderTimeline,
+};
 const overviewPage: Page = {
   id: "overview", label: "总览", wired: true,
   question: "现在有没有事？", view: renderOverview,
@@ -635,7 +789,7 @@ const assetsPage: Page = {
   question: "原料有哪些、多久没动了？", view: renderAssets,
 };
 
-const PAGES: Page[] = [overviewPage, orgPage, projectsPage, runtimePage, dataflowPage, assetsPage];
+const PAGES: Page[] = [overviewPage, orgPage, projectsPage, timelinePage, runtimePage, dataflowPage, assetsPage];
 
 function pageFor(id: string): Page {
   for (const p of PAGES) if (p.id === id) return p;

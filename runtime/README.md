@@ -200,17 +200,22 @@ anc board serve <vault> [--addr 127.0.0.1:8787]
 | 总览 | 现在有没有事？ | 所有人 / 老板 | 投影 + 校验发现 | 已接入 |
 | 组织 | 公司长什么样、边界在哪？ | 管理者 / FDE | 投影（域 / 角色 / 成员 / 路由） | 已接入 |
 | 项目 | 谁在做什么、到几号、卡住找谁？ | 跟进的人 / 老板 | 投影（`projects.md`） | 已接入 |
+| 时间线 | 卡在哪、谁在跟、下一步是谁的决定？ | 跟进的人 / 老板 | 决策与执行的留存（`timeline/*.jsonl`） | 已接入（**不是审计**：事件面缺） |
 | 运行态 | 每个 bot 活着吗、真的能回话吗？ | 运维 / FDE | 防假绿探针（socket 真拨 + 会话事实） | 已接入 |
 | 数据流 | 谁可以做什么、通道开着吗？ | 管理者 / 老板 | 策略面（真相源）+ 执行面（gateway 真吃的那份 config） | 已接入（**只有策略面**，事件面缺） |
 | 原料 | 原料有哪些、多久没动了？ | 所有人 | 真相源的数据目录 + 目录里现在有什么 | 已接入（**原料 ≠ 沉淀**，沉淀层见 #26 / #27） |
-- **数据源是四份各管各的契约**：投影（`anc.board/v1`，改组织才动）、校验发现（与 `anc org check`
+- **数据源是六份各管各的契约**：投影（`anc.board/v1`，改组织才动）、校验发现（与 `anc org check`
   同一张规则表）、运行态（`anc.runtime/v1`，读 gateway 的 data 目录）、数据流（`anc.dataflow/v1`）、
-  原料（`anc.assets/v1`）。**各判各的**：一份坏了不该让别的页跟着空着。
+  原料（`anc.assets/v1`）、决策与执行留存（`anc.timeline/v1`）。**各判各的**：一份坏了不该让别的页跟着空着。
   看板不自己算口径，也不另存一份 —— 免得看板和 persona 各说各话。
 - **数据流页只说执行面与策略面**：通道口径读的是 gateway **真吃着**的那份 `config.toml`
   （「我们打算让它吃什么」不算数）；有没有越权尝试属于**事件面**，审计还没实现，页内如实列缺。
 - **原料页不叫沉淀**：数得出目录里有几个文件、多久没动，但「有文件」离「有资产」差着一整层，
   所以标题、口径、页脚全写「原料」。页名保留「沉淀」是因为那才是这一块最终要回答的问题。
+- **时间线页是「留存」，不是「审计」**：那一行行是人和 agent 用 `anc timeline add` **自己写下来的**，
+  看板只折叠、只呈现 —— 不替谁总结，也不编一条。三档**只按 status 配色**（`done` / `running` /
+  `blocked`·`failed`），**认不出的词原样保留、画灰**：以后加词只改数据、不改代码。
+  一个 case 多行 = 一次推进，表里取最后一条当当前态，历史一行不删。
 - **只读是硬约束**：只放行 GET / HEAD，别的方法一律 405。没有写入口，就不存在越权写入口。
 - **默认只绑 `127.0.0.1`**：看板里有组织与项目信息。要给别人看请走 ssh 端口转发；
   绑到别处会打警告（不拦你，但你得知道自己在干什么）。
@@ -218,16 +223,39 @@ anc board serve <vault> [--addr 127.0.0.1:8787]
   到不了报告的报错，也会把本机绝对路径摘成 `<vault>` 再出门。
 - **红档不隐藏**：`/api/issues` 如实端出校验发现，界面把它摆在最上面 ——
   vault 坏了的时候，看板正是用来看「哪里坏了」的。
-- **六页都接上了，不代表每页都答得全**：答不了的部分在页内单独一块如实列（数据流的**事件面**、
-  沉淀的**沉淀层**），导航上也直接标「已接入 / 未接入」，不靠人点进去才发现。
+- **七页都接上了，不代表每页都答得全**：答不了的部分在页内单独一块如实列（数据流的**事件面**、
+  沉淀的**沉淀层**、时间线的**审计**），导航上也直接标「已接入 / 未接入」，不靠人点进去才发现。
   **不编数据填界面** —— 宁可承认不知道，也不把「真相源里定义了角色」说成「bot 在跑」
   （与「防假绿」同一条纪律）。
+- **总览页的「还有哪几页没接数据源」是从 `PAGES` 现算的**（以前手抄一份，写着「两块还没接」，
+  而导航早把那两页标成「已接入」了 —— 手抄的清单迟早跟导航说不一样）。
 - **路由是浏览器原生 hash**（`#/org`）：加一页＝加一条 `Page`（`boardui/src/app.ts`），
   后端零改动 —— 已接入的页吃的是同一份 `/api/board` + `/api/issues`，切页不重新打网络。
 
 前端源码是 TS（`runtime/boardui/`），**只在构建期存在**：`npm run build` 打成
 `internal/board/ui/app.js`，再由 `go:embed` 打进二进制。交付物里没有 node、没有 node_modules，
 现场编译也不需要 npm —— **产物要一起提交**，否则二进制里还是旧界面（有测试盯着这条）。
+
+### 决策与执行的留存（`anc timeline`）
+
+```
+anc timeline add <vault> -by <谁> -title <一句话> [选项]
+anc timeline list <vault> [--limit N] [--before <RFC3339>] [--band <档>] [--status <词>] [--json]
+```
+
+「卡在哪、谁拍的板、agent 怎么执行的、成没成、根因是什么」—— 落成**行文本**，
+真相源是 `timeline/<YYYY-MM>.<作者>.jsonl`（append-only）。看板的「时间线」页就是它的只读出口。
+
+- **为什么不是数据库**：vault 归 git 管，留存记录最需要的恰恰是 diff / review / 回滚 ——
+  二进制库这三样全丢。
+- **为什么按作者分片**：两个 agent 同时写也碰不到同一个文件 —— 并发就地消掉，不靠锁。
+- **词表不锁死**：配色只认 `done`(绿) / `running`(黄) / `blocked`·`failed`(红)；
+  认不出的词**原样保留**、画灰（`--band unknown` 能把它们挑出来）。加词只改数据。
+- **不设门禁**：`add` 不校验「谁能写」—— 那是授权层的事（#32–#35）；`kind` 是约定、不是白名单，
+  写别的也收。
+- **一个 case 多行 = 一次推进**：折叠取最后一条当当前态，`recent` 带最近 5 条，历史一行不删。
+- **目录不存在 = 还没开始记 = 空时间线，不是错**（刚 `init` 的机器不该因此报红）。
+- 坏行只报 `文件名:行号`，不带本机路径（看板是观测面，不是凭据面）。
 
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
@@ -250,6 +278,15 @@ anc board serve <vault> [--addr 127.0.0.1:8787]
   各渲一遍，对着真沙箱断言页面上确实出现了真数据：`demo-alice` / `通道关着` / `dontAsk` /
   `10-knowledge` / `最近动的文件` 等）。**没验的**：控制台错误数（要 CDP 才测得到 —— 2026-10-08 实测：`--enable-logging=stderr`（含 `--v=1` / `--vmodule=console=2`）这条路**抓不到 JS 控制台**，拿一个故意 `console.error` + `throw` 的对照页跑，也是 0 命中。所以「0 条」不等于干净，别拿它当证据；`--dump-dom` 只证明页面把真数据渲出来了）、
   真机观感（字体、毛玻璃、屏宽折行）。
+- 时间线页（2026-10-08）：端点（空目录不是错、折叠、坏行不泄本机路径、分页不重不漏、按档 / 按状态筛、
+  参数错不当 500）与 CLI（`add` 真写进沙箱 vault、按作者分片、`list --json` / `--limit` 给出 `--before`
+  游标 / `--band red`）都有测试。**浏览器侧也真跑过**：新装 `dist/anc.exe` 起在 `127.0.0.1:8787`，
+  在真沙箱 vault 里用 `anc timeline add` 记了 4 条（两个 case + 一条独立、含一个**认不出的 status 词**），
+  `--dump-dom "#/timeline"` 断言页面上确实出现了真数据与真原词（`feishu-reply`、`waiting-upstream`、
+  `灰 · 认不出的词`、`demo-bob`），并对着 `/api/timeline` 核过 `counts`（1 黄 / 1 红 / 1 灰）。
+  **没验的**：真机观感（字体、毛玻璃、屏宽折行）；控制台错误数（理由同上，要 CDP 才测得到）。
+  上面那三条 CDP 级断言（导航点击切换 / 浏览器后退 / 零控制台错误）仍是**六页时**跑的结论，
+  加了第七页之后**没有重跑**；这一页的 DOM 级证据只到「真数据真渲出来了」。
 
 ## 装载（`anc apply`）
 
@@ -343,7 +380,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | 路径 | 说明 |
 |---|---|
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；D4/D5/D6 已拍板，D1/D2 未拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `board` / `org` / `version`） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
@@ -351,6 +388,9 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/board/ui/` | 看板前端**产物**（手写 `index.html` + 构建出的 `app.js`）；`go:embed` 进二进制 |
 | `boardui/` | 看板前端**源码**（TS + esbuild；`npm run build` 出到 `internal/board/ui/`） |
 | `boardserve.go` | `anc board serve` 的 CLI（默认只绑本机、优雅退出） |
+| `timeline.go` | `anc timeline add` / `list` 的 CLI（append-only，不改旧行） |
+| `internal/timeline/` | 决策与执行留存的读写与折叠（纯 Go 标准库；按作者分片、词表不锁死） |
+| `internal/board/timeline.go` | 时间线的只读出口（`/api/timeline`，`anc.timeline/v1`） |
 | `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |

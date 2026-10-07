@@ -114,7 +114,7 @@ func (s *Server) handleDataflow(w http.ResponseWriter, r *http.Request) {
 	case view.Relay.TimeoutSecs == 0:
 		view.Relay.Note = "通道关着（v1 口径：机制保留、默认零绑定）。要通得走授权模型（SPEC §6）。"
 	default:
-		view.Relay.Note = "通道**开着**，且不是 v1 口径的 0 —— 谁开的、谁同意的，这一页答不了。"
+		view.Relay.Note = "通道开着，且不是 v1 口径的 0 —— 谁开的、谁同意的，这一页答不了。"
 	}
 	if v, inputs, at, ok := render.Fingerprint(string(text)); ok {
 		view.Exec.HasFingerprint = true
