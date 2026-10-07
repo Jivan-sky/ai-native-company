@@ -437,7 +437,7 @@ func (o *Org) Validate(p *Policy) *Report {
 		}
 		if m.Role != "devbot" && len(r.AllowedTools) == 0 {
 			rep.Add(p.Issue("role.allowed_tools.empty", "roles/"+m.Role+"/persona.md",
-				"allowed_tools 为空；除 devbot 外应给工具白名单（「空 = 全开」尚未实测，故只告警）"))
+				"allowed_tools 为空：dontAsk 下没预授权的工具会被自动拒绝，bot 连得上却干不了活（实测）；请填这个角色真正需要的工具名，或在 company.md 里显式覆盖这一档"))
 		}
 	}
 	if devbots != 1 {
