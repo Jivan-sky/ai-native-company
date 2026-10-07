@@ -216,6 +216,16 @@ Bot     1 ── N Platform 绑定（一个 bot 可绑多平台账号）
 | P2 | Slack、Telegram | 海外团队 |
 | P3 | 微信 iLink、Discord | iLink 仅单聊 + 扫码续命，标 experimental，永不做主通道 |
 
+- **聊天窗是观测面，不是工作日志**（2026-10-07 定）：bot 在 IM 里**只出结果**。
+  cc-connect 的 `[display].mode` 三档，默认 `quiet` —— 思考与每一次工具调用**不发消息**，
+  文本合并进一张卡片。理由是实测出来的：`full` 会把过程逐条推给客户，窗口被塞满之后，
+  人反而看不清结论是什么。要过程（排查）就在 `company/company.md` 写 `display: full`，
+  这是**一个旋钮**：quiet / compact 连带把 footer 也关掉（它第二行会推 `work_dir`，
+  即本机绝对路径 —— 与 §2.3 相冲），full 则全开。写错的值是**红档**：上游只认这三个词，
+  写错它拒绝启动 = 全部 bot 下线（`company.display.invalid`）。
+  与之配套的是 persona 段 5「风格」：**只给结论、不复述过程**写在角色层，不写死在 base 层 ——
+  客服要亲切详细、devbot 要极简，这属于岗位差异，不是公司常量。
+
 ### 4.2 L2 运行层 —— 真正干活的地方
 
 四件事，缺一件都跑不起来。

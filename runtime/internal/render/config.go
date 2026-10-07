@@ -42,7 +42,7 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 	if opt.Host.DataDir != "" {
 		fmt.Fprintf(&b, "data_dir = %s\n\n", tomlString(opt.Host.DataDir))
 	}
-	b.WriteString("[display]\nmode = \"full\"\n")
+	writeDisplaySection(&b, o.Company.DisplayMode())
 	writeRelaySection(&b)
 
 	// 输出顺序：members 目录名排序 + devbot 殿后 —— 确定性让 diff 稳定。
@@ -122,6 +122,31 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		p.Warns = append(p.Warns, "defaults.auto_compress_max_tokens 已配置，但渲染器**未输出** auto_compress 段：字段名在上游设计里也标为待实测（W1 实测项 ④）")
 	}
 	return p, nil
+}
+
+// writeDisplaySection 出 [display] 段。
+//
+// 口径：**聊天窗是给人看的观测面，不是 agent 的工作日志。**
+// cc-connect 的 full 会把「思考」和每一次「工具调用」各发一条消息出去，
+// 窗口被过程塞满之后，人反而看不清结论是什么 —— 所以出厂默认 quiet。
+//
+// 三档各自的**连带项一起定死在这里**，不做「模式 × 开关」的组合：
+//
+//	quiet / compact —— 只出结果，连 footer 一起关。
+//	                   footer 第二行会把 work_dir（本机绝对路径）推进 IM，
+//	                   与 SPEC §2.3「观测面不泄漏本机布局」相冲。
+//	full            —— 排查用，全开（思考 + 工具 + footer），要看就得连着看。
+//
+// 要过程就在真相源 company.md 里写 display: full，别手改这个文件。
+func writeDisplaySection(b *strings.Builder, mode string) {
+	b.WriteString("# display：聊天窗是给人看的观测面，不是 agent 的工作日志。\n")
+	b.WriteString("# 改这里会被 `anc render` 覆盖 —— 要调档位请在 company/company.md 写 display。\n")
+	fmt.Fprintf(b, "[display]\nmode = %s\n", tomlString(mode))
+	if mode == org.DisplayFull {
+		b.WriteString("reply_footer = true\n")
+		return
+	}
+	b.WriteString("reply_footer = false\n")
 }
 
 // WorkDir 是这个 bot 的 cwd：成员各自的家目录，devbot 是仓库本体（改坏能回滚）。

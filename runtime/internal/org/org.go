@@ -13,16 +13,51 @@ import (
 
 // Company 是 company/company.md 的机器可读部分。
 type Company struct {
-	Name            string
-	ID              string
-	Language        string
-	Timezone        string
-	Platform        string
+	Name     string
+	ID       string
+	Language string
+	Timezone string
+	Platform string
+	// Display 是 bot 在 IM 里的呈现档：quiet / compact / full（空 = 出厂默认 quiet）。
+	// 它直接进 cc-connect 的 [display].mode —— 聊天窗是**给人看的观测面**，
+	// 不是 agent 的工作日志，所以默认只出结果、不把「思考」「工具调用」各发一条。
+	Display         string
 	Admins          []string
 	SyncIntervalMin int
 	Defaults        Defaults
 	Fallback        *FallbackProvider
 	Body            string
+}
+
+// [display].mode 的合法取值（cc-connect 的口径，多一个都不认）。
+const (
+	DisplayQuiet   = "quiet"   // 隐藏思考与工具调用，所有文本合并进一张卡片 —— 只出结果（出厂默认）
+	DisplayCompact = "compact" // 隐藏思考与工具调用，文本仍分段发
+	DisplayFull    = "full"    // 思考、工具调用各发一条 —— 只在排查时用
+)
+
+// DisplayModes 是给报错文案用的合法值清单（顺序 = 从静到吵）。
+var DisplayModes = []string{DisplayQuiet, DisplayCompact, DisplayFull}
+
+// ValidDisplayMode 判一个值认不认识。空串算合法 —— 它是「没写」，不是「写错」。
+func ValidDisplayMode(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, m := range DisplayModes {
+		if s == m {
+			return true
+		}
+	}
+	return false
+}
+
+// DisplayMode 是生效的呈现档：没写就是出厂默认。
+func (c Company) DisplayMode() string {
+	if c.Display == "" {
+		return DisplayQuiet
+	}
+	return c.Display
 }
 
 // Defaults 是公司级默认值；成员/角色可逐级覆盖 model。
@@ -148,6 +183,9 @@ func Load(root string) (*Org, error) {
 	}
 	if c.Platform == "" {
 		c.Platform = "feishu"
+	}
+	if c.Display, err = cd.Str("display"); err != nil {
+		return nil, err
 	}
 	if c.Admins, err = cd.StrList("admins"); err != nil {
 		return nil, err
@@ -408,6 +446,13 @@ func (o *Org) Validate(p *Policy) *Report {
 		rep.Add(p.Issue("company.defaults.mode.bypass", companyFile,
 			"defaults.mode 不许是 bypassPermissions（SPEC §6-5，无豁免开关）"))
 	}
+	// 这个值直接进 cc-connect 的 [display].mode；上游只认 full / compact / quiet，
+	// 写错它**拒绝启动** —— 不是「显示难看」，是全部 bot 下线，所以是红档。
+	if !ValidDisplayMode(o.Company.Display) {
+		rep.Add(p.Issue("company.display.invalid", companyFile,
+			"display=%q 不认识：cc-connect 只吃 %s（不写 = 出厂默认 %s）",
+			o.Company.Display, strings.Join(DisplayModes, " / "), DisplayQuiet))
+	}
 
 	var devbots int
 	seenAppID := map[string]string{}
@@ -487,11 +532,11 @@ func (o *Org) Validate(p *Policy) *Report {
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
 func (o *Org) InputsHash(h Host) string {
 	var b strings.Builder
-	b.WriteString("v4\n") // v4：立项书副本落点进入指纹（v3 是项目表，v2 是 member.domains 与域表）
+	b.WriteString("v5\n") // v5：company.display 进指纹（v4 是立项书副本落点，v3 是项目表，v2 是 member.domains 与域表）
 	fmt.Fprintf(&b, "host|%s|%s|%s\n", h.VaultRoot, h.HomesRoot, h.DataDir)
 	c := o.Company
-	fmt.Fprintf(&b, "company|%s|%s|%s|%s|%s|%v|%d|%s|%s|%d|%s\n",
-		c.Name, c.ID, c.Language, c.Timezone, c.Platform, c.Admins, c.SyncIntervalMin,
+	fmt.Fprintf(&b, "company|%s|%s|%s|%s|%s|%s|%v|%d|%s|%s|%d|%s\n",
+		c.Name, c.ID, c.Language, c.Timezone, c.Platform, c.Display, c.Admins, c.SyncIntervalMin,
 		c.Defaults.Model, c.Defaults.Mode, c.Defaults.AutoCompressMaxTokens, c.Body)
 	for _, name := range sortedKeys(o.Roles) {
 		r := o.Roles[name]

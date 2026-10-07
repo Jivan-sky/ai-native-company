@@ -53,6 +53,7 @@ var DefaultRules = []Rule{
 	{"company.name.missing", LevelFatal, false, "缺公司名，persona 段 1 会渲染成空"},
 	{"company.id.format", LevelFatal, false, "id 会进 launchd label 与 project 名前缀，非 ASCII 会炸服务管理"},
 	{"company.platform.unsupported", LevelFatal, false, "v1 只支持 feishu，别的平台没有渲染路径"},
+	{"company.display.invalid", LevelFatal, false, "这个值直接进 cc-connect 的 [display].mode，上游只认 full / compact / quiet；写错它拒绝启动 = 全部 bot 下线"},
 	{"company.defaults.model.missing", LevelFatal, false, "三级回退（member → role → company）没有终点，会渲染出空 model"},
 	{"company.defaults.mode.bypass", LevelFatal, true, "SPEC §6-5 无例外红线：角色 bot 一律不授予 bypass"},
 	{"company.devbot.count", LevelFatal, false, "SPEC §1：一个公司恰好一个启用中的 devbot"},
