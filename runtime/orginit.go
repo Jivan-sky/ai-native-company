@@ -192,19 +192,47 @@ func cmdOrgInit(args []string) int {
 	fmt.Printf("   数据目录 %s\n", strings.Join(dirs, ", "))
 	fmt.Printf("   文件   %d 个\n\n", written)
 
-	// 自检：骨架本身必须能过校验，否则是我模板写错了，不是人的问题。
-	o, err := org.Load(abs)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "错误：生成的骨架没通过校验（模板有问题，请报给我）：\n%v\n", err)
-		return 1
+	// 自检：骨架里「故意留白」的红档是预期内的（留给人填），其余红档 = 我模板写错了。
+	// 两者必须分开 —— 否则每次 init 都会把「请你填」误报成「模板 bug，请报给我」。
+	blanks := map[string]bool{"role.allowed_tools.empty": true}
+	var expectedFatal []org.Issue
+	o, loadErr := org.Load(abs)
+	if loadErr == nil {
+		printIssues(o.Warnings)
+	} else {
+		le, ok := loadErr.(*org.LoadError)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "错误：生成的骨架没通过校验（模板有问题，请报给我）：\n%v\n", loadErr)
+			return 1
+		}
+		var unexpected []org.Issue
+		for _, i := range le.Report.Fatal() {
+			if blanks[i.Rule] {
+				expectedFatal = append(expectedFatal, i)
+				continue
+			}
+			unexpected = append(unexpected, i)
+		}
+		if len(unexpected) > 0 {
+			fmt.Fprintf(os.Stderr, "错误：生成的骨架没通过校验（模板有问题，请报给我）：\n  - %s\n",
+				strings.Join(org.IssueStrings(unexpected), "\n  - "))
+			return 1
+		}
+		printIssues(le.Report.Warns())
 	}
-	printIssues(o.Warnings)
 	fmt.Println()
+	if len(expectedFatal) > 0 {
+		fmt.Printf("   骨架里 %d 条红档是**故意**的（第 2 条要你填的就是它）：\n", len(expectedFatal))
+		for _, i := range expectedFatal {
+			fmt.Printf("     - %s\n", i)
+		}
+	}
 	fmt.Println("   下一步（骨架不是成品）：")
 	fmt.Println("   1) members/*/persona.md 里的 app_id / open_id 是**占位符**，换成真实的；")
 	fmt.Println("      发 /whoami 给 bot 可以拿 open_id。不换就连不上、也认不出谁在说话。")
-	fmt.Println("   2) roles/*/persona.md 的 allowed_tools 现在是空的 —— 按 SPEC §6-5，")
-	fmt.Println("      除 devbot 外都该给工具白名单，别停在空值上。")
+	fmt.Println("   2) roles/*/persona.md 的 allowed_tools 是故意留空的，所以校验现在是红的：")
+	fmt.Println("      实测 dontAsk 下没预授权的工具会被自动拒绝，空着 = bot 连得上却干不了活。")
+	fmt.Println("      填上这个角色真正需要的工具名，红档才会消，anc render 也才会放行。")
 	fmt.Println("   3) 每个数据目录的 CLAUDE.md 首句会进 persona 路由表，写清楚它才找得着路。")
 	fmt.Println("   4) 立项书副本放 charters/<slug>/（目录名 = projects.md 的 slug）；")
 	fmt.Println("      真源在客户侧，projects.md 的 source 列指向它。")

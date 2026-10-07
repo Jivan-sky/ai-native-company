@@ -165,7 +165,7 @@ disabled: false              # true = 渲染时跳过该 project(离职停用而
 | `options.work_dir` | `~/.anc/homes/<member>`;devbot → vault 根 | init 建目录 + attachments/ |
 | `options.model` | member.model ∥ role.model ∥ company.defaults.model | 三级回退 |
 | `options.mode` | role.mode(devbot = bypassPermissions) | 角色 bot 一律禁 bypass,校验器强制 |
-| `options.allowed_tools` | role.allowed_tools | 空数组 = 不写该键(全开,仅 devbot 允许) |
+| `options.allowed_tools` | role.allowed_tools | 空数组 = 不写该键(**仅 devbot 允许**;非 devbot 空白名单是红档、拦渲染 —— 实测 `dontAsk` 下没预授权的工具一律被自动拒绝,空白名单 = bot 连得上却干不了活) |
 | `options.append_system_prompt` | 渲染后 persona,`'''` 多行 literal | §4.2/§4.3 |
 | `[[projects.platforms]] type` | `"feishu"` | |
 | `platforms.options.app_id / app_secret` | member.feishu.app_id / `${ANC_FEISHU_SECRET_<NAME>}` | |

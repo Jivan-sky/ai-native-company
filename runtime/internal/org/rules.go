@@ -73,7 +73,7 @@ var DefaultRules = []Rule{
 
 	// —— 角色层 ——
 	{"role.bypass.not_devbot", LevelFatal, true, "SPEC §6-5 无例外红线：只有 devbot 可以有 bypassPermissions"},
-	{"role.allowed_tools.empty", LevelWarn, false, "「空 allowed_tools = 全开」尚未实测；先告警，实测后再定档"},
+	{"role.allowed_tools.empty", LevelFatal, false, "实测（上游 schema 790 行）：dontAsk 下未预授权的工具一律自动拒绝 —— 空白名单的 bot 连得上却干不了活，现场还全是绿的"},
 	{"role.persona.section_unknown", LevelFatal, false, "canonical registry 纪律：角色层不许私藏事实（段名清单见 company.persona_sections）"},
 
 	// —— persona 文本 ——

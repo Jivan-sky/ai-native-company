@@ -2,7 +2,8 @@
 role: manager
 title: {{ROLE_TITLE}}
 mode: dontAsk
-# 空 = 未定：anc 会告警（「空 = 全开」尚未实测）。请填这个角色真正需要的工具名。
+# 空 = 干不了活：dontAsk 下没预授权的工具会被自动拒绝（实测），anc 因此**拒绝渲染**。
+# 填这个角色真正需要的工具名；只读起步可以写 [Read, Grep, Glob]。
 allowed_tools: []
 vault_scope: []
 skills: []

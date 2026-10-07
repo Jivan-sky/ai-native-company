@@ -85,7 +85,7 @@ vault/
 ```yaml
 policy:
   member.feishu.open_id.format: off      # 平台是可变层，格式不该拦人
-  role.allowed_tools.empty: fatal        # 这个客户要求更严
+  persona.slot.unreplaced: fatal         # 这个客户要求模板必须零未替换槽位
 ```
 
 - 三档：`fatal` 拦落盘 / `warn` 照走但回显 / `off` 不报。默认档只有一条判据 ——
@@ -271,8 +271,9 @@ anc board serve <vault> [--addr 127.0.0.1:8787]
 └─ <数据目录>/CLAUDE.md        首句即 persona 路由表里的说明
 ```
 
-**骨架不是成品**：`app_id` / `open_id` 是占位符，`allowed_tools` 故意留空（会一直告警顶着），
-直到人把它们填成真的。生成完会自动跑一次校验并把非红档发现打出来。
+**骨架不是成品**：`app_id` / `open_id` 是占位符，`allowed_tools` 故意留空 —— 空着就是红档，
+`anc render` 会被拦住（实测：`dontAsk` 下没预授权的工具会被自动拒绝，空着 = bot 连得上却干不了活）。
+`init` 会明确告诉你哪几条红档是「故意留的」，填完才会放行。
 
 ## 构建
 
