@@ -352,6 +352,28 @@ func (o *Org) Member(name string) (Member, bool) {
 	return Member{}, false
 }
 
+// AdminLabels 把 company.admins 解成「人名（岗位）」，供**给人看**的地方使用
+// （探针报红要说清交给谁、看板运行态页同理）。
+//
+// 取不到成员（名字写错 / 没有 display_name）时**原样返回那个名字** ——
+// 报红时宁可给一个光秃秃的标识符，也不要去猜一个可能是错的人。
+func (o *Org) AdminLabels() []string {
+	out := make([]string, 0, len(o.Company.Admins))
+	for _, name := range o.Company.Admins {
+		m, ok := o.Member(name)
+		if !ok || m.DisplayName == "" {
+			out = append(out, name)
+			continue
+		}
+		label := m.DisplayName
+		if m.Role != "" {
+			label += "（" + m.Role + "）"
+		}
+		out = append(out, label)
+	}
+	return out
+}
+
 // ModelFor 三级回退：member.model ∥ role.model ∥ company.defaults.model。
 func (o *Org) ModelFor(m Member) string {
 	if m.Model != "" {

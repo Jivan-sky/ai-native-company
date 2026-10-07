@@ -128,6 +128,8 @@
   .card.stat .k { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
   .card.stat .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
   .cannot { color: #8a3b34; }
+  /* 状态点 + 文字：.dot 是固定宽高，得靠 inline-flex 才撑得开 */
+  .st { display: inline-flex; align-items: center; gap: 8px; }
 
   .tw { overflow-x: auto; margin-top: 16px; }
   .tw > table { margin-top: 0; }

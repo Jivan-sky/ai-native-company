@@ -22,6 +22,12 @@ import (
 type Server struct {
 	Vault string           // vault 根（绝对路径）
 	Now   func() time.Time // 注入时钟（测试用）；nil = time.Now
+
+	// DataDir 是 gateway 的 data 目录（socket 与会话记录都在这）。
+	// 空 = 运行态没接入：`/api/runtime` 会如实回 wired=false，而不是编一份绿灯。
+	// 它和 Vault 是两类东西 —— Vault 是真相源，DataDir 是运行态现场，
+	// 所以运行态走独立端点，不并进投影契约（见 runtime.go）。
+	DataDir string
 }
 
 func (s *Server) now() time.Time {
@@ -36,6 +42,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/board", s.handleBoard)
 	mux.HandleFunc("/api/issues", s.handleIssues)
+	mux.HandleFunc("/api/runtime", s.handleRuntime)
 	mux.Handle("/", http.FileServerFS(UIFS()))
 	return readOnly(mux)
 }

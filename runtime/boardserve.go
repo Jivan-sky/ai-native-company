@@ -20,13 +20,15 @@ import (
 const boardServeUsage = `anc board serve —— 起 ANC 看板（只读）
 
 用法：
-  anc board serve <vault 目录> [--addr 127.0.0.1:8787]
+  anc board serve <vault 目录> [--addr 127.0.0.1:8787] [--data <data 目录>]
 
 看板读的是真相源（vault）的**实时投影**：改完 vault 刷新即见，不缓存。
 前端（手写的 html + 构建期打出的 js）已经嵌在这个二进制里 —— 不需要 node、不需要外网。
 
 选项：
   --addr <host:port>   监听地址（默认只绑本机 127.0.0.1；绑到别处会打警告）
+  --data <目录>        gateway 的 data 目录（默认 <vault>/../data）—— 给了它，「运行态」
+                       页才接得上；默认口径同 anc probe 命令，两边看的是同一份现场。
 
 安全口径：
   - 只读：只放行 GET / HEAD，没有任何写入口；
@@ -41,6 +43,7 @@ const boardServeUsage = `anc board serve —— 起 ANC 看板（只读）
 func cmdBoardServe(args []string) int {
 	fs := flag.NewFlagSet("board serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8787", "监听地址")
+	data := fs.String("data", "", "gateway data 目录（运行态页用）")
 	flagArgs, posArgs := splitArgs(args, map[string]bool{})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -59,6 +62,14 @@ func cmdBoardServe(args []string) int {
 	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
 		fmt.Fprintf(os.Stderr, "错误：vault 目录不存在或不是目录：%s\n", abs)
 		return 1
+	}
+	// 运行态目录：默认与 `anc probe` 同一口径（<vault>/../data）。
+	// 目录不在**不拦**看板 —— 真相源投影仍然要看得到；运行态页会自己报「没接上」。
+	dataDir := *data
+	if dataDir == "" {
+		dataDir = filepath.Join(filepath.Dir(abs), "data")
+	} else if a, err := filepath.Abs(dataDir); err == nil {
+		dataDir = a
 	}
 
 	ln, err := net.Listen("tcp", *addr)
@@ -88,13 +99,18 @@ func cmdBoardServe(args []string) int {
 	fmt.Printf("ANC 看板已起（只读）：\n")
 	fmt.Printf("  地址   http://%s\n", urlHost)
 	fmt.Printf("  vault  %s\n", abs)
+	if st, err := os.Stat(dataDir); err == nil && st.IsDir() {
+		fmt.Printf("  data   %s（运行态页已接入）\n", dataDir)
+	} else {
+		fmt.Printf("  data   %s（没有这个目录 —— 运行态页会报「没接上」）\n", dataDir)
+	}
 	fmt.Printf("  退出   Ctrl-C\n\n")
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	srv := &http.Server{
-		Handler:           (&board.Server{Vault: abs, Now: time.Now}).Handler(),
+		Handler:           (&board.Server{Vault: abs, DataDir: dataDir, Now: time.Now}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	errc := make(chan error, 1)

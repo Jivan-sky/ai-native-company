@@ -35,8 +35,21 @@ type BoardView = {
 type Finding = { rule: string; level: string; where: string; msg: string };
 type Issues = { ok: boolean; fatal: Finding[]; warn: Finding[]; error: string };
 
+// 运行态观测（`/api/runtime`，schema = anc.runtime/v1）—— 它与 anc.board/v1 是**两份**
+// 契约：一份讲真相源长什么样，一份讲运行态健不健康。别把两者混着用。
+type RuntimeBot = { project: string; state: string; why: string };
+type RuntimeView = {
+  schema: string; wired: boolean; gateway: string; gateway_why?: string;
+  bots: RuntimeBot[]; extras?: string[];
+  handlers: string[]; handler_why?: string; error?: string;
+};
+
 // 一次取数、全程共用：已接入的页吃的是同一份投影，切页不重新打网络（按「刷新」才重取）。
-type Data = { board: BoardView | null; issues: Issues; err: string };
+type Data = {
+  board: BoardView | null; issues: Issues;
+  runtime: RuntimeView | null; runtimeErr: string;
+  err: string;
+};
 
 type Attrs = Record<string, string>;
 type Kid = Node | string;
@@ -155,17 +168,23 @@ async function getJSON<T>(url: string): Promise<Fetched<T>> {
 const emptyIssues = (err: string): Issues => ({ ok: false, fatal: [], warn: [], error: err });
 
 async function fetchData(): Promise<Data> {
-  const [boardRes, issuesRes] = await Promise.all([
+  const [boardRes, issuesRes, runtimeRes] = await Promise.all([
     getJSON<BoardView & { error?: string }>("/api/board"),
     getJSON<Issues>("/api/issues"),
+    getJSON<RuntimeView>("/api/runtime"),
   ]);
   const issues = issuesRes.body ?? emptyIssues(issuesRes.err);
+  const rt = runtimeRes.body;
+  const runtime = rt && typeof rt.schema === "string" && rt.schema !== "" ? rt : null;
+  const runtimeErr = runtime !== null
+    ? ""
+    : (runtimeRes.err !== "" ? runtimeRes.err : "运行态读取失败（HTTP " + runtimeRes.status + "）");
   const schema = boardRes.body?.schema;
   if (boardRes.body && typeof schema === "string" && schema !== "") {
-    return { board: boardRes.body, issues, err: "" };
+    return { board: boardRes.body, issues, runtime, runtimeErr, err: "" };
   }
   const why = boardRes.body?.error ?? boardRes.err ?? ("看板数据读取失败（HTTP " + boardRes.status + "）");
-  return { board: null, issues, err: why };
+  return { board: null, issues, runtime, runtimeErr, err: why };
 }
 
 // ---------- 可复用的块 ----------
@@ -214,11 +233,10 @@ function linkTo(id: string): Kid {
 
 function notWiredIndex(): Kid {
   const rows: Kid[][] = [
-    [linkTo("runtime"), "每个 bot 活着吗、真的能回话吗？", "防假绿探针（阶段 C）"],
     [linkTo("dataflow"), "谁授权了谁、通道开着吗、有没有越权？", "通道表 / 授权表 / 审计流水"],
     [linkTo("assets"), "沉淀了什么、哪些能复用？", "agent 每日产出"],
   ];
-  return section("三块还没接数据源", "各自一页，如实写明缺什么 —— 不编数据填界面",
+  return section("两块还没接数据源", "各自一页，如实写明缺什么 —— 不编数据填界面",
     table(["页面", "将回答的问题", "缺的数据源"], rows));
 }
 
@@ -337,22 +355,73 @@ function progressGap(): Kid {
       "拍板前这里空着 —— 见 SPEC §13 Q15 与 GitHub #36。"));
 }
 
-// 运行态 —— 读者：运维 / FDE。数据源是阶段 C 的探针，还没有。
+// 运行态三色口径（拍板）：绿 = 近期真回过话；黄 = 运行中 / 这个窗口没观测到；红 = 卡点，需人介入。
+const RUN_STATE: Record<string, { dot: string; label: string }> = {
+  ok: { dot: "dot ok", label: "绿 · 近期回过话" },
+  warn: { dot: "dot warn", label: "黄 · 运行中 / 未观测" },
+  fail: { dot: "dot bad", label: "红 · 卡点，需介入" },
+};
+const runState = (s: string) => RUN_STATE[s] ?? { dot: "dot", label: dash(s) };
+
+// 带颜色的状态点：点 + 文字放进一个 inline-flex，点才有宽度（.dot 是固定宽高）。
+const dotLine = (cls: string, ...kids: Kid[]): HTMLElement =>
+  el("span", { class: "st" }, el("span", { class: cls }), ...kids);
+
+// 运行态 —— 读者：运维 / FDE。数据源是防假绿探针（与 `anc probe` **同一份判据**，只读磁盘）。
+//
+// 它的纪律：判活靠**真拨 socket**、判定靠**真回过话**，都不看「进程在不在」——
+// 进程活着 / engine started 打着绿字 / 却一条也回不了，这个坑真踩过两次。
+// 「现在这一秒能不能回话」的裁判权在**人**：这一页只观测、只报红，不做任何自动处置。
 function renderRuntime(d: Data): Kid[] {
-  const roles = d.board ? d.board.roles.length : 0;
-  return [
-    section("还没接入", "这一页不编数据 —— 把缺口写清楚，比画一个假的绿灯有用",
-      el("div", { class: "grid" },
-        card("这一页要什么数据源", "", [
-          ["是什么", "防假绿探针：服务在册（launchd / systemd）+ 进程存在 + 日志里的功能级就绪标志，三重交叉"],
-          ["为什么", "进程活 ≠ 能回话。只看进程会出假绿"],
-          ["依赖", el("span", { class: "mono" }, "GitHub #17、#23；阶段 C")],
-        ]),
-        card("现在能说的 / 不能说的", "", [
-          ["真源里定义了角色", roles + " 个"],
-          ["它们是不是活着", cannot("判断不了 —— 不把「定义了」当成「在跑」")],
-        ]))),
-  ];
+  const r = d.runtime;
+  if (!r) {
+    return [banner("bad", "读不到运行态", [
+      el("span", {}, d.runtimeErr === "" ? "服务没回 anc.runtime/v1" : d.runtimeErr),
+    ])];
+  }
+  if (!r.wired) {
+    return [banner("warn", "运行态还没接上", [
+      el("span", {}, dash(r.error)),
+      el("br"),
+      el("span", { class: "mono" }, "anc board serve <vault> --data <data 目录>"),
+    ])];
+  }
+
+  const out: Kid[] = [];
+  if ((r.error ?? "") !== "") out.push(banner("bad", "探针跑不动", [el("span", {}, dash(r.error))]));
+
+  const up = r.gateway === "up";
+  out.push(section("gateway", "判活 = 真拨一次 socket，不看文件在不在（残留文件会把「挂了」看成「在跑」）",
+    el("p", { class: "empty" },
+      dotLine(up ? "dot ok" : "dot bad",
+        up ? " 在跑（socket 拨得通）" : " 没在跑：" + dash(r.gateway_why)))));
+
+  const rows: Kid[][] = r.bots.map((b) => {
+    const st = runState(b.state);
+    return [el("span", { class: st.dot }), el("span", { class: "mono" }, dash(b.project)), st.label, b.why];
+  });
+  out.push(section("每个 bot 能不能回话", "只读磁盘事实（socket + 会话记录），不烧 token",
+    r.bots.length === 0
+      ? emptyNote("config 里一个 project 都没有 —— 没有可观测的对象。")
+      : table(["", "bot", "状态", "依据"], rows)));
+
+  out.push(section("出事了交给谁", "探针不做自动处置 —— 谁去处理、怎么处理，由人定",
+    el("p", { class: "empty" },
+      r.handlers.length > 0
+        ? el("span", {}, "报红交给：", el("strong", {}, r.handlers.join("、")), "（公司 admins）")
+        : cannot(dash(r.handler_why)))));
+
+  const extras = r.extras ?? [];
+  if (extras.length > 0) {
+    out.push(banner("warn", "配置外的残留（" + extras.length + " 条，不是运行态问题，但该清）",
+      extras.map((e) => el("span", {}, e))));
+  }
+
+  out.push(section("这一页不做什么", "说清楚边界，比多画几个卡片有用",
+    el("p", { class: "empty" },
+      "不发消息去试（那要烧 token，裁判权也留给人）；不起服务、不重启进程、不清残留 —— ",
+      "这里全是只读观测。「现在能不能回话」由人下判断，这一页只保证不给他一个假的绿灯。")));
+  return out;
 }
 
 // 数据流 —— 读者：管理者 / 老板。数据源是授权表 + 审计，代码零实现。
@@ -401,7 +470,7 @@ const projectsPage: Page = {
   question: "谁在做什么、到几号、卡住找谁？", view: renderProjects,
 };
 const runtimePage: Page = {
-  id: "runtime", label: "运行态", wired: false,
+  id: "runtime", label: "运行态", wired: true,
   question: "每个 bot 活着吗、真的能回话吗？", view: renderRuntime,
 };
 const dataflowPage: Page = {
