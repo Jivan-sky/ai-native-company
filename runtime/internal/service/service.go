@@ -186,8 +186,8 @@ ExecStart=%s
 WorkingDirectory=%s
 Restart=on-failure
 RestartSec=10
-StandardOutput=append:%s
-StandardError=append:%s
+StandardOutput=%s
+StandardError=%s
 
 [Install]
 WantedBy=default.target
