@@ -264,18 +264,25 @@ func cmdApply(args []string) int {
 	if d := diagnose(tail); d != "" {
 		fmt.Printf("  %s\n", d)
 	}
+	probeOpts := probe.Options{Vault: abs, Config: cfgPath, DataDir: dataPath, Admins: o.AdminLabels()}
 	if ready < want {
 		fmt.Fprintf(os.Stderr, "  🔴 platform ready %d/%d（等了 %s）—— 日志：%s\n", ready, want, *wait, logPath)
-		fmt.Fprintf(os.Stderr, "FIX: 先看日志最后几行。凭据桥没生效是最常见的原因 —— 先确认第 5 步那个文件的托管区还在。\n")
+		// 「没到 ready」至少两种病，光看日志分不出来：daemon 压根没跑，还是跑起来了但没到 ready。
+		// 先拨一次 socket 再给 FIX —— 否则会把「没起来」误报成「凭据桥没生效」，
+		// 照那句话去查是白花时间（2026-10-08 实测：Windows 上真因是任务被电源条件挡住，见议题 #42）。
+		if rep, err := probe.Run(probeOpts); err == nil && rep.Gateway == "down" {
+			fmt.Fprintf(os.Stderr, "  🔎 探针：gateway 没在跑（socket 拨不通）—— 病在「起没起来」，不在凭据。\n")
+			fmt.Fprintf(os.Stderr, "FIX: %s\n", startupHint(runtime.GOOS))
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "  🔎 探针：gateway 在跑，但 platform ready 没到齐 —— 这才该往凭据 / 配置方向查。\n")
+		fmt.Fprintf(os.Stderr, "FIX: 确认第 5 步那个文件的托管区还在，再看日志最后几行说了什么。\n")
 		return 1
 	}
 	fmt.Printf("  🟢 platform ready %d/%d\n", ready, want)
 	// 探针只回显，不参与退出码：刚装完、还没人来过话的机器本来就该是黄档，
 	// 把它算成失败等于让「刚装好」永远报错。
-	rep, err := probe.Run(probe.Options{
-		Vault: abs, Config: cfgPath, DataDir: dataPath,
-		Admins: o.AdminLabels(),
-	})
+	rep, err := probe.Run(probeOpts)
 	if err != nil {
 		fmt.Printf("  ⚠️  探针读不动：%v\n", err)
 	} else {
@@ -623,6 +630,22 @@ func diagnose(tail string) string {
 		return "⛔ 上游报 app_id / app_secret 缺失 —— 同上，先看第 5 步那个文件还在不在"
 	}
 	return ""
+}
+
+// startupHint 给「daemon 没起来」这件事一句平台相关的下一步。
+// 与 diagnose() 分工不同：diagnose 认的是**日志指纹**（引擎起来了、但凭据缺），
+// 这里认的是**进程根本没起**（socket 拨不通）—— 两者要查的地方完全不同。
+func startupHint(goos string) string {
+	switch goos {
+	case "windows":
+		return "看计划任务状态 `schtasks /query /tn cc-connect /v /fo LIST`。" +
+			"上游那份任务带「电池供电不启动 / 停止」两条设置，笔记本上会被它挡住（议题 #42）；" +
+			"也可以手工跑一次装载体 ~/.cc-connect/cc-connect-daemon.ps1，看它自己报什么。"
+	case "linux":
+		return "看单元状态 `systemctl --user status cc-connect`。" +
+			"刚写过 drop-in 时最容易少一次 daemon-reload；也可以手工跑一次 ~/.anc/bin/cc-connect，看它自己报什么。"
+	}
+	return "先确认 daemon 进程起没起来。"
 }
 
 func fileSize(path string) int64 {
