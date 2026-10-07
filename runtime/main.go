@@ -104,8 +104,6 @@ func main() {
 		os.Exit(cmdNotify(args))
 	case "trail":
 		os.Exit(cmdTrail(args))
-	case "service":
-		os.Exit(cmdService(args))
 	case "org":
 		if len(args) > 0 && args[0] == "check" {
 			os.Exit(cmdOrgCheck(args[1:]))
@@ -154,8 +152,6 @@ func usage() {
    anc probe <vault> [选项]          运行态探针：每个 bot 到底能不能回话（只读，不烧 token）
    anc notify <vault> [选项]         把报红推到负责人面前（默认 dry-run，--send 才真发）
    anc trail <vault> [选项]          只读聚合：谁问了什么、agent 干了什么、花了多少
-   anc service <render|status|install|uninstall> --org <vault> --bot <成员>
-                                    生成/装载用户级服务单元（默认 dry-run）
   anc version
 
 三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：
