@@ -26,6 +26,15 @@
 >
 > **硬卡点不变**:D4(=`serve` 谁写)/ N1 未拍板前,不往下做阶段 C。D4 的代价本轮已重估((c) 从「写一个网关」降到「写一层编排 + 一个探针」)。
 
+> **平台优先级(2026-10-07 拍板)**:macOS **先不用** —— 立为**显式缺口**(ISSUES **N11**),等有 mac 服务器或 Mac mini 再验,在此之前凡涉及 mac 的结论一律标「未覆盖」。推进顺序:**先把 Windows 与 Linux 跑通**。Windows 只要**基础效果**(跑通测试即可,不为它做深度适配);Linux/macOS 才是目标形态,而 mac 暂无机器,所以 **Linux 权重最高**。
+>
+> **cc-connect 就位(两腿,2026-10-07)**:`~/.anc/bin/` + `~/.anc/host.json` 记 pin,不挂全局 PATH ——
+> Windows `cc-connect.exe` SHA256 `571fce2b…7630968`;Linux `cc-connect` SHA256 `86a8c00d…4c997`;
+> 同一版本 `v1.3.4 / commit 27c1de8f`。Linux 侧 `~/.anc` 权限 700、`host.json` 600。
+> (`host.json` 字段集按 M1-DESIGN §主机局部状态那三个用途起头;config / vault 两个路径在这两台开发机上还不存在,按「禁止占位符」没写。)
+>
+> **下一刀**:Linux 腿上的**服务单元**(`systemd --user`)—— 本机 WSL2 默认 PID 1 是 `init(Ubuntu)`、`systemctl --user` 返回 `offline`,要验得先开 systemd,属**改本机全局配置,需授权**。
+
 - [ ] 从 reference deployment 抽出 generic 部分,形成 **vault 模板仓库**(目录骨架、CONTRIBUTING、路由 CLAUDE.md/AGENTS.md 双文件、templates/)
 - [x] **org 真相源 schema**(members/ + roles/,markdown + frontmatter)与 **config 渲染器**(org → cc-connect config.toml,原子写 + 三重校验 + dry-run)——已落地在 `runtime/`(阶段 A/B;gofmt / vet / `go test -count=1 ./...` 四包实测全绿)
 - [ ] **launchd installer**:gateway / vault-sync / watchdog 三件套 plist 生成(完整 PATH、无 SessionCreate、GUI 会话),`anc doctor` 环境诊断

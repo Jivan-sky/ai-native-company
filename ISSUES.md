@@ -26,6 +26,7 @@
 | [N8](#n8-cc-connect-的-flag-文档与实现不一致) | 本地 · 未开 | cc-connect 的 flag 文档与实现不一致 | 脚本里写错一次就白跑一轮 |
 | [N9](#n9-上游-daemon-默认把明文捕获进服务文件design-d4) | 本地 · 未开 | 上游 daemon 默认把明文捕获进服务文件（= DESIGN D4） | 「全程无明文」的承诺 |
 | [N10](#n10-上游对未知配置键静默忽略) | 本地 · 未开 | 上游对未知配置键静默忽略 | 渲染产物的字段正确性 |
+| [N11](#n11-macos-腿零覆盖显式缺口) | 本地 · 未开 | **macOS 腿零覆盖（显式缺口）** | M1「一台干净 Mac mini」的验收前提 |
 
 ---
 
@@ -431,6 +432,49 @@ RUNBOOK / `host.json` 里出现的全部 cc-connect 命令，逐条实跑通过�
 故意把渲染器里某个键改成 `reset_on_idle_minutes`（多一个 s），`go test ./...` **必须红**。
 
 **卡住谁**：升级 cc-connect 的形态回归（与 DESIGN §7.1 那两行是同一件事）。
+
+---
+
+## N11. macOS 腿零覆盖（显式缺口）
+
+**要定什么**
+
+不是"定"，是**记账**：macOS 这条腿到现在**一次都没跑过**，而且**没有可用的机器**。
+它必须被记成"已知未覆盖"，而不是"大概没问题"。
+
+**现状（2026-10-07）**
+
+| 环节 | Windows | Linux | macOS |
+|---|---|---|---|
+| `anc` 本体（init / org init / org check / render / doctor / service render） | 已跑 | 已跑（交叉编译 linux/amd64） | **零覆盖** |
+| 渲染产物被 cc-connect 接受（真起 gateway） | 已跑 | 已跑（WSL2 Ubuntu） | **零覆盖** |
+| cc-connect 二进制就位（`~/.anc/bin/` + `host.json` 记 pin） | 已跑 | 已跑 | **零覆盖** |
+| 服务单元（schtasks / systemd --user / launchd） | **零覆盖** | **零覆盖** | **零覆盖** |
+| bot 真回话（端到端） | **零覆盖**（无真飞书应用） | **零覆盖** | **零覆盖** |
+
+**为什么现在不验**
+
+- 手上没有 mac 机器、也没有可用的 mac 服务器；WSL2 不是 mac。
+- macOS 恰恰是 **M1 验收的默认形态**（"在一台干净 Mac mini 上"），
+  所以这条缺口**必须显式列出**，否则 M1 的验收句就是悬空的。
+- 最高风险不在 `anc` 本体（Go 单 exe，跨平台风险低），而在 **`launchd` 单元 + 钥匙串**这一层：
+  M1-DESIGN §5 记的第一道闸就是「`launchctl managername` == Aqua / SSH 上下文一切认证皆废」，
+  这是 **mac 专有**的坑，Linux 上验不出任何东西。
+
+**触发条件（满足其一就开测）**
+
+找到可用的 mac 服务器或一台 Mac mini。
+
+**验收**
+
+在真 mac 上跑完：`anc` 三件套 → `anc render --apply` → cc-connect 起 gateway → `launchctl` 装载单元 →
+`anc doctor` 九项全过 → bot 回话。
+
+**卡住谁**
+
+- M1 验收句（§8.3 / §11 W5-6「demo 公司计时验收」）在 mac 上成立与否 —— **现在无法断言**。
+- §7 表里四条 mac 相关的行（launchd 装载、钥匙串解锁、无人值守启动、plist 扫描）。
+- 注意：这条**不卡 Linux/Windows 两腿**的推进 —— 那两条腿已独立跑通，按 PLAN 继续走。
 
 ---
 
