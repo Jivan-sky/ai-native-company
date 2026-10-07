@@ -133,3 +133,61 @@ func TestUnverifiedSectionsWarnInsteadOfSilentlyDropping(t *testing.T) {
 		t.Fatalf("未实测字段被静默丢掉了，warns=%v", p.Warns)
 	}
 }
+
+// v1 口径：bot 间通道的机制保留，但默认零绑定（SPEC §6 不变量 3 / §13 Q13）。
+// 上游对这个段自带默认值且默认是「开着」，所以产物必须显式覆盖它 —— 不写就等于静默放行。
+func TestRelayExplicitlyOffByDefault(t *testing.T) {
+	o, host := fixtureOrg(t, "six")
+	p, err := Build(o, Options{Host: host, Version: "test", Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ok := RelayIn(p.Text)
+	if !ok {
+		t.Fatal("产物没有显式的 [relay] 段：等于沿用上游默认 timeout_secs=120，bot 间通道被静默放行")
+	}
+	if n != 0 {
+		t.Fatalf("v1 口径是零绑定，产物却写了 timeout_secs=%d", n)
+	}
+	if !strings.Contains(p.Text, `visibility = "summary"`) {
+		t.Fatal("「通道只传摘要」这个默认档没有显式写出来")
+	}
+	if gaps := SecurityGaps(p.Text); len(gaps) != 0 {
+		t.Fatalf("自己的产物不该有安全缺口，却报了 %v", gaps)
+	}
+}
+
+// 负向断言：产物里 relay 段被抹掉、或值被改开，都必须被逮住。
+// 这是 GitHub #33 的验收 —— 「渲染器的负向断言能拦住有人把 relay 打开」。
+func TestSecurityGapsCatchesRelayHoles(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+	}{
+		{"段被整个抹掉", "data_dir = \"/data\"\n\n[display]\nmode = \"full\"\n"},
+		{"段在但没写 timeout_secs", "[relay]\nvisibility = \"summary\"\n"},
+		{"被改回上游默认（开着）", "[relay]\ntimeout_secs = 120\n"},
+		{"被改成任意非零", "[relay]\ntimeout_secs = 60\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if gaps := SecurityGaps(c.text); len(gaps) == 0 {
+				t.Fatal("这个产物有安全缺口，却被放过了")
+			}
+			if err := AssertSecurityExplicit(c.text); err == nil {
+				t.Fatal("AssertSecurityExplicit 没拦住")
+			}
+		})
+	}
+}
+
+// 读回器本身要有准头：写了合法值时必须读得出来，否则上面两条断言都是在猜。
+func TestRelayInReadsExplicitValue(t *testing.T) {
+	n, ok := RelayIn("[relay]\ntimeout_secs = 0\nvisibility = \"summary\"\n")
+	if !ok || n != 0 {
+		t.Fatalf("读回 (n=%d, ok=%v)，期望 (0, true)", n, ok)
+	}
+	if _, ok := RelayIn("[[projects]]\nname = \"x\"\n\n[projects.agent]\ntype = \"claudecode\"\n"); ok {
+		t.Fatal("没有 [relay] 段却读出值来，说明扫到别的段里去了")
+	}
+}
