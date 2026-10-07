@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/judge"
 	renderpkg "anc/internal/render"
 	"anc/internal/trail"
 )
@@ -23,8 +24,10 @@ const trailUsage = `anc trail —— 谁问了什么、agent 干了什么、花�
   --config <文件>     gateway config（默认 <vault>/../gateway/config.toml）
   --data <目录>       gateway data_dir（默认 <vault>/../data）
   --claude-home <目录> harness 的项目记录目录（默认 $CLAUDE_CONFIG_DIR，其次 <用户目录>/.claude）
-  --project <名字>    只看一个 project
-  --turns <N>         每个会话最多列几轮（默认 20；0 = 全列）
+	--project <名字>    只看一个 project
+	--turns <N>         每个会话最多列几轮（默认 20；0 = 全列）
+  --rules <文件>      换一份判据表（默认内置；判据是数据，不是代码）
+  --no-judge          只看事实，不要判断层
   --json              给看板 / 归档消费的 JSON（打到 stdout）
 
 它把两份**现成**记录合成一条时间线，源都来自公开文件：
@@ -48,10 +51,12 @@ func cmdTrail(args []string) int {
 	claudeHome := fs.String("claude-home", "", "harness 项目记录目录")
 	only := fs.String("project", "", "只看一个 project")
 	turnLimit := fs.Int("turns", 20, "每个会话最多列几轮")
+	rulesFile := fs.String("rules", "", "判据表文件（整份替换内置的）")
+	noJudge := fs.Bool("no-judge", false, "只看事实，不要判断层")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 	vault := fs.String("vault", "", "vault 目录（也可用位置参数）")
 
-	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true})
+	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true, "no-judge": true})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
@@ -112,21 +117,50 @@ func cmdTrail(args []string) int {
 		incomplete = true
 	}
 
+	// 判断层：判据是数据（内置一份，--rules 可整份换），引擎不认识任何一条具体判据。
+	// **它只出结论，不拦任何事、不改退出码** —— 判错了的代价应该只是多一行话。
+	rules := judge.Builtin()
+	rulesWhy := fmt.Sprintf("内置 %d 条", len(rules))
+	if *rulesFile != "" {
+		loaded, err := judge.Load(*rulesFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+			return 2
+		}
+		rules, rulesWhy = loaded, *rulesFile
+	}
+	findings := make([][]judge.Finding, len(all))
+	if !*noJudge {
+		for i, s := range all {
+			findings[i] = judge.Judge(s, rules)
+		}
+	}
+
 	if *asJSON {
+		items := make([]map[string]any, 0, len(all))
+		for i, s := range all {
+			item := map[string]any{"session": s}
+			if !*noJudge {
+				item["findings"] = findings[i]
+			}
+			items = append(items, item)
+		}
 		out := map[string]any{
-			"schema":      trail.Schema,
-			"vault":       abs,
-			"data":        dataPath,
-			"claude_home": home,
-			"claude_why":  homeWhy,
-			"sessions":    all,
-			"totals":      totals(all),
+			"schema":       trail.Schema,
+			"judge_schema": judge.Schema,
+			"vault":        abs,
+			"data":         dataPath,
+			"claude_home":  home,
+			"claude_why":   homeWhy,
+			"rules":        rulesWhy,
+			"sessions":     items,
+			"totals":       totals(all),
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(out)
 	} else {
-		printTrail(abs, dataPath, home, homeWhy, all, *turnLimit)
+		printTrail(abs, dataPath, home, homeWhy, rulesWhy, all, findings, *turnLimit, !*noJudge)
 	}
 	if incomplete {
 		return 1
@@ -189,7 +223,7 @@ func totals(all []trail.Session) trail.Usage {
 	return u
 }
 
-func printTrail(vault, data, home, homeWhy string, all []trail.Session, turnLimit int) {
+func printTrail(vault, data, home, homeWhy, rulesWhy string, all []trail.Session, findings [][]judge.Finding, turnLimit int, withJudge bool) {
 	fmt.Println("anc trail —— 只读聚合：谁问了什么、agent 干了什么、花了多少")
 	fmt.Printf("  vault    %s\n", vault)
 	fmt.Printf("  data     %s\n", data)
@@ -197,6 +231,9 @@ func printTrail(vault, data, home, homeWhy string, all []trail.Session, turnLimi
 		fmt.Printf("  记录     ⚠️  %s\n", homeWhy)
 	} else {
 		fmt.Printf("  记录     %s（%s）\n", home, homeWhy)
+	}
+	if withJudge {
+		fmt.Printf("  判据     %s —— 判据是数据，换一份不用重编译（--rules）\n", rulesWhy)
 	}
 	fmt.Println()
 
@@ -210,19 +247,19 @@ func printTrail(vault, data, home, homeWhy string, all []trail.Session, turnLimi
 	var sum trail.Usage
 	var cost float64
 	unread := 0
-	for _, s := range all {
+	for i, s := range all {
 		if s.Project != cur {
 			cur = s.Project
 			fmt.Printf("%s\n", cur)
 		}
 		if !s.Found {
 			unread++
-			printSession(s, turnLimit)
+			printSession(s, findings[i], turnLimit, withJudge)
 			continue
 		}
 		sum = sum.Add(s.Usage)
 		cost += s.CostUSD
-		printSession(s, turnLimit)
+		printSession(s, findings[i], turnLimit, withJudge)
 	}
 	// 有读不到的会话时，合计必须**说明它只算读到的那些** —— 否则这个 0
 	// 和「真的一分没花」长得一模一样，那正是我们一直在防的假绿。
@@ -234,7 +271,7 @@ func printTrail(vault, data, home, homeWhy string, all []trail.Session, turnLimi
 		len(all), note, sum.In, sum.Out, sum.CacheRead, cost)
 }
 
-func printSession(s trail.Session, turnLimit int) {
+func printSession(s trail.Session, finds []judge.Finding, turnLimit int, withJudge bool) {
 	tag := s.AgentType
 	if tag == "" {
 		tag = "未知 harness"
@@ -247,6 +284,7 @@ func printSession(s trail.Session, turnLimit int) {
 		for _, p := range s.Problems {
 			fmt.Printf("      ⚠️  %s\n", p)
 		}
+		printFindings(finds, withJudge)
 		fmt.Println()
 		return
 	}
@@ -317,11 +355,65 @@ func printSession(s trail.Session, turnLimit int) {
 			if t.Denied > 0 {
 				bits = append(bits, fmt.Sprintf("被拒 %d", t.Denied))
 			}
+			if n := failedIn(t.Failures); n > 0 {
+				bits = append(bits, fmt.Sprintf("失败 %d", n))
+			}
 			fmt.Printf("      %s  %s\n", t.At.Local().Format("15:04:05"), t.Prompt)
 			fmt.Printf("                %s\n", strings.Join(bits, " · "))
+			for _, f := range t.Failures {
+				fmt.Printf("                ↳ %s：%s —— %s\n", failKind(f.Kind), orDash(f.Tool), f.Why)
+			}
 		}
 	}
+	printFindings(finds, withJudge)
 	fmt.Println()
+}
+
+// printFindings 打判断层。**它和事实分开摆**：事实是记录里抄下来的，判断是判据判的，
+// 两者混在一起，读的人就分不清哪句能当证据用。
+func printFindings(finds []judge.Finding, withJudge bool) {
+	if !withJudge {
+		return
+	}
+	if len(finds) == 0 {
+		fmt.Println("      ── 判断 ──")
+		fmt.Println("      没有判据命中 —— 这是「没看出问题」，不是「没问题」；")
+		fmt.Println("      判据表只覆盖了手上这几条，扩大覆盖靠改那份数据（--rules），不靠改代码。")
+		return
+	}
+	fmt.Println("      ── 判断（判据判的，不是记录里抄的）──")
+	for _, f := range finds {
+		fmt.Printf("      [%s] %s\n", f.Level, f.Title)
+		fmt.Printf("            %s\n", f.Say)
+		fmt.Printf("            据于 %s · 规则 %s\n", f.Where, f.Rule)
+		for _, e := range f.Evidence {
+			fmt.Printf("            证据 %s\n", e)
+		}
+	}
+}
+
+func failedIn(list []trail.Failure) int {
+	n := 0
+	for _, f := range list {
+		if f.Kind != "denied" {
+			n++
+		}
+	}
+	return n
+}
+
+func failKind(kind string) string {
+	if kind == "denied" {
+		return "被权限挡下"
+	}
+	return "执行失败"
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "工具名未知"
+	}
+	return s
 }
 
 func shortID(id string) string {
