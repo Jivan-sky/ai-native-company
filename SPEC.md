@@ -22,6 +22,14 @@
 
 **一句话**：让任何小团队在一台 Mac mini 上，部署出「每个人都有一个自己的 AI bot、全公司共享一个 markdown 知识库」的运行时，并且系统随日常使用不断变强。
 
+**定位边界（2026-10-07）**：ANC 本质上是**信息流通与信息整合**的载体 —— 一条渠道、一个管理面。
+它**不承担开发生产任务**：写代码、做交付这些活仍旧交给 CC / Codex 等 agent 去完成；
+ANC 管的是「信息怎么流、流到谁、以什么口径流、流完沉淀成什么」。
+
+一个类比（**只是类比，不是同类**）：ANC 想做的是 **AI 时代的 ERP**，但它不记财务账。
+旧 ERP 管资金流与流程；ANC 管的是**信息、数据、agent 沉淀出来的能力、agent 每天的工作数据**，
+并据此给出公司整体的数据优化方向。**最后这一层（给出优化方向）是很远的未来，不作交付承诺。**
+
 六条设计原则，每条都有生产或行业证据背书：
 
 | # | 原则 | 依据 |
@@ -448,6 +456,7 @@ ANC 把「业务上下文、任务、人、Agent、权限」连成一层共享�
 - **cc-connect**：默认 gateway provider。MIT，可依赖。
 - **agencycli**：概念最近邻，**AGPL —— 只可参考设计，不可引代码**。
 - **Coze Studio / 飞书 aily / 钉钉 AI 助理**：云端 bot 工厂，组织哲学（数字员工）与数据模型（微服务 + DB + RAG）均不同，不构成同赛道。
+- **Eino**（`cloudwego/eino`，Apache-2.0，Go）：字节开源的 Go LLM 应用框架，提供**模型抽象与各家实现**——Coze Studio 的「接不同模型」能力即来自它（其 README 致谢中点名）。**我们依赖它的模型抽象层**；它是**库不是平台**，与控制面同为 Go，无跨语言摩擦。**配套不采用**：Coze Studio / Coze Loop 那套微服务栈（DB + Redis + ClickHouse + MQ + Docker Compose）与本形态（一台 Mac mini、非目标「不 K8s / 不集群」）直接冲突——**只借它的模型抽象与 trace 数据模型，不搬它的运行时**。
 - **Claude Cowork / Managed Agents**：厂商自营「AI 同事」，单人 × 厂云。差异化锚定厂商结构性不做的四点：中国 IM、双 harness、公司共享 vault、开源自托管。
 - **SaaS 云端 + 托管 RAG（Lindy / Dust 等）**：ANC = 自托管 + 公司共享 markdown vault + git 可审计。
 - **CrewAI / MetaGPT / AutoGen / LangGraph**：模拟虚拟公司 / 自研编排框架；ANC = **增强真人**（一人一 bot），不自研 agent loop，编排层只做「org → 渲染 → 部署 → 运维 → 迭代闭环」。
