@@ -69,7 +69,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		Bad:    []string{},
 		Limit:  timelineDefaultLimit,
 		Missing: []string{
-			"审计：谁尝试做了什么、有没有越权尝试 —— SPEC §6 要求「必须记尝试」，事件面还没实现",
+			"审计：谁在什么时候、对谁、行使了什么（含被拒绝的尝试）—— SPEC §6 不变量 4「行使必留痕」要求记这条流水，审计器零实现",
 			"谁能写：现在写入口是 `anc timeline add`，不设门禁（谁能写归授权层，议题 #32–#35）",
 		},
 		Note: "记录是人和 agent 自己写下来的，不是从会话里推出来的。三档只按 status 配色" +
