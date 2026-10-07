@@ -322,6 +322,28 @@ func ProjectsIn(text string) []string {
 	return out
 }
 
+// WorkDirs 从配置里扫出「project → work_dir」（agent 的工作目录）。
+//
+// trail 拿它把 cc-connect 的 project 对上 harness 的原生记录目录：目录名 = work_dir
+// 里每个非字母数字字符换成 '-'（见 internal/trail.Slug，那是实测出来的规则）。
+// 这里同样只做行扫，不引 TOML 解析器 —— 这份配置是我们自己生成的，形状是已知的。
+func WorkDirs(text string) map[string]string {
+	out := map[string]string{}
+	project := ""
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(t, "[["):
+			project = "" // 新的 [[projects]] 元素开始；只认它自己那一份的 work_dir
+		case strings.HasPrefix(t, "name = "):
+			project = unquote(strings.TrimPrefix(t, "name = "))
+		case strings.HasPrefix(t, "work_dir = ") && project != "":
+			out[project] = unquote(strings.TrimPrefix(t, "work_dir = "))
+		}
+	}
+	return out
+}
+
 // verifyRoundTrip 结构校验：把生成文本读回比对（project 数 / app_id 集合 / 每个 persona 的 SHA256）。
 func verifyRoundTrip(p *Plan, o *org.Org) ([]string, error) {
 	var warns []string

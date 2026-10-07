@@ -2,7 +2,7 @@
 
 > 本文是 `../SPEC.md` 的**工程派生视图**：SPEC 管口径，本文管「口径怎么落到一台客户机器上」。冲突一律以 SPEC 为准；实现过程中若被迫改口径，先改 SPEC，再回来改本文。
 >
-> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、服务单元（systemd / launchd / schtasks 一个都没装过）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
+> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、服务单元（systemd / launchd / schtasks 一个都没装过）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
 >
 > **语言交代：Go**（复用 `anc` 单 exe，新增 `bootstrap` / `render` / `service` / `serve`）。理由：同一份源码跨 macOS / Windows / Linux，常驻进程不许自带运行时，装配器已经是 Go。代价：现场改**逻辑**要重编（约 10 秒）；对应缓解是 persona、模板、业务规则全部外置成纯文件，改这些不用重编译。
 
@@ -175,6 +175,7 @@ anc doctor                   # 环境与网络自检（已实现）
 | Windows 计划任务装载 | 在目标机上 `anc service install --apply` | `schtasks /XML` 接受我们写的 UTF-8 XML；任务出现在计划任务库里 | 
 | systemd 无人值守常驻 | 目标机上开 linger 后退出登录 | 服务继续跑（未开 linger 时退出登录即停） |
 | 服务单元被真正拉起 | 目标机上 `anc service status` | 服务在跑；日志文件有内容；`serve` 已实现（阶段 C/D 之后才可能） |
+| `anc trail` 在别的 harness 上 | 用 codex / hermes 各跑一轮，再 `anc trail` | 账能跟那个 harness 自己的成本记录对上（现在是 claude 专属解析） |
 
 ### 7.1 已实测（2026-10-07，Windows + Linux 两腿，cc-connect v1.3.4 / commit 27c1de8f）
 
@@ -357,6 +358,11 @@ cacheCreationInputTokens, thinkingTokens, costUSD } }`，且**未知模型会标
 覆盖 14 种 harness，把 cache create / cache read 单列，并对缺价格的模型打 WARN。
 **说明「每种 harness 写一个 adapter」不是天量工作**；用它当参照（或依赖）比自己从零写更划算。
 
+> **修正（2026-10-07，见 §7.1.6）**：本节那句「原生逐轮相加 = `ccusage daily`」是按**行**相加得出的。
+> 在同一现场复算：按行相加 = `172549 / 17184 / 3392000`，按 `message.id` 合并 = `85726 / 8517 / 1659520`
+> —— **正好一倍**。所以「按行相加」不能当口径用，正确做法是**按 `message.id` 合并**（一条消息会写多行）。
+> 本节那次为什么能对上没查清（可能那份样本里没有重复行）；**以 §7.1.6 的口径为准**。
+
 ### 7.1.5 报红送人：`anc notify`（2026-10-07）
 
 §6 的观测只做到「看得见」。用户拍板：**报红要由 bot 主动送到负责人面前**，
@@ -397,6 +403,53 @@ probe 的立身之本（只读命令被随手跑），所以判据仍是同一�
 
 沙箱已复原（🟢）。**仍未覆盖**：真网关真故障（不造假会自己变红的那种）下的端到端 —— 
 那要等真出事，或者专门搭一个坏掉的 gateway。
+
+### 7.1.6 留痕的事实层：`anc trail`（2026-10-07）
+
+§4 第 5 条要「落审计行：谁问的、读了哪些源、做了什么分档动作、消耗多少 token、耗时多久」，
+§5 要「客户收到的那条消息从哪来只有一个答案」。**写入端 harness 自己已经有了**（记录就是账本），
+缺的是把账翻成人看得懂、并能按 bot / 按轮对上的那一层。这就是 `anc trail`：**只读聚合，零新增写入**。
+
+两份现成记录，缺一份都不完整：
+
+| 源 | 位置 | 它回答什么 |
+|---|---|---|
+| cc-connect 会话落盘 | `<data>/sessions/<project>_<hash>.json` | 哪个 bot 的哪个会话槽对应哪个 harness 会话 id —— **两份记录之间唯一的桥** |
+| harness 原生记录 | `<claude-home>/projects/<slug(work_dir)>/<id>.jsonl` ＋ `<id>/subagents/*.jsonl` | 逐轮的 token / 工具 / 被拒 / 耗时 / 成本 |
+
+**三条口径是实测出来的，不是看着像**（把聚合结果与 claude 自己的 `cost-state` 对拍，**逐字段相等**）：
+
+1. **不按行累加。** 同一条 assistant 消息写成多行（一行一个 content block，流式中间态
+   `output_tokens=0`）。按行相加 = 正确值的**两倍**（本现场 `172549` vs `85726`）。
+   正确做法：按 `message.id` 合并 —— 用量取各次出现的最大值，工具名取并集。
+2. **子 agent 的账算在这个 bot 头上。** `<id>/subagents/*.jsonl` 是 Agent 工具拉起的旁路会话
+   （本现场 1 个 Explore，`in 60279 / out 7969`）。不并进来会少报一大截；`meta.json` 的 `toolUseId`
+   能对上主记录里的 `tool_use.id`，所以还能**精确归到拉起它的那一轮**（本现场 = 第 6 轮）。
+3. **成本用 harness 自己算的**（`cost-state.totalCostUSD`），它连「未知模型没价格」都标了
+   （`hasUnknownModelCost`）。自己不维护价格表。
+
+对拍结果（同一段会话）：
+
+```
+trail 聚合（主 + 子 agent，按 message.id 合并）  in 146005  out 16486  cr 2071680  cw 0
+claude cost-state（harness 自己的账本）          in 146005  out 16486  cr 2071680  cw 0
+```
+
+**坑（都写进代码注释了）**：一行可能很大（整段工具输出塞在行里），`bufio.Scanner` 默认 64KB
+会直接报错 —— 那是**读不到**，不是「没有」；解析不了的行要**数出来报**；`work_dir` 住在
+`[projects.agent.options]` 里（项目名之后还有段头），按「见 `[` 就重置」扫会把整段丢掉。
+
+**读不到就明说**：原生记录找不到 / 解析不了时，`trail` **报「归集不上」并以退出码 1 退出**，
+合计行也标注「其中 N 段读不到，没算进来」—— 一个光秃秃的 `0` 和「真的一分没花」长得一模一样，
+那正是我们一直在防的假绿。
+
+**实测**：`gofmt` / `go vet` / `go test ./...` 全绿（trail 包 12 条 + render 2 条）；活体在沙箱跑出
+3 段会话、6 轮时间线、子任务归属与逐轮耗时（不含空闲）；负例（临时现场 work_dir 指向不存在的地方）
+→ 3 段全报「归集不上」、Exit 1、合计注明「3 段读不到」；`--json` 结构与字段核对过。
+
+**未覆盖**：**只认 claude 的 jsonl 格式** —— 换 harness（codex / hermes / openclaw…）要另写 adapter，
+这条路是绑死在存储格式上的（同 §7.1.4 的代价）。**判断层没做**：「决定是什么」「失败根因」不在此列，
+`trail` 只出事实，不替 agent 编理由。
 
 ---
 

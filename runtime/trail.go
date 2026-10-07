@@ -1,0 +1,360 @@
+package main
+
+import (
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	renderpkg "anc/internal/render"
+	"anc/internal/trail"
+)
+
+const trailUsage = `anc trail —— 谁问了什么、agent 干了什么、花了多少（只读聚合，什么都不写）
+
+用法：
+  anc trail <vault 目录> [选项]
+
+选项：
+  --config <文件>     gateway config（默认 <vault>/../gateway/config.toml）
+  --data <目录>       gateway data_dir（默认 <vault>/../data）
+  --claude-home <目录> harness 的项目记录目录（默认 $CLAUDE_CONFIG_DIR，其次 <用户目录>/.claude）
+  --project <名字>    只看一个 project
+  --turns <N>         每个会话最多列几轮（默认 20；0 = 全列）
+  --json              给看板 / 归档消费的 JSON（打到 stdout）
+
+它把两份**现成**记录合成一条时间线，源都来自公开文件：
+  1. cc-connect 的会话落盘 JSON —— 哪个 bot 的哪个会话槽对应哪个 harness 会话 id（两份记录之间唯一的桥）；
+  2. harness 原生记录 —— 逐轮的 token / 工具 / 被拒 / 耗时 / 成本。
+
+三条口径是实测出来的（不是看着像）：
+  · 不按行累加。同一条消息会写多行，按行相加会把账翻倍 —— 按 message.id 合并；
+  · 子 agent 的 token 算在这个 bot 头上（Agent 工具拉起的旁路会话）；
+  · 成本用 harness 自己算的（它连「未知模型没价格」都标了），我们不维护价格表。
+
+读不到原生记录时**明说读不到**，不当成 0 消耗 —— 静默少报和假绿是同一类错误。
+
+退出码：0 账齐全；1 有账读不全 / 没有可归集的记录；2 用法错误
+`
+
+func cmdTrail(args []string) int {
+	fs := flag.NewFlagSet("trail", flag.ContinueOnError)
+	cfg := fs.String("config", "", "gateway config")
+	data := fs.String("data", "", "gateway data_dir")
+	claudeHome := fs.String("claude-home", "", "harness 项目记录目录")
+	only := fs.String("project", "", "只看一个 project")
+	turnLimit := fs.Int("turns", 20, "每个会话最多列几轮")
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	vault := fs.String("vault", "", "vault 目录（也可用位置参数）")
+
+	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	root := strings.TrimSpace(*vault)
+	if root == "" && len(posArgs) > 0 {
+		root = posArgs[0]
+	}
+	if root == "" {
+		fmt.Fprint(os.Stderr, trailUsage)
+		return 2
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		return 2
+	}
+	cfgPath := *cfg
+	if cfgPath == "" {
+		cfgPath = filepath.Join(filepath.Dir(abs), "gateway", "config.toml")
+	}
+	dataPath := *data
+	if dataPath == "" {
+		dataPath = filepath.Join(filepath.Dir(abs), "data")
+	}
+	home, homeWhy := resolveClaudeHome(*claudeHome)
+
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: 读不到 config %s（先跑 anc render）\n", cfgPath)
+		return 2
+	}
+	workDirs := renderpkg.WorkDirs(string(raw))
+	projects := make([]string, 0, len(workDirs))
+	for p := range workDirs {
+		projects = append(projects, p)
+	}
+	sort.Strings(projects)
+	if *only != "" {
+		if _, ok := workDirs[*only]; !ok {
+			fmt.Fprintf(os.Stderr, "错误: 配置里没有 project %q\n", *only)
+			return 2
+		}
+		projects = []string{*only}
+	}
+
+	var all []trail.Session
+	incomplete := false
+	for _, p := range projects {
+		sessions := collectSessions(p, workDirs[p], dataPath, home)
+		for _, s := range sessions {
+			if len(s.Problems) > 0 {
+				incomplete = true
+			}
+		}
+		all = append(all, sessions...)
+	}
+	if len(all) == 0 {
+		incomplete = true
+	}
+
+	if *asJSON {
+		out := map[string]any{
+			"schema":      trail.Schema,
+			"vault":       abs,
+			"data":        dataPath,
+			"claude_home": home,
+			"claude_why":  homeWhy,
+			"sessions":    all,
+			"totals":      totals(all),
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+	} else {
+		printTrail(abs, dataPath, home, homeWhy, all, *turnLimit)
+	}
+	if incomplete {
+		return 1
+	}
+	return 0
+}
+
+// resolveClaudeHome 决定去哪找 harness 的原生记录。
+//
+// **必须说清用的是哪一份**：单个 bot 现在跑在运维者自己的 home 下（议题 #28 的隔离缺口），
+// 等 bot 有了独立 HOME / CLAUDE_CONFIG_DIR 之后，这里就会指向它。猜错就会把别人的账算到这个 bot 头上。
+func resolveClaudeHome(flagVal string) (string, string) {
+	if v := strings.TrimSpace(flagVal); v != "" {
+		return v, "--claude-home 指定"
+	}
+	if v := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); v != "" {
+		return v, "$CLAUDE_CONFIG_DIR"
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", "拿不到用户目录"
+	}
+	return filepath.Join(home, ".claude"), "用户目录下的 .claude"
+}
+
+// collectSessions 把一个 project 的记录归集齐：cc-connect 说「有哪些 harness 会话」，
+// 原生记录给出「每一段干了什么」。
+func collectSessions(project, workDir, dataPath, claudeHome string) []trail.Session {
+	files, _ := filepath.Glob(filepath.Join(dataPath, "sessions", project+"_*.json"))
+	sort.Strings(files)
+	var out []trail.Session
+	for _, f := range files {
+		bridges, err := trail.Bridges(project, f)
+		if err != nil {
+			out = append(out, trail.Session{
+				Schema: trail.Schema, Project: project,
+				Problems: []string{err.Error()},
+			})
+			continue
+		}
+		for _, b := range bridges {
+			if b.SessionID != "" {
+				s := trail.ReadSession(project, b.Slot, false, claudeHome, workDir, b.SessionID, b.AgentType)
+				out = append(out, s)
+			}
+			for _, past := range b.PastIDs {
+				s := trail.ReadSession(project, b.Slot, true, claudeHome, workDir, past, b.AgentType)
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+func totals(all []trail.Session) trail.Usage {
+	var u trail.Usage
+	for _, s := range all {
+		u = u.Add(s.Usage)
+	}
+	return u
+}
+
+func printTrail(vault, data, home, homeWhy string, all []trail.Session, turnLimit int) {
+	fmt.Println("anc trail —— 只读聚合：谁问了什么、agent 干了什么、花了多少")
+	fmt.Printf("  vault    %s\n", vault)
+	fmt.Printf("  data     %s\n", data)
+	if home == "" {
+		fmt.Printf("  记录     ⚠️  %s\n", homeWhy)
+	} else {
+		fmt.Printf("  记录     %s（%s）\n", home, homeWhy)
+	}
+	fmt.Println()
+
+	if len(all) == 0 {
+		fmt.Println("  没有可归集的记录：这个配置下的 bot 从来没起过 agent 会话。")
+		fmt.Println("  「没记录」不等于「没花销」—— 要看它起没起来，跑 anc probe。")
+		return
+	}
+
+	cur := ""
+	var sum trail.Usage
+	var cost float64
+	unread := 0
+	for _, s := range all {
+		if s.Project != cur {
+			cur = s.Project
+			fmt.Printf("%s\n", cur)
+		}
+		if !s.Found {
+			unread++
+			printSession(s, turnLimit)
+			continue
+		}
+		sum = sum.Add(s.Usage)
+		cost += s.CostUSD
+		printSession(s, turnLimit)
+	}
+	// 有读不到的会话时，合计必须**说明它只算读到的那些** —— 否则这个 0
+	// 和「真的一分没花」长得一模一样，那正是我们一直在防的假绿。
+	note := ""
+	if unread > 0 {
+		note = fmt.Sprintf("（其中 %d 段读不到，没算进来）", unread)
+	}
+	fmt.Printf("合计 %d 段会话%s · 输入 %d · 输出 %d · 缓存读 %d · 成本 $%.6f\n",
+		len(all), note, sum.In, sum.Out, sum.CacheRead, cost)
+}
+
+func printSession(s trail.Session, turnLimit int) {
+	tag := s.AgentType
+	if tag == "" {
+		tag = "未知 harness"
+	}
+	if s.Historic {
+		tag += "，历史会话"
+	}
+	if !s.Found {
+		fmt.Printf("  会话 %s（%s）⚠️ 归集不上\n", shortID(s.ID), tag)
+		for _, p := range s.Problems {
+			fmt.Printf("      ⚠️  %s\n", p)
+		}
+		fmt.Println()
+		return
+	}
+	fmt.Printf("  会话 %s（%s，%s → %s，%d 轮）\n",
+		shortID(s.ID), tag,
+		s.Started.Local().Format("01-02 15:04:05"),
+		s.Ended.Local().Format("01-02 15:04:05"),
+		len(s.Turns))
+	fmt.Printf("      账    输入 %d · 输出 %d · 缓存读 %d · 缓存写 %d\n",
+		s.Usage.In, s.Usage.Out, s.Usage.CacheRead, s.Usage.CacheWrite)
+	if s.CostUSD > 0 || s.UnknownCost {
+		warn := ""
+		if s.UnknownCost {
+			warn = "（有模型没价格，harness 自己标的）"
+		}
+		fmt.Printf("      成本  $%.6f%s\n", s.CostUSD, warn)
+	}
+	if s.TotalDuration > 0 {
+		fmt.Printf("      耗时  总 %s · API %s · 工具 %s\n",
+			shortDur(s.TotalDuration), shortDur(s.APIDuration), shortDur(s.ToolDuration))
+	}
+	if len(s.Tools) > 0 {
+		fmt.Printf("      工具  %s\n", fmtCounts(totalCount(s.Tools), s.Tools, 6))
+	}
+	if len(s.Denials) > 0 {
+		fmt.Printf("      被拒  %s —— 权限规则挡下的动作，不是故障（要看挡了啥，去翻记录）\n",
+			fmtCounts(totalCount(s.Denials), s.Denials, 4))
+	}
+	for _, sub := range s.Subagents {
+		name := sub.Agent
+		if name == "" {
+			name = "子任务"
+		}
+		where := "归属不明"
+		if sub.Turn > 0 {
+			where = fmt.Sprintf("第 %d 轮拉起", sub.Turn)
+		}
+		fmt.Printf("      子任务 %s（%s，%s）%d 轮 · 输入 %d · 输出 %d —— 算在本会话账上\n",
+			name, sub.Desc, where, sub.Turns, sub.Usage.In, sub.Usage.Out)
+	}
+	if s.GitBranch != "" {
+		fmt.Printf("      分支  %s\n", s.GitBranch)
+	}
+	for _, p := range s.Problems {
+		fmt.Printf("      ⚠️  %s\n", p)
+	}
+
+	if len(s.Turns) > 0 {
+		list := s.Turns
+		more := 0
+		if turnLimit > 0 && len(list) > turnLimit {
+			more = len(list) - turnLimit
+			list = list[len(list)-turnLimit:]
+		}
+		fmt.Printf("      ── 逐轮（%d 轮）──\n", len(s.Turns))
+		if more > 0 {
+			fmt.Printf("      …（前面 %d 轮略）\n", more)
+		}
+		for _, t := range list {
+			var bits []string
+			if t.Duration > 0 {
+				bits = append(bits, shortDur(t.Duration))
+			}
+			bits = append(bits, fmt.Sprintf("in %d out %d", t.Usage.In, t.Usage.Out))
+			if len(t.Tools) > 0 {
+				bits = append(bits, fmtCounts(totalCount(t.Tools), t.Tools, 4))
+			}
+			if t.Denied > 0 {
+				bits = append(bits, fmt.Sprintf("被拒 %d", t.Denied))
+			}
+			fmt.Printf("      %s  %s\n", t.At.Local().Format("15:04:05"), t.Prompt)
+			fmt.Printf("                %s\n", strings.Join(bits, " · "))
+		}
+	}
+	fmt.Println()
+}
+
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// shortDur 把时长写成「人一眼能比大小」的样子（秒级以下给毫秒）。
+func shortDur(d time.Duration) string {
+	if d >= time.Minute {
+		return d.Round(time.Second).String()
+	}
+	return d.Round(100 * time.Millisecond).String()
+}
+
+func totalCount(list []trail.ToolCount) int {
+	n := 0
+	for _, c := range list {
+		n += c.Count
+	}
+	return n
+}
+
+func fmtCounts(total int, list []trail.ToolCount, max int) string {
+	parts := make([]string, 0, len(list))
+	for i, c := range list {
+		if i >= max {
+			parts = append(parts, fmt.Sprintf("…等 %d 种", len(list)))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s ×%d", c.Name, c.Count))
+	}
+	return fmt.Sprintf("%d 次：%s", total, strings.Join(parts, "、"))
+}
