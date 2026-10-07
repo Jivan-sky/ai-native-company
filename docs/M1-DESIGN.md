@@ -336,7 +336,7 @@ TS 模板函数,三原型参数化:`{label, program_args, archetype: keepalive|i
 
 ### 10.1 实测结论(2026-10-07,结论来自真跑,不是推论)
 
-**环境**:本机 Windows;cc-connect **v1.3.4 / commit 27c1de8f / built 2026-06-16T07:52:29Z**,装在 `~/.anc/bin/cc-connect.exe`(不挂全局 PATH),二进制 SHA256 `571fce2b...7630968` 与上游 `checksums.txt` 核对一致。
+**环境**:Windows 与 Linux 两腿;cc-connect **v1.3.4 / commit 27c1de8f / built 2026-06-16T07:52:29Z**,装在 `~/.anc/bin/`(不挂全局 PATH),**pin 记在 `~/.anc/host.json`**;二进制 SHA256 与上游 `checksums.txt` 核对一致 —— Windows `571fce2b...7630968`、Linux `86a8c00d...4c997`。
 **烟测现场**:`%TEMP%\anc-smoke\` —— `anc org init` 生成 vault(3 成员 + 2 角色),`anc render --apply` 生成三项目 config(alice/bob `dontAsk`、devbot `bypassPermissions`),再拿真 gateway 拉起。
 
 | # | 结论 | 命令与实测输出 |
