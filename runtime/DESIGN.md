@@ -235,6 +235,51 @@ systemd 剥掉一个 `append:` 后，剩下的 `append:/...` 不是绝对路径 
 **仍未覆盖**：`systemctl --user enable --now` 真装载、linger、`launchctl load`、
 `schtasks /Create /XML`（要往本机任务库写东西，属需授权动作）、以及 `anc serve` 真跑（尚未实现）。
 
+#### 7.1.3 端到端真腿：真飞书 app 走通一轮对话（2026-10-07）
+
+前两节验的都是「gateway 起得来」。这一段验的是**消息真的能进去、agent 真的会答、答复真的发得回来**。
+用的是一条**专用测试腿**（运维者个人飞书应用，**未绑公司账号**），不碰生产。
+
+现场：`anc org init`（单成员 alice）→ 填真实 `feishu.app_id` / `feishu.open_id` → `anc render --apply`
+→ `cc-connect --config …`，密钥只走**进程环境变量**（`ANC_FEISHU_SECRET_ALICE`），不落盘。
+
+```
+INFO msg="feishu: bot identified" open_id=ou_05e1…4de1
+INFO msg="platform ready" project=live-alice platform=feishu
+INFO msg="engine started" project=live-alice agent=claudecode platforms=1
+INFO msg="cc-connect is running" projects=1
+[Info] [connected to wss://msg-frontier.feishu.cn/ws/v2 …]
+```
+
+用户发「你好」之后：
+
+```
+level=INFO msg="message received" platform=feishu session=feishu:oc_1837…:ou_8759… content_len=6
+level=INFO msg="session spawned" agent_session="" is_resume=false elapsed=61.9052ms
+level=INFO msg="turn complete" session=s1 tools=0 response_len=166 turn_duration=6.9600825s
+  input_tokens=42923 output_tokens=223 silent=false
+```
+
+**四个结论**：
+
+1. **渲染产物能驱动一次真实对话** —— persona（七段）确实进了 claude 的上下文：bot 回的是
+   「冒烟在。日程、消息、入库，说吧。」，与我们在 `members/alice/persona.md` 里写的服务对象逐字对应。
+   「gateway 接受配置」由此从「进程起得来」升级为「**能干活**」。
+2. **`allow_from` 用渲染进 config 的 open_id 生效** —— 用 app owner 的 open_id 投递即达，
+   说明渲染器把 `member.feishu.open_id` → `allow_from` 这条链路是通的。
+3. **长连接（websocket）形态可行** —— 飞书 `callback_type=websocket`，cc-connect 直连
+   `wss://msg-frontier.feishu.cn/ws/v2`，**不需要公网回调地址**。这对「一台 Mac mini 在内网」的部署形态是关键前提。
+4. **逐轮 usage 是现成的**（详见 §4.6 / GitHub #12 的评论）：`cc-connect` 的 `turn complete`
+   自带 `input_tokens` / `output_tokens` / `turn_duration` / `tools`。**但**它只是 stdout 日志行，
+   会话落盘 JSON（`data/sessions/<project>_<hash>.json`）里**没有** usage 字段 —— 长期归集的结构化出口**未定**。
+
+**同时抓到一个隔离缺口**：bot 家目录 `homes/alice` 是**空的**，但 bot 的回复里冒出了运维者个人
+`~/.claude` 的内容（caveman skill / `settings.json`）。**persona 不是 bot 上下文的全集。**
+详见 GitHub **#28**。
+
+**仍未覆盖**：多 bot 并发（本次只一个 project）；订阅制下 usage 的真伪（`input_tokens` 的来源未核）；
+bot 家目录与个人配置的隔离（#28）。
+
 ---
 
 ## 8. 与 SPEC 的映射
