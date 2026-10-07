@@ -201,11 +201,29 @@ func cmdRender(args []string) int {
 		}
 		fmt.Printf("\n  备份       %s\n", backup)
 	}
+	// work_dir 就是 agent 进程的 cwd：目录不存在时配置本身没错，
+	// 失败会推迟到第一条消息才炸（实测 Windows：fork/exec <agent>: The directory name is invalid）。
+	// 这个路径是渲染器的产物，就由渲染器保证它落地 —— 先建目录，再写指向它的配置。
+	var newHomes []string
+	for _, m := range o.Enabled() {
+		dir := renderpkg.WorkDir(m, host)
+		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			fmt.Fprintf(os.Stderr, "错误: 建 work_dir 失败 %s: %v\n", dir, err)
+			return 1
+		}
+		newHomes = append(newHomes, dir)
+	}
 	if err := writeAtomic(cfgPath, plan.Text); err != nil {
 		fmt.Fprintf(os.Stderr, "错误: 落盘失败: %v\n", err)
 		return 1
 	}
 	fmt.Printf("  写入       %s（%d 个 project）\n", cfgPath, len(plan.Projects))
+	if len(newHomes) > 0 {
+		fmt.Printf("  家目录     新建 %d 个：%s\n", len(newHomes), strings.Join(newHomes, ", "))
+	}
 	fmt.Printf("\n结论：已落盘。gateway 重启与功能探针（kickstart + 90s 窗口）在阶段 B 落地。\n")
 	return 0
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -195,4 +196,39 @@ func snapshotOf(p *renderpkg.Plan) string {
 	}
 	fmt.Fprintf(&b, "lines=%d\n", strings.Count(p.Text, "\n"))
 	return b.String()
+}
+
+// 产物里写的 work_dir 就是 agent 进程的 cwd。cwd 不存在时配置本身没错，
+// 炸的是第一条消息：实测 Go 的 CreateProcess 吃 lpCurrentDirectory，
+// 返回 ERROR_DIRECTORY 后包成 `fork/exec <agent>: The directory name is invalid`。
+// bot→work_dir 的映射只有渲染器知道，所以这份保证归渲染器。
+// 断言从产物反解路径，不从 org 内部结构猜 —— 验的是「配置里真写了什么」。
+func TestApplyCreatesEveryWorkDir(t *testing.T) {
+	v := copyFixture(t, "one")
+	cfg := filepath.Join(filepath.Dir(v), "gateway", "config.toml")
+	if code := quiet(t, func() int { return cmdRender([]string{v, "--config", cfg, "--apply"}) }); code != 0 {
+		t.Fatalf("落盘退出码 %d，期望 0", code)
+	}
+	text, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, line := range strings.Split(string(text), "\n") {
+		raw, ok := strings.CutPrefix(strings.TrimSpace(line), "work_dir = ")
+		if !ok {
+			continue
+		}
+		wd, err := strconv.Unquote(raw)
+		if err != nil {
+			t.Fatalf("work_dir 不是合法 TOML 字符串: %s", raw)
+		}
+		checked++
+		if fi, err := os.Stat(wd); err != nil || !fi.IsDir() {
+			t.Errorf("产物写了 work_dir=%s，但那儿不是目录（agent 起不来）: %v", wd, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("产物里一个 work_dir 都没有 —— 断言空转，测试已失效")
+	}
 }
