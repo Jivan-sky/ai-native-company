@@ -76,7 +76,8 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		if admins := adminOpenIDs(o); len(admins) > 0 {
 			fmt.Fprintf(&b, "admin_from = %s\n", tomlString(strings.Join(admins, ",")))
 		}
-		b.WriteString("reset_on_idle_mins = 30\n")
+		// 空闲重置：**0 = 关掉**（2026-10-07 拍板）—— 换新会话由人显式发 /new，不靠计时器猜。
+		fmt.Fprintf(&b, "reset_on_idle_mins = %d\n", o.Company.Defaults.ResetOnIdleMins)
 
 		b.WriteString("\n[projects.agent]\ntype = \"claudecode\"\n")
 

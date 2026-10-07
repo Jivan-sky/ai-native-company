@@ -9,6 +9,8 @@ sync_interval_min: 15
 defaults:
   model: claude-sonnet-5
   mode: dontAsk
+  # 空闲多少分钟换新会话；0 = 关掉（默认，也是「没写」时的值）。要换新会话请显式发 /new。
+  reset_on_idle_mins: 0
 # policy: 段用来逐条改校验规则的处置档（fatal / warn / off），全表见 `anc org check <vault> --rules`
 # policy:
 #   member.feishu.open_id.format: off

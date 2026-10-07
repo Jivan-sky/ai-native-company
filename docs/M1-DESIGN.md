@@ -158,7 +158,7 @@ disabled: false              # true = 渲染时跳过该 project(离职停用而
 | 文件头注释 | `# anc:generated v=<anc版本> inputs=<sha256> at=<ts>` | 指纹头:漂移检测免重渲染、幂等短路、`--adopt` 门的判据。**inputs = org 树 + host.json 相关字段 + gateway-extra.toml 的联合 hash**——只改主机层输入同样触发重渲染,不会被「org 未变」短路漏掉 |
 | `name` | `<company.id>-<member.name>` | 顺序 = members 目录名排序 + devbot 殿后(输出确定性,diff 稳定) |
 | `admin_from` | company.admins 的 open_id 逗号串 | **必须写 project 顶层**(写进 platforms.options 被上游静默忽略,渲染器硬编码位置 + 校验器专项检查) |
-| `reset_on_idle_mins` | 常量 30 | |
+| `reset_on_idle_mins` | `company.defaults.reset_on_idle_mins`（缺省 `0` = **关掉**） | 2026-10-07 拍板：换新会话由人**显式发 `/new`**，不靠计时器猜；写负会被红档拦下（上游要求 `>= 0`，写负它拒绝启动） |
 | `[projects.auto_compress]` | **可选**:defaults.auto_compress_max_tokens 存在才渲染 | 上游已有的阈值治理特性,承接生产 wrapper 的 /compact 兜底(注意:#1111 的 reuse-mode 深层治理仍缺,非本项能补);新公司默认开,存量迁移按现状 |
 | `[[projects.agent.providers]]` | **可选**:company.fallback_provider(name/base_url/model),api_key = `${ANC_PROVIDER_KEY_<NAME>}`;providers.env 可带成本控制变量 | 兜底 provider(SPEC §8);存量部署若已挂 fallback,迁移「不回退」必需 |
 | `[projects.agent] type` | `"claudecode"` | |

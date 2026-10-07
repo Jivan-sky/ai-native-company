@@ -56,6 +56,7 @@ var DefaultRules = []Rule{
 	{"company.display.invalid", LevelFatal, false, "这个值直接进 cc-connect 的 [display].mode，上游只认 full / compact / quiet；写错它拒绝启动 = 全部 bot 下线"},
 	{"company.defaults.model.missing", LevelFatal, false, "三级回退（member → role → company）没有终点，会渲染出空 model"},
 	{"company.defaults.mode.bypass", LevelFatal, true, "SPEC §6-5 无例外红线：角色 bot 一律不授予 bypass"},
+	{"company.defaults.reset_on_idle.invalid", LevelFatal, false, "cc-connect 要求 reset_on_idle_mins >= 0，写负它拒绝启动 = 该 bot 下线"},
 	{"company.devbot.count", LevelFatal, false, "SPEC §1：一个公司恰好一个启用中的 devbot"},
 	{"company.admins.unknown", LevelFatal, false, "admins 渲染进 admin_from，指向不存在的成员等于特权命令无人可发"},
 	{"company.admins.disabled", LevelWarn, false, "管理员已停用，admin_from 仍会渲染它；确认是有意保留"},

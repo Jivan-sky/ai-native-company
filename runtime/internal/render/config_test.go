@@ -1,6 +1,7 @@
 package render
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -189,5 +190,63 @@ func TestRelayInReadsExplicitValue(t *testing.T) {
 	}
 	if _, ok := RelayIn("[[projects]]\nname = \"x\"\n\n[projects.agent]\ntype = \"claudecode\"\n"); ok {
 		t.Fatal("没有 [relay] 段却读出值来，说明扫到别的段里去了")
+	}
+}
+
+// copyOrgFixture 把 fixture 拷到临时目录 —— 只有这样才能「客户改一行数据」再渲染。
+func copyOrgFixture(t *testing.T, name string) string {
+	t.Helper()
+	src, err := filepath.Abs(filepath.Join("..", "..", "testdata", "orgs", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), name)
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		t.Fatal(err)
+	}
+	return dst
+}
+
+// 空闲重置出厂就是**关掉**（0）—— 2026-10-07 拍板：换新会话由人显式发 /new。
+// 这条锁的是产品行为本身：它曾经是代码里写死的 30，既没有拍板依据，客户也改不了。
+func TestResetOnIdleOffByDefault(t *testing.T) {
+	o, host := fixtureOrg(t, "one")
+	plan, err := Build(o, Options{Host: host, Version: "test", Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.Text, "\nreset_on_idle_mins = 0\n") {
+		t.Fatalf("默认应当是 0（关掉），产物里没有：\n%s", plan.Text)
+	}
+}
+
+// 客户写多少就渲染多少 —— 这条保证「定制只动数据、不动代码」。
+func TestResetOnIdleFollowsData(t *testing.T) {
+	v := copyOrgFixture(t, "one")
+	path := filepath.Join(v, "company", "company.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(b), "\r\n", "\n")
+	const anchor = "  mode: dontAsk\n"
+	i := strings.Index(text, anchor)
+	if i < 0 {
+		t.Fatalf("fixture 的 defaults 段找不到：\n%s", text)
+	}
+	text = text[:i+len(anchor)] + "  reset_on_idle_mins: 45\n" + text[i+len(anchor):]
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o, err := org.Load(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Build(o, Options{Host: org.Host{VaultRoot: "/vault", HomesRoot: "/homes", DataDir: "/data"}, Version: "test", Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan.Text, "\nreset_on_idle_mins = 45\n") {
+		t.Fatalf("数据写 45，产物应当也是 45：\n%s", plan.Text)
 	}
 }
