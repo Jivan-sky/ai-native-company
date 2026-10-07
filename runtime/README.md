@@ -259,7 +259,7 @@ anc apply ./climax-vault --apply            # 真做
 | 4 | 装载 | `cc-connect daemon install --config <cfg> --no-capture-secrets --force` |
 | 5 | 凭据桥 | 把 `secrets.env` 读进 daemon 的进程环境（上游没有 dotenv，这一步不能省） |
 | 6 | 重启 | `cc-connect daemon restart --force` |
-| 7 | 回读 | 日志里 `platform ready` 到齐没有 + 只读探针（探针只回显，不参与退出码） |
+| 7 | 回读 | 日志里 `platform ready` 到齐没有 + 只读探针（探针只回显，不参与退出码）；没到齐时先拨 socket 分岔：**进程没起**与**起来了但没到 ready** 是两种病 |
 
 **为什么第 5 步必须存在**：上游 `${ENV}` 只从**进程环境**解析（实测 v1.3.4 没有 dotenv），
 而 `daemon install` 默认会把 `${ENV}` **捕获成明文**写进服务文件 —— 所以装载必须带
@@ -271,6 +271,10 @@ systemd drop-in（`<单元名>.d/anc-secrets.conf`，上游不碰它，天然幂
 
 **平台**：Windows 与 Linux 两腿都落了（Linux 腿实测见 `DESIGN.md` §7.1.10）。macOS 零覆盖（议题 #23）：
 launchd 包装脚本**未实现即报错** —— 不许「装一半、留个读不到凭据的 daemon」。
+
+**断电之后靠谁起来**：上游单元是 `WantedBy=default.target` 且已 `enable`，配上 `Linger=yes`，
+Linux 上开机就自己拉起（进程暴死 / 软重启 / **硬断电**三层都实测过，见 `DESIGN.md` §7.1.11）。
+Windows 那份任务只有登录触发器 —— **断电重启后没人登录就不会起**（归议题 #42）。
 
 ### 退役：`anc service`（2026-10-07）
 
