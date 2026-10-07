@@ -147,6 +147,12 @@ func cmdOrgInit(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
 	}
+	// 立项书副本落点（接入链的落点那一半）：目录建好、约定写在里面的 CLAUDE.md 里，
+	// 内容默认空着 —— 副本本身由客户 / FDE 那边同步进来。
+	if err := write("charter-dir-CLAUDE.md.tmpl", "charters/CLAUDE.md", nil); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
 	if err := write("role-manager.md.tmpl", "roles/manager/persona.md",
 		map[string]string{"{{ROLE_TITLE}}": "经理"}); err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
@@ -200,7 +206,9 @@ func cmdOrgInit(args []string) int {
 	fmt.Println("   2) roles/*/persona.md 的 allowed_tools 现在是空的 —— 按 SPEC §6-5，")
 	fmt.Println("      除 devbot 外都该给工具白名单，别停在空值上。")
 	fmt.Println("   3) 每个数据目录的 CLAUDE.md 首句会进 persona 路由表，写清楚它才找得着路。")
-	fmt.Printf("   4) anc org check %s\n", abs)
+	fmt.Println("   4) 立项书副本放 charters/<slug>/（目录名 = projects.md 的 slug）；")
+	fmt.Println("      真源在客户侧，projects.md 的 source 列指向它。")
+	fmt.Printf("   5) anc org check %s\n", abs)
 
 	if *doGit {
 		if _, err := exec.LookPath("git"); err != nil {

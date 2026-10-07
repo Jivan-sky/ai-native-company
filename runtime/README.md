@@ -64,6 +64,7 @@ vault/
 	├─ members/<name>/persona.md  成员层：display_name / role / model / feishu.*
 	├─ domains.md                 业务域表（罗盘）：slug / name / what / who / data / sources / terms
 	├─ projects.md                项目表（立项书汇总）：slug / name / domain / owner / period / source
+	├─ charters/<项目 slug>/      立项书**副本**落点（真源在客户侧；里面放什么 ANC 不解析）
 	└─ <数据目录>/CLAUDE.md        顶层数据目录 → persona 段 3 的路由表（首句即说明）
 ```
 
@@ -143,13 +144,33 @@ policy:
 
 **没有 `projects.md` 的 vault，行为一个字节都不变**（存量零影响）。
 
+### 立项书副本落点（`charters/`）
+
+**接入契约里最小的那一半**：ANC 只约定**放哪、名字怎么对得上**，不规定里面是什么。
+
+```
+vault/charters/<slug>/    一个项目一个子目录，目录名 = projects.md 的 slug
+                          （里面放什么、叫什么名字，由交付的人定）
+```
+
+- **真源在客户侧**（飞书 Wiki / 多维表格 / 客户自己的库）：`projects.md` 的 `source` 列指向它。
+  这里是**同步副本** —— 用途是断网 / 换人 / 客户改权限之后还查得到。
+- **副本可以没有**：真源才是权威版本，副本是保障 —— 缺了不算错，也不拦任何东西。
+- 目录名对不上任何项目行 → `charter.entry.unmatched`，**只告警**：副本比表行**早到**是正常的
+  （材料先丢进来、抽取还没做），那是进度问题不是错。
+- 落点自己的说明文件（`CLAUDE.md` / `README.md`）不算项目条目：**扫描只认子目录**。
+- 它是 vault 顶层目录，所以照常进 persona 段 3 的路由表 —— agent 得知道副本在哪，
+  否则「卡住时翻一下立项书」翻不到。
+- **谁在什么时候把副本放进来**（触发器 / 同步节奏 / 冲突判定）属于运行态，**还没定**
+  （阶段 C + 议题 #36）—— 这一节只约定落点。
+
 ### 只读投影出口（`anc org export`）
 
 ```
 anc org export <vault>            # stdout 出一份 JSON，消费方自己重定向
 ```
 
-给**看板 / 前端**吃的只读视图：公司 / 角色 / 成员 / 业务域 / 项目 / 数据路由，
+给**看板 / 前端**吃的只读视图：公司 / 角色 / 成员 / 业务域 / 项目（含副本落点）/ 数据路由，
 带 `schema`（`anc.board/v1`）—— 字段增删一律改版本号，前端据此判断能不能吃。
 
 - **纯函数**：同一份真相源 + 同一时刻 → 逐字节相同，可以按字节 diff。
@@ -159,6 +180,8 @@ anc org export <vault>            # stdout 出一份 JSON，消费方自己重�
   看板是**观测面，不是凭据面**（SPEC §2.3 / §6-3）。「这人绑没绑好飞书」属于阶段 C 的探针。
 - `who` 是岗位，投影里派生成 `who_label`（`经理（Alice Wang）`），
   与 persona 用的是**同一处口径**（`org.WhoLabel`）—— 免得看板和 persona 各存一份名单。
+- 项目的 `charter` 是副本在 vault 里的**相对路径**（`charters/trade-q3`），空 = 还没进副本 ——
+  看板据此显示「这个项目的材料进来了没」。
 - 非红档发现走 **stderr**，stdout 恒为纯 JSON（有测试盯着这条）。
 
 ### 验证到了哪一步（别把「一致」当成「已验证」）
@@ -195,6 +218,9 @@ anc org export <vault>            # stdout 出一份 JSON，消费方自己重�
 ├─ company/company.md         公司自描述 + defaults + policy（规则覆盖）
 ├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + allowed_tools 等
 ├─ members/<name>/persona.md  成员层：display_name / role / feishu.app_id / feishu.open_id
+├─ domains.md                 业务域表（罗盘）—— 空表，由 agent 访谈后填
+├─ projects.md                项目表（立项书汇总）—— 空表，由 agent 抽取后填
+├─ charters/CLAUDE.md         立项书副本落点 + 约定（接入契约；副本自己按 slug 建子目录）
 └─ <数据目录>/CLAUDE.md        首句即 persona 路由表里的说明
 ```
 
@@ -239,6 +265,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
+| `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
 | `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读 |
 | `internal/service/` | 纯函数生成三平台服务单元 + 指纹 + `~/` 展开 |
 | `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |

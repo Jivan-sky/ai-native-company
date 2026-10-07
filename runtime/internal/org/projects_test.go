@@ -70,7 +70,11 @@ func TestProjectColumnsFollowHeader(t *testing.T) {
 func TestProjectCrossChecksWarnOnly(t *testing.T) {
 	v := copyVault(t, "domains")
 	writeAt(t, filepath.Join(v, ProjectsFile),
-		"| slug | name | domain | owner |\n|---|---|---|---|\n| x | 甲 | 不存在的域 | 不存在的岗 |\n")
+		"| slug | name | domain | owner |\n|---|---|---|---|\n"+
+			"| x | 甲 | 不存在的域 | 不存在的岗 |\n"+
+			// 保留真项目行：否则落点里的副本目录会多报一条 charter.entry.unmatched，
+			// 把这条用例的焦点（跨表两条 warn）搅浑。
+			"| trade-q3 | Q3 结算改造 | trade | manager |\n")
 	o, err := Load(v)
 	if err != nil {
 		t.Fatalf("跨表问题默认只告警，不该拦：%v", err)

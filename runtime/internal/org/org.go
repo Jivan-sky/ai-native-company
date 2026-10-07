@@ -90,9 +90,10 @@ type Org struct {
 	Root     string
 	Company  Company
 	Roles    map[string]Role
-	Members  []Member  // 按 Name 排序
-	Domains  []Domain  // domains.md 的业务域表（罗盘）；文件不存在时为空
-	Projects []Project // projects.md 的项目汇总（一行一个项目）；文件不存在时为空
+	Members  []Member      // 按 Name 排序
+	Domains  []Domain      // domains.md 的业务域表（罗盘）；文件不存在时为空
+	Projects []Project     // projects.md 的项目汇总（一行一个项目）；文件不存在时为空
+	Charters []CharterCopy // charters/ 的立项书副本条目；目录不存在时为空
 	Routing  []Routing
 	Policy   *Policy // 生效规则表（出厂默认 + company.md 的 policy 段覆盖）
 	Warnings []Issue // 非红档的校验发现；调用方必须回显，不许吞
@@ -312,9 +313,16 @@ func Load(root string) (*Org, error) {
 	}
 	o.Projects = projects
 	polIssues = append(polIssues, projIssues...)
+	// 立项书副本落点（charters/）。同域表一档：目录不在 = 还没有副本，不算错 ——
+	// 真源在客户侧，副本是保障。这一层只负责「落点在哪、名字对不对」；
+	// 「谁在什么时候把副本放进来」是运行态的事，不在这一层（阶段 C）。
+	if o.Charters, err = ScanCharters(root); err != nil {
+		return nil, err
+	}
 	rep := o.Validate(pol)
 	o.validateDomains(pol, rep)
 	o.validateProjects(pol, rep)
+	o.validateCharters(pol, rep)
 	rep.Merge(&Report{Issues: polIssues})
 	if len(rep.Fatal()) > 0 {
 		return nil, &LoadError{Report: rep}
@@ -457,7 +465,7 @@ func (o *Org) Validate(p *Policy) *Report {
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
 func (o *Org) InputsHash(h Host) string {
 	var b strings.Builder
-	b.WriteString("v3\n") // v3：项目表进入指纹（v2 曾补上 member.domains 与域表）—— 输入代次必须跟着变
+	b.WriteString("v4\n") // v4：立项书副本落点进入指纹（v3 是项目表，v2 是 member.domains 与域表）
 	fmt.Fprintf(&b, "host|%s|%s|%s\n", h.VaultRoot, h.HomesRoot, h.DataDir)
 	c := o.Company
 	fmt.Fprintf(&b, "company|%s|%s|%s|%s|%s|%v|%d|%s|%s|%d|%s\n",
@@ -481,6 +489,9 @@ func (o *Org) InputsHash(h Host) string {
 	for _, pr := range o.Projects {
 		fmt.Fprintf(&b, "project|%s|%s|%s|%s|%s|%s\n",
 			pr.Slug, pr.Name, pr.Domain, pr.Owner, pr.Period, pr.Source)
+	}
+	for _, c := range o.Charters {
+		fmt.Fprintf(&b, "charter|%s\n", c.Slug)
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])
