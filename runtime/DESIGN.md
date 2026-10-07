@@ -188,7 +188,7 @@ anc doctor                   # 环境与网络自检（已实现）
 | 会话回收与订阅额度 | 并发 N 个会话，观察额度、内存与回收 | 不触发上游限流；空闲进程被回收 |
 | Windows 计划任务装载 | 在目标机上 `anc apply --apply`（= 上游 `daemon install --no-capture-secrets --force`） | 任务出现在计划任务库里；`platform ready` 到齐；凭据不进任务定义 —— **已实测，见 §7.1.8** | 
 | Linux / macOS 腿的装载 | 在目标机上跑 `anc apply` | 凭据注入按平台落地（systemd `EnvironmentFile=` / launchd 包装脚本）—— **Linux 已实测，见 §7.1.10；macOS 未实现，命令直接报错** |
-| 登录自启（`-AtLogOn` / linger / launchd） | 注销或重启一次，不人工登录 GUI | 服务被拉起且凭据可用 —— **未实测** |
+| 登录自启（`-AtLogOn` / linger / launchd） | 注销或重启一次，不人工登录 GUI | 服务被拉起且凭据可用 —— **Linux 已实测，含硬断电，见 §7.1.11；Windows 只有登录触发器，未验** |
 | `anc trail` 在别的 harness 上 | 用 codex / hermes 各跑一轮，再 `anc trail` | 账能跟那个 harness 自己的成本记录对上（现在是 claude 专属解析） |
 
 ### 7.1 已实测（2026-10-07，Windows + Linux 两腿，cc-connect v1.3.4 / commit 27c1de8f）
@@ -607,8 +607,47 @@ Linux 腿反过来：上游按 euid 落单元（root → `/etc/systemd/system/cc
 **没做（明确标出）**：
 
 - **macOS 腿**：零覆盖（议题 #23）。
-- **登录自启**：linger 已开，但「注销 / 重启后自己起来」本轮没验 —— 只验了「现在这一次拉起」。
+- **登录自启**：本条当时只验了「现在这一次拉起」；「重启 / 断电后自己起来」后来补验了，见 §7.1.11。
 - **真回话**：探针停在 🟡，需要一条能出网的网 + 真实飞书应用。
+
+### 7.1.11 断电 / 重启之后，谁把它拉回来（2026-10-08，Linux 腿三层实测）
+
+**问题**：`anc apply` 只保证「现在这一次拉起来」。服务器不断电是常态，但断电是**必须兜住**的那一次 ——
+机器起来之后，没有人在旁边敲命令。
+
+**三层保险，逐层实测（Ubuntu 24.04.5 / systemd 255 真 VM，全程无人登录）**：
+
+| 层 | 怎么造出来的 | 结果 |
+|---|---|---|
+| 进程暴死 | `kill -9 <MainPID>` | 上游单元带 `Restart=on-failure` / `RestartSec=10`，systemd 10 秒后拉回（`NRestarts=1`、新 PID） |
+| 机器重启 | `systemctl reboot` | 开机 **12 秒**后服务自己起来（01:51:01 开机 → 01:51:13 active），此时没有任何人登录 |
+| **硬断电** | `vmrun stop <vmx> hard` 再上电 | 仍是 12 秒自己起来（01:52:18 → 01:52:30） |
+
+**硬断电那一条才是真的**：dmesg 留下了非正常关机的痕迹 ——
+`EXT4-fs (sda1): INFO: recovery required on readonly filesystem` → `recovery complete`，
+以及 `systemd-journald: File …/system.journal corrupted or uncleanly shut down, renaming and replacing`。
+也就是说：**日志回放过一轮之后，`anc apply` 装的那份东西照样自己站起来了** ——
+残留的 `api.sock` 没挡住它，`cc-connect is running projects=3`。
+
+**为什么它起得来**：上游单元是 `WantedBy=default.target` 且已 `enable`，加上 `loginctl` 的 `Linger=yes`
+—— 用户级 systemd 管理器在开机时就起，不等人登录。**三条缺一条都不成立**，
+所以这三条都得在（该由 `anc doctor` 查，归 #17）。
+
+**一处如实记（客机时钟）**：这台 VM 的 RTC 存的是**本地时间**，而系统声明 `RTC in local TZ: no`，
+于是每次开机内核先把系统时钟读快 8 小时，几十秒后才被 NTP 拉回（实测：daemon 就在那个偏窗里启动，
+它头几条日志的时间戳因此是错的）。真实服务器 RTC 走 UTC 不会这样，但值得记一句：
+**断电后有一小段时间「时钟是错的」**，任何依赖时间的校验（TLS / token / TTL）都跑在那个窗口里。
+
+**Windows 腿现在是缺口（明确标出）**：上游那份任务的触发器只有 `<LogonTrigger>`。
+也就是说，**断电重启后如果没人登录这台机器，这个 daemon 就不会起来**；再叠上 §7.1.8 记的电源条件
+（`DisallowStartIfOnBatteries` / `StopIfGoingOnBatteries`），笔记本上一拔电就直接停。
+要补「开机就起」得给任务加启动触发器 —— 那要么以 SYSTEM 跑、要么存下账号口令，
+是一条**替客户改上游默认**的决定，归议题 #42 拍。
+
+**顺带改掉的一处误导**：`anc apply` 第 7 步原来在 `platform ready 0/N` 时一律把 FIX 指向凭据桥。
+现在它先拨一次 socket 分岔（`startupHint`）：**进程根本没起**（拨不通）与**起来了但没到 ready**
+是两种病，要查的地方完全不同。上面那台 Windows 机器今天就正好撞在第一种上：
+同一台机器、同一时刻，输出从「凭据桥没生效」变成了「gateway 没在跑 + 看计划任务（含电源条件）」。
 
 ## 8. 与 SPEC 的映射
 
