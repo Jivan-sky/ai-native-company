@@ -111,6 +111,12 @@ func main() {
 		fmt.Fprint(os.Stderr, renderUsage)
 		fmt.Fprint(os.Stderr, boardUsage)
 		os.Exit(2)
+	case "board":
+		if len(args) > 0 && args[0] == "serve" {
+			os.Exit(cmdBoardServe(args[1:]))
+		}
+		fmt.Fprint(os.Stderr, boardServeUsage)
+		os.Exit(2)
 	case "version", "--version", "-v":
 		fmt.Println("anc " + version)
 	case "help", "--help", "-h":
@@ -133,6 +139,8 @@ func usage() {
   anc org init <目录> --client <客户名> --id <ascii-id>
                                     生成 org 真相源骨架（vault 模板）
   anc org export <vault>            投影成看板消费的只读 JSON（打到 stdout）
+  anc board serve <vault> [--addr 127.0.0.1:8787]
+                                    起只读看板（前端已嵌在二进制里；默认只绑本机）
   anc render <vault> [选项]         渲染 gateway config（默认 dry-run）
   anc service <render|status|install|uninstall> --org <vault> --bot <成员>
                                     生成/装载用户级服务单元（默认 dry-run）
