@@ -55,7 +55,7 @@ ai-native-company/
 | `SPEC.md` | **v0.3 合并稿（2026-10-06）**· 骨架（工程实现层）来自上游 `HA7CH/ai-native-company` SPEC v0.1（MIT），组织模型与方法论层来自本仓库 v0.2 |
 | 开放问题 | 全部在 [GitHub Issues](https://github.com/Jivan-sky/ai-native-company/issues)；仓库内不再有台账文件 |
 | `skill/` | 未建 |
-| `runtime/` | 已并入 `anc-onsite`。**阶段 A/B 已落地**：`anc init` / `org init` / `org check` / `render` / `service`。本机实测：`gofmt` / `go vet` / `go test ./...`（四包）全绿、六个目标交叉编译通过。**未验证**：gateway 是否接受渲染出的配置、服务是否真被拉起（`anc serve` 未实现） |
+| `runtime/` | 已并入 `anc-onsite`。**阶段 A/B 已落地**：`anc init` / `org init` / `org check` / `render` / `service`。本机实测：`gofmt` / `go vet` / `go test ./...`（四包）全绿、六个目标交叉编译通过。**端到端已打通**：真飞书 app（一条未绑公司账号的测试腿）走通「飞书发消息 → gateway → claude → 飞书回话」一轮，长连接形态免公网回调（见 `runtime/DESIGN.md` §7.1.3）。**仍未验证**：服务是否真被拉起（`anc serve` 未实现）、多 bot 并发 |
 | `runtime/DESIGN.md` | v0.1 草案（2026-10-06）· 6 条待拍板见其 §0；「必须实测清单」见其 §7 |
 
 
