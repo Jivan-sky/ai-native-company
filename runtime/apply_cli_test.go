@@ -127,6 +127,29 @@ func TestApplyPlatformGuard(t *testing.T) {
 		return cmdApply([]string{vault, "--config", cfg, "--secrets", secrets, "--daemon", daemon})
 	})
 	if code != 1 {
-		t.Fatalf("非 Windows 平台退出码 = %d，想要 1（明确报未实现）", code)
+		t.Fatalf("非 Windows/Linux 平台退出码 = %d，想要 1（明确报未实现）", code)
+	}
+}
+
+// 「daemon 没起来」时给的那句下一步必须按平台分岔 —— 两个平台要查的东西完全不同
+// （Windows 是计划任务 + 电源条件，Linux 是 systemd 单元 + drop-in 的 reload）。
+// 这条只钉「答得上话、且两边不一样」，不钉文案细节：改词不该让测试红。
+func TestStartupHintIsPlatformSpecific(t *testing.T) {
+	win := startupHint("windows")
+	lin := startupHint("linux")
+	if win == "" || lin == "" {
+		t.Fatal("两个平台都该有话说")
+	}
+	if win == lin {
+		t.Error("Windows 与 Linux 该给的下一步不同 —— 要查的地方本来就不一样")
+	}
+	if !strings.Contains(lin, "systemctl") {
+		t.Errorf("Linux 那句该指向 systemctl，实际：%s", lin)
+	}
+	if !strings.Contains(win, "schtasks") {
+		t.Errorf("Windows 那句该指向计划任务，实际：%s", win)
+	}
+	if startupHint("darwin") == "" {
+		t.Error("没覆盖的平台也要给一句兜底话，不许空手")
 	}
 }
