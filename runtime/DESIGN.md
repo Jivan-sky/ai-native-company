@@ -767,6 +767,58 @@ OpenClaw 五家怎么接），可换的是网关，**信封不变** —— 所�
 能力降级阶梯（MCP → 插件 → skills → CLI → 只读 HTTP）在客户端侧怎么发、**入口唯一性**
 （一机一网关 = 一份日志 / 计量 / 审计）怎么落代码。信封本身也**还没冻结** ——
 等一个真实接入（#46）来回压一遍再定。
+### 7.1.14 接入面真接入：MCP（2026-10-08，CC 2.1.291 + Codex 0.160.1 真调）
+
+#44 的验收里有一条是「网关从 A 换成 B：信封与议题都不变，只有 adapter 换」。
+这一条**不能靠纸面**，所以真接了两个 harness。
+
+**服务端**：`anc envelope serve`（`internal/mcp` + `internal/envelope`）。
+极小 MCP（streamable HTTP），只做 initialize / notifications / tools/list / tools/call；
+对外**只暴露一个工具** `anc_send_envelope` —— 能力面收在一处，是「入口唯一性」的第一步。
+
+**无状态**：不发 `Mcp-Session-Id`、不记会话、GET / DELETE 一律 405（不提供 SSE 流）。
+这是 #45 那条待验主张（「新的 MCP 协议是无状态的，可能更适合」）在服务端的第一次践行：
+一封封自带路由信息的信，**收到就能办**，本来就不需要先握手养出一段会话。
+
+**实测（本机真调，不是模拟）**：
+
+| harness | 客户端报的协议版本 | 链路 | 结果 |
+|---|---|---|---|
+| Claude Code 2.1.291 | `2025-11-25` | initialize → notifications/initialized → tools/list → tools/call | ✅ 信封落盘，六问六答回到 harness |
+| Codex 0.160.1 | `2025-06-18` | initialize → tools/list → tools/call | ✅ 同上 |
+| 裸 JSON-RPC（探针） | `2025-06-18` | 同上 | ✅ 同上 |
+
+**两家的协议版本号不一样** —— 服务端**原样回客户端报的那个**才都通。写死一个版本，
+报另一个版本的客户端就走了。这是实测教出来的，不是设计出来的。
+
+**没动全局配置**：CC 走 `--mcp-config` + `--strict-mcp-config`（只在一次运行内接线）；
+Codex 走 `-c mcp_servers.anc.url=...`。两个都是「用完就走」。
+
+**Codex 侧的一个坑**：默认审批策略 `never` 会把 MCP 工具调用拦下
+（`MCP tool call requires approval, but approval policy is never`）——
+要 `-c 'mcp_servers.anc.tools.<工具>.approval_mode="approve"'`。这是 harness 侧的策略，
+不是 ANC 侧的问题，但接的时候必须知道。
+
+**身份对不上的那封也真跑了一遍**（经 CC）：`who=nobody` / `on_behalf_of=member:ghost` /
+`kind=escalate` → 三项 🟡 **照收**（落盘、并把发现回给递信的人），与「默认 warn、不先拦」一致。
+真沙箱的 `domains.md` / `projects.md` 都是空表，所以 `scope.domain=nope` **一条都不报** ——
+「门禁不许长在别人的文档上」在真接入里也被验证了。
+
+**日志落哪**：`<data>/envelope/<YYYY-MM>.<who>.jsonl`（按 who 分片、append-only）。
+放 data 目录而不是 vault（git），两个理由：① 这是**流量**不是真相，每封信进 git 就是每天刷 diff
+（同 §13 Q15 的理由）；② vault 顶层目录会被 `scanRouting` 当成「数据来源」扫进 persona 路由表 ——
+一封信都不该改变谁的数据来源。
+
+**门禁与「拒收」**：默认 warn = 照收；被 `company.md` 的 `policy:` 提成 `fatal` 的 = **拒收**
+（不写日志、回 `isError=true`）。依据是 `fatal` 在这库里的定义就是「阻止落盘」（`org/rules.go`）。
+`TestIngressFatalRejectsAndDoesNotLog` 锁住这条，也锁住「拒收的信不落盘」。
+
+**实测覆盖**：`gofmt` / `go vet` / `go test -count=1 ./...` **十二包全绿**
+（`internal/mcp` 8 条、`internal/envelope` 22 条、CLI 侧 8 条）。
+
+**仍未落**：入口的抽象边界（收 / 发 / 会话归属 / usage / 拒答 五件事，现在只落了「收」）、
+能力降级阶梯（MCP 已是主路；插件 / skills / CLI 未接）、入口唯一性**只做到「一个入口一个工具」**，
+还**没有**做「一机一网关 = 一份日志 / 计量 / 审计」的强制。信封仍未冻结。
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
