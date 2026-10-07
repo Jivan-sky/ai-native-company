@@ -63,6 +63,7 @@ vault/
 	├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + model / mode / allowed_tools
 	├─ members/<name>/persona.md  成员层：display_name / role / model / feishu.*
 	├─ domains.md                 业务域表（罗盘）：slug / name / what / who / data / sources / terms
+	├─ projects.md                项目表（立项书汇总）：slug / name / domain / owner / period / source
 	└─ <数据目录>/CLAUDE.md        顶层数据目录 → persona 段 3 的路由表（首句即说明）
 ```
 
@@ -117,13 +118,38 @@ policy:
 
 规则默认整组 `warn`：域表是新能力，先观察；想卡死在 `policy:` 段写 `domain.slug.format: fatal`。
 
+### 项目表：立项书汇总（`projects.md`）
+
+一个项目一行 —— 它是 **「谁在做哪个项目」的唯一机器落点**：看板按业务分区块、业务人员查
+「这件事该找谁」，都从这张表长出来。
+
+```
+| slug | name | domain | owner | period | source |
+|---|---|---|---|---|---|
+| trade-q3 | Q3 结算改造 | trade | manager | 2026-07-01 → 2026-09-30 | https://example.feishu.cn/docx/xxxx |
+```
+
+- **ANC 不定义立项书**：格式随公司 / 行业 / PMO 而变，而且它在各人的 agent 那边生成，
+  到 ANC 时就已经存在。这里只做两件事：约定**落点**、把立项书**汇总**成这张表（agent 抽取）。
+- 四个锚点 —— 哪个项目 / 挂哪块业务 / 卡住找谁（填**岗位**）/ 周期多久 —— **一个都不设必填**：
+  抽不到就先空着 = 待确认。**门禁不许长在别人的文档上**（缺字段不报，只报「连 slug 都没有」
+  这种「这一行会被忽略」的事实，且默认 `warn`）。
+- `domain` 填域表里已定义的 slug；`owner` 填**岗位**（渲染 / 投影时现算人名，人事变动不用改表）。
+- `period` 是**自由文本**，原文照搬 —— **不解析成日期**。这是「不定义别人的文档」的第一条验收。
+- `source` 是**指针**（飞书 URL / doc id / 路径），不是说明。
+- 跨表只告警：挂的域不存在、owner 不是真岗位 —— 两条都默认 `warn`，与域表同一档，
+  可在 `policy:` 段上调成 `fatal`。
+- 表可以空着（只留表头）= 还没抽，不算错；看板投影里就是 `[]`。
+
+**没有 `projects.md` 的 vault，行为一个字节都不变**（存量零影响）。
+
 ### 只读投影出口（`anc org export`）
 
 ```
 anc org export <vault>            # stdout 出一份 JSON，消费方自己重定向
 ```
 
-给**看板 / 前端**吃的只读视图：公司 / 角色 / 成员 / 业务域 / 数据路由，
+给**看板 / 前端**吃的只读视图：公司 / 角色 / 成员 / 业务域 / 项目 / 数据路由，
 带 `schema`（`anc.board/v1`）—— 字段增删一律改版本号，前端据此判断能不能吃。
 
 - **纯函数**：同一份真相源 + 同一时刻 → 逐字节相同，可以按字节 diff。
@@ -212,7 +238,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
 | `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
-| `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、规则表（`rules.go`） |
+| `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读 |
 | `internal/service/` | 纯函数生成三平台服务单元 + 指纹 + `~/` 展开 |
 | `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |

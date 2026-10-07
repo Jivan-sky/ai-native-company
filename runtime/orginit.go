@@ -141,6 +141,12 @@ func cmdOrgInit(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
 	}
+	// 项目表（立项书汇总）同样随骨架给：能力默认可用、内容默认空着 ——
+	// 立项书本身由各人的 agent 那边生成，ANC 只留落点与汇总。
+	if err := write("projects.md.tmpl", "projects.md", nil); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
 	if err := write("role-manager.md.tmpl", "roles/manager/persona.md",
 		map[string]string{"{{ROLE_TITLE}}": "经理"}); err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)

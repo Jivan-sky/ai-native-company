@@ -29,8 +29,8 @@ type Domain struct {
 // DomainsFile 是域表的唯一落点。
 const DomainsFile = "domains.md"
 
-// knownColumns 是认得的列名；不认得的列忽略（表格可以多列备注，不影响解析）。
-var knownColumns = map[string]bool{
+// knownDomainColumns 是认得的列名；不认得的列忽略（表格可以多列备注，不影响解析）。
+var knownDomainColumns = map[string]bool{
 	"slug": true, "name": true, "what": true, "who": true,
 	"data": true, "sources": true, "terms": true,
 }
@@ -46,7 +46,7 @@ func LoadDomains(root string, p *Policy) ([]Domain, []Issue, error) {
 		return nil, nil, err
 	}
 	lines := strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n")
-	head, cols := findDomainTable(lines)
+	head, cols := findTable(lines, knownDomainColumns, "slug")
 	if head < 0 {
 		return nil, []Issue{p.Issue("domain.table.missing", DomainsFile,
 			"没有找到带 slug 列的表：域表必须是一张 markdown 表（第一行表头，第二行分隔）")}, nil
@@ -63,12 +63,7 @@ func LoadDomains(root string, p *Policy) ([]Domain, []Issue, error) {
 			break
 		}
 		d := Domain{Line: i + 1}
-		get := func(key string) string {
-			if j, ok := cols[key]; ok && j < len(cells) {
-				return strings.TrimSpace(cells[j])
-			}
-			return ""
-		}
+		get := rowReader(cols, cells)
 		d.Slug, d.Name, d.What = get("slug"), get("name"), get("what")
 		d.Who, d.Data = get("who"), get("data")
 		d.Sources, d.Terms = get("sources"), get("terms")
@@ -113,74 +108,6 @@ func domainWhere(line int) string {
 // DomainWhere 是 domains.md 第 n 行的定位串。导出给渲染器复用，
 // 让「域表的问题」和「域表注入 persona 之后的问题」报的是同一个位置。
 func DomainWhere(line int) string { return domainWhere(line) }
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
-}
-
-// findDomainTable 定位表头行，返回它的下标与「列名 → 列序」映射；找不到返回 (-1, nil)。
-// 要求下一行是分隔行（|---|---|），并且表头里必须有 slug —— 否则那不是域表。
-func findDomainTable(lines []string) (int, map[string]int) {
-	for i := 0; i+1 < len(lines); i++ {
-		cells := tableCells(lines[i])
-		if len(cells) == 0 || !isTableSep(lines[i+1]) {
-			continue
-		}
-		cols := map[string]int{}
-		for j, c := range cells {
-			if key := strings.ToLower(strings.TrimSpace(c)); knownColumns[key] {
-				cols[key] = j
-			}
-		}
-		if _, ok := cols["slug"]; ok {
-			return i, cols
-		}
-	}
-	return -1, nil
-}
-
-// tableCells 拆一行 markdown 表；不是表行返回 nil。
-func tableCells(line string) []string {
-	t := strings.TrimSpace(line)
-	if !strings.HasPrefix(t, "|") {
-		return nil
-	}
-	parts := strings.Split(strings.Trim(t, "|"), "|")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		out = append(out, strings.TrimSpace(p))
-	}
-	return out
-}
-
-// isTableSep 判断是不是 |---|---| 这种分隔行。
-func isTableSep(line string) bool {
-	cells := tableCells(line)
-	if len(cells) == 0 {
-		return false
-	}
-	for _, c := range cells {
-		if c == "" {
-			return false
-		}
-		for _, r := range c {
-			if r != '-' && r != ':' {
-				return false
-			}
-		}
-	}
-	return true
-}
 
 // Domain 按 slug 取业务域。
 func (o *Org) Domain(slug string) (Domain, bool) {
