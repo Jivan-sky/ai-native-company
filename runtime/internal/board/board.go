@@ -30,6 +30,7 @@ type View struct {
 	Roles     []Role    `json:"roles"`
 	Members   []Member  `json:"members"`
 	Domains   []Domain  `json:"domains"`
+	Projects  []Project `json:"projects"`
 	Routing   []Routing `json:"routing"`
 }
 
@@ -81,6 +82,18 @@ type Routing struct {
 	Summary string `json:"summary"`
 }
 
+// Project 是项目表一行。Owner 是岗位，OwnerLabel 是派生的「岗位（人名）」。
+// Period 是**原文照搬**的自由文本 —— ANC 不解读周期，只把它显示出来。
+type Project struct {
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	Domain     string `json:"domain"`
+	Owner      string `json:"owner"`
+	OwnerLabel string `json:"owner_label"`
+	Period     string `json:"period"`
+	Source     string `json:"source"`
+}
+
 // Of 做投影。纯函数：同样的 org + 同样的 now → 同样的字节（可快照、可 diff）。
 func Of(o *org.Org, now time.Time) *View {
 	v := &View{
@@ -93,10 +106,11 @@ func Of(o *org.Org, now time.Time) *View {
 			Language: o.Company.Language,
 			Timezone: o.Company.Timezone,
 		},
-		Roles:   []Role{},
-		Members: []Member{},
-		Domains: []Domain{},
-		Routing: []Routing{},
+		Roles:    []Role{},
+		Members:  []Member{},
+		Domains:  []Domain{},
+		Projects: []Project{},
+		Routing:  []Routing{},
 	}
 	for _, key := range o.RoleKeys() {
 		r := o.Roles[key]
@@ -122,6 +136,13 @@ func Of(o *org.Org, now time.Time) *View {
 	}
 	for _, r := range o.Routing {
 		v.Routing = append(v.Routing, Routing{Dir: r.Dir, Summary: r.Summary})
+	}
+	for _, pr := range o.Projects {
+		v.Projects = append(v.Projects, Project{
+			Slug: pr.Slug, Name: pr.Name, Domain: pr.Domain,
+			Owner: pr.Owner, OwnerLabel: o.WhoLabel(pr.Owner),
+			Period: pr.Period, Source: pr.Source,
+		})
 	}
 	return v
 }

@@ -21,6 +21,7 @@ func TestOrgInitProducesUsableVault(t *testing.T) {
 	for _, p := range []string{
 		"company/company.md",
 		"domains.md",
+		"projects.md",
 		"roles/manager/persona.md",
 		"roles/devbot/persona.md",
 		"members/alice/persona.md",

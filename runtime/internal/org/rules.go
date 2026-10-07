@@ -98,6 +98,16 @@ var DefaultRules = []Rule{
 	{"domain.data.unknown_dir", LevelWarn, false, "data 不是 vault 顶层数据目录，作用域指不到地方"},
 	{"member.domains.unknown", LevelWarn, false, "成员写了未定义的域，多半是拼错 —— 等于悄悄少给他一块业务"},
 
+	// —— 项目表（立项书汇总）——
+	// 与域表同一档，理由也一样：立项书是别人写的、格式随公司/行业而变，ANC 只汇总不清点格式，
+	// 所以整组 warn、一条红线都不设。想让某条变红，在 company.md 的 policy 段写 `规则id = fatal`。
+	{"project.table.missing", LevelWarn, false, "有 projects.md 但没找到带 slug 列的表 —— 表建歪了，项目一个都读不出来"},
+	{"project.slug.format", LevelWarn, false, "slug 要进文件名与代码；中文/大写会撞 macOS 的 NFC/NFD 与跨平台差异"},
+	{"project.slug.duplicate", LevelWarn, false, "同 slug 两行 = 项目身份有歧义，取哪一行只看行的先后"},
+	{"project.name.missing", LevelWarn, false, "缺项目名，看板上只剩机器标识"},
+	{"project.domain.unknown", LevelWarn, false, "挂的域不在 domains.md 里 —— 多半是拼错；项目会分不到区块"},
+	{"project.owner.unknown_role", LevelWarn, false, "owner 不在 roles/ 里，渲染时解不出人，只会原样显示岗位名"},
+
 	// —— 策略层（策略自己也要被校验，否则拼错规则名 = 你以为关了其实没关）——
 	{"policy.override.unknown", LevelFatal, true, "policy 段写了不存在的规则 id 或非法级别值"},
 	{"policy.override.locked", LevelFatal, true, "试图降级 / 关闭无例外红线（SPEC §6-5 / §171）"},

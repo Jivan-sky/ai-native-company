@@ -80,6 +80,25 @@ func TestMemberModelIsResolved(t *testing.T) {
 	}
 }
 
+// 项目表进投影：owner 岗位派生成人名（与 persona / 域表同一处口径），period 原文照搬 ——
+// ANC 不解读周期，看板也不该解读。
+func TestViewProjectsProjected(t *testing.T) {
+	v := Of(boardOrg(t, "domains"), fixedNow)
+	if len(v.Projects) != 1 {
+		t.Fatalf("期望 1 个项目，实际 %d：%+v", len(v.Projects), v.Projects)
+	}
+	pr := v.Projects[0]
+	if pr.Slug != "trade-q3" || pr.Name != "Q3 结算改造" || pr.Domain != "trade" {
+		t.Fatalf("项目字段投影不对：%+v", pr)
+	}
+	if pr.Owner != "manager" || pr.OwnerLabel != "经理（Alice Wang）" {
+		t.Fatalf("owner / owner_label 不对：%+v", pr)
+	}
+	if pr.Period != "2026-07-01 → 2026-09-30" {
+		t.Fatalf("period 被改动了：%q", pr.Period)
+	}
+}
+
 // nil 切片一律归一成 []：JSON 里 null 会让前端多一层判空。
 func TestEmptySlicesAreArraysNotNull(t *testing.T) {
 	s, err := Of(boardOrg(t, "one"), fixedNow).JSON()
@@ -92,5 +111,8 @@ func TestEmptySlicesAreArraysNotNull(t *testing.T) {
 	// one 没有 domains.md，也没有任何成员划域 —— 两处都该是空数组。
 	if !strings.Contains(s, `"domains": []`) {
 		t.Fatalf("空域表没渲染成 []：\n%s", s)
+	}
+	if !strings.Contains(s, `"projects": []`) {
+		t.Fatalf("空项目表没渲染成 []：\n%s", s)
 	}
 }
