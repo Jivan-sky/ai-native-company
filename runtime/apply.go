@@ -50,9 +50,9 @@ const applyUsage = `anc apply —— 把 org 变成一台机器上真在跑的�
 ${ENV} 只从**进程环境**解析 —— 不注入它，daemon 会以「env var placeholder references
 unset variable」「app_id and app_secret are required」起不来，而表面上引擎是绿的。
 
-平台：装载这一步目前只落了 Windows 腿（计划任务 + 接管上游生成的 ps1）。
-       Linux / macOS 的凭据注入方式与 Windows 不同（systemd EnvironmentFile /
-       launchd 包装脚本），**未实现就明确报错，不假装成功** —— 见 runtime/DESIGN.md 阶段 C。
+平台：装载这一步落了 Windows 腿（计划任务 + 接管上游生成的 ps1）与 Linux 腿
+       （systemd 单元 + 我们自己那份 drop-in 里写 EnvironmentFile）。
+       macOS 零覆盖（议题 #23）—— **未实现就明确报错，不假装成功**。
 `
 
 // applySteps 是七步的总数，只用于回显编号。
@@ -92,9 +92,12 @@ func cmdApply(args []string) int {
 	}
 	// 平台先卡：凭据桥是本命令唯一与平台绑死的一步，别的平台把前四步做完
 	// 只会得到一个读不到凭据的 daemon —— 与其做一半，不如先说清楚。
-	if runtime.GOOS != "windows" {
-		fmt.Fprintf(os.Stderr, "本平台（%s）的凭据桥还没实现 —— 阶段 C 先落 Windows 腿。\n", runtime.GOOS)
-		fmt.Fprintf(os.Stderr, "FIX: 在 Windows 上跑装载；Linux / macOS 的注入方式见 runtime/DESIGN.md 阶段 C。\n")
+	switch runtime.GOOS {
+	case "windows", "linux":
+	default:
+		fmt.Fprintf(os.Stderr, "本平台（%s）的凭据桥没实现 —— 装载只落了 Windows 与 Linux 两腿。\n", runtime.GOOS)
+		fmt.Fprintf(os.Stderr, "macOS 按议题 #23 零覆盖：不给没验过的平台发一张「看起来能跑」的票。\n")
+		fmt.Fprintf(os.Stderr, "FIX: 在 Windows / Linux 上跑装载；macOS 的包装脚本见 runtime/DESIGN.md 阶段 C。\n")
 		return 1
 	}
 
@@ -204,12 +207,14 @@ func cmdApply(args []string) int {
 
 	// ---- 4 装载上游 daemon ----
 	step(4, "装载    上游 daemon（--no-capture-secrets）")
-	loaderPath := filepath.Join(ddir, "cc-connect-daemon.ps1")
 	// 装之前先看一眼装载体：上游 install（--force）每次都会把它整份重写回自己那份，
 	// 所以「这次是首次注入 / 重注 / 内容变了」只能靠**装之前**的状态判断。
+	// Linux 腿注入的是**我们自己**那份 drop-in，上游不碰它，所以那边不需要这一眼。
 	var preLoader apply.Loader
-	if b, err := os.ReadFile(loaderPath); err == nil {
-		preLoader = apply.InspectLoader(string(b))
+	if runtime.GOOS == "windows" {
+		if b, err := os.ReadFile(filepath.Join(ddir, "cc-connect-daemon.ps1")); err == nil {
+			preLoader = apply.InspectLoader(string(b))
+		}
 	}
 	daemonExe, err := resolveDaemonExe(*daemon)
 	if err != nil {
@@ -227,38 +232,8 @@ func cmdApply(args []string) int {
 
 	// ---- 5 凭据桥 ----
 	step(5, "凭据桥  secrets.env → daemon 进程环境")
-	block := apply.LoaderBlock(secretsPath, version)
-	fmt.Printf("  目标       %s\n", loaderPath)
-	if !*doApply {
-		// dry-run 不许依赖「只有 apply 之后才存在」的东西：第 4 步还没真跑，
-		// 上游的装载体可能压根还没生成。所以这里只报落点与指纹，不去读它。
-		fmt.Printf("  将注入     fp %s（dry-run 不读也不写）\n", apply.BlockFingerprint(block))
-	} else {
-		orig, err := os.ReadFile(loaderPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  🔴 读不到上游装载体 %s：%v\n", loaderPath, err)
-			fmt.Fprintf(os.Stderr, "FIX: 先让第 4 步真的装上一次（上游 install 会生成这个文件）。\n")
-			return 1
-		}
-		out, _ := apply.InjectLoader(string(orig), block)
-		if l := apply.InspectLoader(out); !l.Intact() {
-			fmt.Fprintf(os.Stderr, "  🔴 注入后回读不一致：%+v\n", l)
-			return 1
-		}
-		switch {
-		case !preLoader.Found:
-			fmt.Printf("  状态       首次注入\n")
-		case preLoader.Intact() && preLoader.Actual == apply.BlockFingerprint(block):
-			fmt.Printf("  状态       重注（上游把装载体重写回原样，托管区放回原位，内容与上次一致）\n")
-		default:
-			fmt.Printf("  状态       更新（上一次那段与这次不一致，或已被改过）\n")
-		}
-		fmt.Printf("  fp         %s\n", apply.BlockFingerprint(block))
-		fmt.Printf("  说明       上游重装会整份重写这个文件 —— `anc apply` 会把它放回去（幂等）。\n")
-		if err := os.WriteFile(loaderPath, []byte(out), 0o600); err != nil {
-			fmt.Fprintf(os.Stderr, "  🔴 写装载体失败：%v\n", err)
-			return 1
-		}
+	if code := credentialBridge(secretsPath, version, *doApply, preLoader); code != 0 {
+		return code
 	}
 
 	// ---- 6 重启 ----
@@ -291,7 +266,7 @@ func cmdApply(args []string) int {
 	}
 	if ready < want {
 		fmt.Fprintf(os.Stderr, "  🔴 platform ready %d/%d（等了 %s）—— 日志：%s\n", ready, want, *wait, logPath)
-		fmt.Fprintf(os.Stderr, "FIX: 先看日志最后几行。装载没起来时，最常见的就是凭据桥没生效（第 5 步那个文件被上游重装冲掉了）。\n")
+		fmt.Fprintf(os.Stderr, "FIX: 先看日志最后几行。凭据桥没生效是最常见的原因 —— 先确认第 5 步那个文件的托管区还在。\n")
 		return 1
 	}
 	fmt.Printf("  🟢 platform ready %d/%d\n", ready, want)
@@ -314,6 +289,187 @@ func cmdApply(args []string) int {
 	}
 	fmt.Printf("\n结论：装载完成，daemon 在跑。要不要人介入，看上面探针那一行。\n")
 	return 0
+}
+
+// credentialBridge 是第 5 步的全部。两个平台的落点与载体不同，要做的事相同：
+// 让**拉起 gateway 的那个进程**在启动前就拿到 secrets.env 里的键。
+// 两边都写同一对边界标记、同一套指纹，回显与判据因此是同一个口径。
+func credentialBridge(secretsPath, ver string, doApply bool, pre apply.Loader) int {
+	if runtime.GOOS == "linux" {
+		return bridgeLinux(secretsPath, ver, doApply)
+	}
+	return bridgeWindows(secretsPath, ver, doApply, pre)
+}
+
+// bridgeWindows 注入的是上游生成的 ~/.cc-connect/cc-connect-daemon.ps1
+// （计划任务的 Action 就是它）。上游 install --force 会把它整份重写，所以注入必须幂等可重入。
+func bridgeWindows(secretsPath, ver string, doApply bool, pre apply.Loader) int {
+	ddir, err := daemonDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 %v\n", err)
+		return 1
+	}
+	loaderPath := filepath.Join(ddir, "cc-connect-daemon.ps1")
+	block := apply.LoaderBlock(secretsPath, ver)
+	fmt.Printf("  目标       %s\n", loaderPath)
+	if !doApply {
+		// dry-run 不许依赖「只有 apply 之后才存在」的东西：第 4 步还没真跑，
+		// 上游的装载体可能压根还没生成。所以这里只报落点与指纹，不去读它。
+		fmt.Printf("  将注入     fp %s（dry-run 不读也不写）\n", apply.BlockFingerprint(block))
+		return 0
+	}
+	orig, err := os.ReadFile(loaderPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 读不到上游装载体 %s：%v\n", loaderPath, err)
+		fmt.Fprintf(os.Stderr, "FIX: 先让第 4 步真的装上一次（上游 install 会生成这个文件）。\n")
+		return 1
+	}
+	out, _ := apply.InjectLoader(string(orig), block)
+	if l := apply.InspectLoader(out); !l.Intact() {
+		fmt.Fprintf(os.Stderr, "  🔴 注入后回读不一致：%+v\n", l)
+		return 1
+	}
+	switch {
+	case !pre.Found:
+		fmt.Printf("  状态       首次注入\n")
+	case pre.Intact() && pre.Actual == apply.BlockFingerprint(block):
+		fmt.Printf("  状态       重注（上游把装载体重写回原样，托管区放回原位，内容与上次一致）\n")
+	default:
+		fmt.Printf("  状态       更新（上一次那段与这次不一致，或已被改过）\n")
+	}
+	fmt.Printf("  fp         %s\n", apply.BlockFingerprint(block))
+	fmt.Printf("  说明       上游重装会整份重写这个文件 —— `anc apply` 会把它放回去（幂等）。\n")
+	if err := os.WriteFile(loaderPath, []byte(out), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 写装载体失败：%v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// bridgeLinux 注入的是**我们自己**那份 systemd drop-in，里面只写一行 EnvironmentFile
+// 指向 secrets.env。上游生成的单元文件我们一个字节都不碰：它重装多少次都不影响这一份。
+// reload 必须我们自己来：实测（Ubuntu 24.04 / systemd 255）上游 `daemon restart --force`
+// **不会**重新读新写的 drop-in —— 不 reload 的话它在 systemd 眼里压根不存在，
+// 表现是 daemon 起来了却报「引用了没定义的环境变量」。
+func bridgeLinux(secretsPath, ver string, doApply bool) int {
+	cands, err := systemdUnits()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 %v\n", err)
+		return 1
+	}
+	unit := cands[0]
+	if doApply {
+		// 装完才去看它到底落在哪 —— 不猜。上游按 euid 选落点，我们只是把它找出来。
+		found := false
+		for _, c := range cands {
+			if fi, err := os.Stat(c.Path); err == nil && !fi.IsDir() {
+				unit, found = c, true
+				break
+			}
+		}
+		if !found {
+			var tried []string
+			for _, c := range cands {
+				tried = append(tried, c.Path)
+			}
+			fmt.Fprintf(os.Stderr, "  🔴 找不到上游装的 systemd 单元。已试：\n  %s\n", strings.Join(tried, "\n  "))
+			fmt.Fprintf(os.Stderr, "FIX: 第 4 步必须真的装上一次。上游在 Linux 上只走 systemd —— 没有用户会话它会直接拒绝。\n")
+			return 1
+		}
+	}
+	scope := "系统单元"
+	if unit.User {
+		scope = "用户单元"
+	}
+	target := apply.UnitDropInFile(unit.Path)
+	block := apply.UnitBlock(secretsPath, ver)
+	if doApply {
+		fmt.Printf("  单元       %s（%s）\n", unit.Path, scope)
+	} else {
+		fmt.Printf("  单元       %s（%s，预计落点 —— 上游装完才存在）\n", unit.Path, scope)
+	}
+	fmt.Printf("  目标       %s\n", target)
+	if !doApply {
+		fmt.Printf("  将注入     fp %s（dry-run 不读也不写）\n", apply.BlockFingerprint(block))
+		return 0
+	}
+	existing := ""
+	var pre apply.Loader
+	if b, err := os.ReadFile(target); err == nil {
+		existing = string(b)
+		pre = apply.InspectUnit(existing)
+	}
+	out, _ := apply.InjectLoader(existing, block)
+	if l := apply.InspectUnit(out); !l.Intact() {
+		fmt.Fprintf(os.Stderr, "  🔴 注入后回读不一致：%+v\n", l)
+		return 1
+	}
+	switch {
+	case !pre.Found:
+		fmt.Printf("  状态       首次写入\n")
+	case pre.Intact() && pre.Actual == apply.BlockFingerprint(block):
+		fmt.Printf("  状态       重写（内容与上次一致）\n")
+	default:
+		fmt.Printf("  状态       更新（上一次那份与这次不一致，或已被改过）\n")
+	}
+	fmt.Printf("  fp         %s\n", apply.BlockFingerprint(block))
+	fmt.Printf("  说明       drop-in 是 `anc apply` 自己的文件，上游重装不会碰它；systemd 按它把凭据读进服务环境。\n")
+	if err := os.MkdirAll(apply.UnitDropInDir(unit.Path), 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 建 drop-in 目录失败：%v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(target, []byte(out), 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 写 drop-in 失败：%v\n", err)
+		return 1
+	}
+	if err := systemctlReload(unit.User); err != nil {
+		fmt.Fprintf(os.Stderr, "  🔴 让 systemd 认这份 drop-in 失败：%v\n", err)
+		fmt.Fprintf(os.Stderr, "FIX: 手工跑 `%s` 再重试。\n", reloadCmd(unit.User))
+		return 1
+	}
+	fmt.Printf("  生效       %s（上游 restart 不认新 drop-in，必须自己 reload）\n", reloadCmd(unit.User))
+	return 0
+}
+
+// reloadCmd 是让 systemd 认这份 drop-in 的那条命令。
+func reloadCmd(user bool) string {
+	if user {
+		return "systemctl --user daemon-reload"
+	}
+	return "systemctl daemon-reload"
+}
+
+// systemctlReload 执行 daemon-reload。为什么不能省：见 bridgeLinux 上面那段。
+func systemctlReload(user bool) error {
+	args := []string{"daemon-reload"}
+	if user {
+		args = append([]string{"--user"}, args...)
+	}
+	cmd := exec.Command("systemctl", args...)
+	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+	return cmd.Run()
+}
+
+// systemdUnit 是上游可能落单元的位置之一。
+type systemdUnit struct {
+	Path string
+	User bool // true = 用户单元（~/.config/systemd/user），false = 系统单元（/etc/systemd/system）
+}
+
+// systemdUnits 列出两个可能落点，并按 euid 排序：上游就是这么选的
+// （README：Linux root → systemd system service，Linux non-root → systemd user service），
+// 所以把自己这一侧排前面 —— dry-run 就按第一个报「预计落点」。
+func systemdUnits() ([]systemdUnit, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	user := systemdUnit{Path: filepath.Join(home, ".config", "systemd", "user", "cc-connect.service"), User: true}
+	sys := systemdUnit{Path: "/etc/systemd/system/cc-connect.service"}
+	if os.Geteuid() == 0 {
+		return []systemdUnit{sys, user}, nil
+	}
+	return []systemdUnit{user, sys}, nil
 }
 
 // driftLine 一句话说清「这次渲染与现有配置差在哪」。与 `render --check` 同口径

@@ -116,10 +116,11 @@ func TestApplyRefusesForeignConfigWithoutAdopt(t *testing.T) {
 	}
 }
 
-// 阶段 C 先落 Windows 腿：别的平台明确报错，不许把前四步做完再留个读不到凭据的 daemon。
+// 装载只落 Windows 与 Linux 两腿：别的平台（macOS 等）明确报错，
+// 不许把前四步做完再留个读不到凭据的 daemon（macOS 零覆盖，议题 #23）。
 func TestApplyPlatformGuard(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Windows 腿已实现；这条守的是 Linux / macOS 的分支")
+	if runtime.GOOS == "windows" || runtime.GOOS == "linux" {
+		t.Skip("Windows / Linux 两腿都已实现；这条守的是 macOS 等其它平台")
 	}
 	vault, cfg, secrets, daemon := applyFixture(t)
 	code := quiet(t, func() int {

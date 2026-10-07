@@ -264,11 +264,13 @@ anc apply ./climax-vault --apply            # 真做
 **为什么第 5 步必须存在**：上游 `${ENV}` 只从**进程环境**解析（实测 v1.3.4 没有 dotenv），
 而 `daemon install` 默认会把 `${ENV}` **捕获成明文**写进服务文件 —— 所以装载必须带
 `--no-capture-secrets`，凭据只能靠这一步在拉起 gateway 之前注入。
-注入的是**上游生成**的装载体（Windows 上是 `~/.cc-connect/cc-connect-daemon.ps1`），
-托管区带边界标记与指纹：幂等、且能一眼看出「被上游重装冲掉了」。
+注入的落点按平台不同：Windows 上是**上游生成**的装载体（`~/.cc-connect/cc-connect-daemon.ps1`，
+注进去的托管区带边界标记与指纹：幂等、且能一眼看出「被上游重装冲掉了」）；Linux 上是我们**自己**的
+systemd drop-in（`<单元名>.d/anc-secrets.conf`，上游不碰它，天然幂等），写完必须自己跑一次
+`systemctl --user daemon-reload` —— 实测上游 `daemon restart` 不认新写的 drop-in。
 
-**平台**：目前只落了 Windows 腿。Linux / macOS 的注入方式不同（systemd `EnvironmentFile=` /
-launchd 包装脚本），**未实现即报错** —— 不许「装一半、留个读不到凭据的 daemon」。
+**平台**：Windows 与 Linux 两腿都落了（Linux 腿实测见 `DESIGN.md` §7.1.10）。macOS 零覆盖（议题 #23）：
+launchd 包装脚本**未实现即报错** —— 不许「装一半、留个读不到凭据的 daemon」。
 
 ### 退役：`anc service`（2026-10-07）
 
@@ -337,7 +339,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
 | `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读、`${ENV}` 引用提取（装载前体检用） |
-| `internal/apply/` | 装载的纯逻辑：secrets.env 解析 / 缺键判定 + 上游装载体的托管区注入（幂等、带指纹） |
+| `internal/apply/` | 装载的纯逻辑：secrets.env 解析 / 缺键判定 + 凭据落点注入（Windows：上游装载体托管区；Linux：systemd drop-in。都幂等、带指纹） |
 | `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |
 | `testdata/orgs/` | 校验正/负例 vault（one / six / disabled / broken-validate / broken-section） |
 | `testdata/golden/` | 结构快照（只锁语义） |
