@@ -283,7 +283,43 @@ anc envelope check <vault> <信封.json> [--json]
   不该因为「有人发了封信」被提醒 —— 门禁不许长在别人的文档上。
 - 真相源本身是红的（`org.Load` 红档）→ 绑不了、直接退出 1，不编一份绿灯。
 
-形状与口径见 `internal/envelope/`。**它不发、不写、不拦** —— 只解析 + 绑真相源。
+### 接入面（`anc envelope serve`）
+
+```
+anc envelope serve <vault 目录> [--addr 127.0.0.1:8791] [--data <data 目录>]
+```
+
+harness 通过 **MCP（streamable HTTP）** 调一个工具把信封递进来：
+
+```
+anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?, refs?, needs?)
+```
+
+- **一个入口、一个工具**：能力面收在一处（#44「入口唯一性」的第一步）——
+  多一个工具就多一个要审计的入口。
+- **无状态**：不发 `Mcp-Session-Id`、不记会话、不提供 SSE 流。信封自带全部路由所需信息，
+  所以收到就能办；连接断了也不用重连 —— 下一封信自己会到。
+- **服务端补 `id` 与 `ts`**：harness 不该为「这封信叫什么」操心。
+- **门禁跟 `check` 完全一致**（走同一份规则表）：默认 warn = **照收**（落盘 + 回话）；
+  被 `policy:` 提成 `fatal` 的 = **拒收**（不写日志、回 `isError`）——
+  因为 `fatal` 在这个库里的定义就是「阻止落盘」。
+- 日志落 **data 目录**（`<data>/envelope/<YYYY-MM>.<who>.jsonl`，按 who 分片、append-only）：
+  这是**流量**、不是真相 —— 真相在 git 里，每封信进 git 就是每天刷 diff；
+  也避免 vault 顶层多一个目录被 org 当成「数据来源」扫进路由表。
+- 默认只绑本机。**它不构成「开了一个入站端口」**：绑 `127.0.0.1`，卖点「免公网 IP」不受影响。
+
+**实测（2026-10-08，本机真调）**：Claude Code 与 Codex 各走 MCP HTTP 真调通，
+**同一份信封、同一台 ANC、零改动** —— 换 harness 只换接线：
+
+| harness | 实测链路 | 备注 |
+|---|---|---|
+| Claude Code 2.1.291 | `initialize`(报 **2025-11-25**) → `notifications/initialized` → `tools/list` → `tools/call` ✅ | 用 `--mcp-config` + `--strict-mcp-config` **只在一次运行内接线**，不动全局配置 |
+| Codex 0.160.1 | `initialize`(报 **2025-06-18**) → `tools/list` → `tools/call` ✅ | 需 `-c 'mcp_servers.anc.tools.<工具>.approval_mode="approve"'`：默认审批策略 `never` 会把 MCP 工具调用拦下 |
+
+**「回版本号」这件事是实测教出来的**：两家报的 MCP 协议版本**不一样**，服务端**原样回客户端报的那个**
+才都通 —— 写死一个版本，报另一个版本的客户端就走了。
+
+形状与口径见 `internal/envelope/`（解析与绑定）与 `internal/mcp/`（协议层）。
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
 - `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
@@ -418,8 +454,9 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `timeline.go` | `anc timeline add` / `list` 的 CLI（append-only，不改旧行） |
 | `internal/timeline/` | 决策与执行留存的读写与折叠（纯 Go 标准库；按作者分片、词表不锁死） |
 | `internal/board/timeline.go` | 时间线的只读出口（`/api/timeline`，`anc.timeline/v1`） |
-| `envelope.go` | `anc envelope check` 的 CLI（解析 + 绑真相源，只读） |
+| `envelope.go` | `anc envelope check` / `serve` 的 CLI（解析 + 绑真相源；接入面走 MCP） |
 | `internal/envelope/` | 接入面的信封：类型 / 解析 / 与真相源绑定（与 harness 无关的那一层，#44） |
+| `internal/mcp/` | 极小 MCP 服务端（streamable HTTP，无状态）：initialize / tools/list / tools/call |
 | `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
