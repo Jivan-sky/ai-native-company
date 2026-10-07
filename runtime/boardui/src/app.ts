@@ -43,11 +43,41 @@ type RuntimeView = {
   bots: RuntimeBot[]; extras?: string[];
   handlers: string[]; handler_why?: string; error?: string;
 };
+// 数据流策略面（`/api/dataflow`，schema = anc.dataflow/v1）—— 「谁可以做什么、通道开着吗」。
+// 入站只出**人数**，不出标识符：看板是观测面，不是凭据面（SPEC §2.3 / §6-3）。
+type DataflowBot = {
+  project: string; role: string; mode: string; model: string;
+  tools: string[]; inbound: number; inbound_extra: number;
+};
+type DataflowView = {
+  schema: string; wired: boolean;
+  relay: { declared: boolean; timeout_secs: number; note: string };
+  exec: {
+    config_present: boolean; has_fingerprint: boolean;
+    version?: string; inputs?: string; generated_at?: string;
+    projects: string[]; note?: string;
+  };
+  bots: DataflowBot[]; gaps: string[]; missing: string[];
+  error?: string;
+};
+
+// 原料清单（`/api/assets`，schema = anc.assets/v1）。这一页给的是**原料**，不是沉淀。
+type AssetsFile = { path: string; bytes: number; modified: string };
+type AssetsDir = {
+  dir: string; summary: string; files: number; bytes: number;
+  newest?: string; recent: AssetsFile[]; truncated: boolean;
+};
+type AssetsView = {
+  schema: string; wired: boolean; dirs: AssetsDir[];
+  charters: number; note: string; error?: string;
+};
 
 // 一次取数、全程共用：已接入的页吃的是同一份投影，切页不重新打网络（按「刷新」才重取）。
 type Data = {
   board: BoardView | null; issues: Issues;
   runtime: RuntimeView | null; runtimeErr: string;
+  dataflow: DataflowView | null; dataflowErr: string;
+  assets: AssetsView | null; assetsErr: string;
   err: string;
 };
 
@@ -133,6 +163,14 @@ function localTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? dash(iso) : d.toLocaleString();
 }
+// 体积给人看，不给机器看（机器那份在接口里，是字节数）。
+function humanBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+  return (n / 1024 / 1024 / 1024).toFixed(1) + " GB";
+}
 
 function statusDot(i: Issues): string {
   if (i.error !== "" || i.fatal.length > 0) return "dot bad";
@@ -167,24 +205,45 @@ async function getJSON<T>(url: string): Promise<Fetched<T>> {
 
 const emptyIssues = (err: string): Issues => ({ ok: false, fatal: [], warn: [], error: err });
 
+// 「读到了一份能吃的契约」= body 在、schema 是非空字符串。四份契约（board / runtime /
+// dataflow / assets）各判各的 —— 一份坏了不该让别的页跟着空着。
+function contract<T extends { schema?: string }>(res: Fetched<T>, label: string): { v: T | null; err: string } {
+  const body = res.body;
+  if (body && typeof body.schema === "string" && body.schema !== "") return { v: body, err: "" };
+  return {
+    v: null,
+    err: res.err !== "" ? res.err : label + "读取失败（HTTP " + res.status + "）",
+  };
+}
+
 async function fetchData(): Promise<Data> {
-  const [boardRes, issuesRes, runtimeRes] = await Promise.all([
+  const [boardRes, issuesRes, runtimeRes, dataflowRes, assetsRes] = await Promise.all([
     getJSON<BoardView & { error?: string }>("/api/board"),
     getJSON<Issues>("/api/issues"),
     getJSON<RuntimeView>("/api/runtime"),
+    getJSON<DataflowView>("/api/dataflow"),
+    getJSON<AssetsView>("/api/assets"),
   ]);
   const issues = issuesRes.body ?? emptyIssues(issuesRes.err);
-  const rt = runtimeRes.body;
-  const runtime = rt && typeof rt.schema === "string" && rt.schema !== "" ? rt : null;
-  const runtimeErr = runtime !== null
-    ? ""
-    : (runtimeRes.err !== "" ? runtimeRes.err : "运行态读取失败（HTTP " + runtimeRes.status + "）");
+  const rt = contract(runtimeRes, "运行态");
+  const df = contract(dataflowRes, "数据流");
+  const as = contract(assetsRes, "原料清单");
   const schema = boardRes.body?.schema;
   if (boardRes.body && typeof schema === "string" && schema !== "") {
-    return { board: boardRes.body, issues, runtime, runtimeErr, err: "" };
+    return {
+      board: boardRes.body, issues, err: "",
+      runtime: rt.v, runtimeErr: rt.err,
+      dataflow: df.v, dataflowErr: df.err,
+      assets: as.v, assetsErr: as.err,
+    };
   }
   const why = boardRes.body?.error ?? boardRes.err ?? ("看板数据读取失败（HTTP " + boardRes.status + "）");
-  return { board: null, issues, runtime, runtimeErr, err: why };
+  return {
+    board: null, issues, err: why,
+    runtime: rt.v, runtimeErr: rt.err,
+    dataflow: df.v, dataflowErr: df.err,
+    assets: as.v, assetsErr: as.err,
+  };
 }
 
 // ---------- 可复用的块 ----------
@@ -424,37 +483,129 @@ function renderRuntime(d: Data): Kid[] {
   return out;
 }
 
-// 数据流 —— 读者：管理者 / 老板。数据源是授权表 + 审计，代码零实现。
+// 数据流 —— 读者：管理者 / 老板。这一页现在只有**策略面**：
+//   ① 执行面（gateway 实际吃的那份 config.toml）里通道的口径 —— 上游默认开着，所以「没写」也是事实；
+//   ② 真相源算出来的「每个 bot 手里有什么」。
+// 事件面（谁尝试连了哪、有没有越权尝试）没有数据源，所以在页尾如实列缺 —— 不画通道图充数。
 function renderDataflow(d: Data): Kid[] {
-  const dirs = d.board ? d.board.routing.length : 0;
-  return [
-    section("还没接入", "这一页不编数据 —— 把缺口写清楚，比画一个假的通道图有用",
-      el("div", { class: "grid" },
-        card("这一页要什么数据源", "", [
-          ["是什么", "通道表 + 授权表（grant）+ 审计流水：谁授权给谁、TTL 到没到期、降级后还剩什么"],
-          ["依赖", el("span", { class: "mono" }, "GitHub #32、#33、#34、#35")],
-        ]),
-        card("现在能说的 / 不能说的", "", [
-          ["真源里的静态归属", dirs + " 个顶层数据目录（在「组织」页）"],
-          ["那是不是授权", cannot("不是 —— 岗位定义 ≠ 授权，本页不加戏")],
-        ]))),
-  ];
+  const v = d.dataflow;
+  if (!v) {
+    return [banner("bad", "读不到数据流观测", [
+      el("span", {}, d.dataflowErr === "" ? "服务没回 anc.dataflow/v1" : d.dataflowErr),
+    ])];
+  }
+  const out: Kid[] = [];
+  if ((v.error ?? "") !== "") out.push(banner("bad", "真相源读不动", [el("span", {}, dash(v.error))]));
+
+  const rl = v.relay;
+  const open = !rl.declared || rl.timeout_secs !== 0;
+  out.push(section("bot 之间的通道（relay）",
+    "读的是**执行面** —— 我们打算让它吃什么不算数，它真吃着什么才算",
+    el("p", { class: "empty" }, dotLine(open ? "dot bad" : "dot ok",
+      open ? " 通道开着" : " 通道关着（v1 口径：机制保留、默认零绑定）")),
+    el("p", { class: "empty" }, dash(rl.note))));
+
+  if (v.gaps.length > 0) {
+    out.push(section("结构性风险", "与 `anc render --check` 同一套判据（渲染器里的 SecurityGaps）",
+      el("ul", {}, ...v.gaps.map((g) => el("li", {}, g)))));
+  } else if (v.exec.config_present) {
+    out.push(section("结构性风险", "与 `anc render --check` 同一套判据（渲染器里的 SecurityGaps）",
+      el("p", { class: "empty" },
+        "该显式声明的安全段都在，这条判据没发现结构性缺口。",
+        cannot(" —— 这只说明 config 写对了，不说明没人越权（那要有事件面）。"))));
+  }
+
+  const rows: Kid[][] = v.bots.map((b) => [
+    el("span", { class: "mono" }, b.project),
+    dash(b.role),
+    el("span", { class: "mono" }, dash(b.mode)),
+    dash(b.model),
+    b.tools.length === 0 ? cannot("空（没预授权）") : el("span", { class: "mono" }, b.tools.join(", ")),
+    b.inbound === 0
+      ? cannot("没配")
+      : String(b.inbound) + " 人" + (b.inbound_extra > 0 ? "（另放行 " + b.inbound_extra + "）" : ""),
+  ]);
+  out.push(section("每个 bot 手里有什么", "真相源算出来的（渲染器的输入）—— 入站只出人数，不出标识符",
+    v.bots.length === 0
+      ? emptyNote("没有启用的成员 —— 没有可授权的对象。")
+      : table(["bot", "角色", "工具档", "模型", "harness 白名单", "入站授权"], rows)));
+
+  out.push(execSection(v));
+  out.push(section("这一页现在缺什么", "如实列 —— 缺的部分不许用「图好看」补上",
+    v.missing.length === 0
+      ? emptyNote("没有已知缺口。")
+      : el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
+  return out;
 }
 
-// 沉淀 —— 读者：所有人。数据源是 agent 每日产出，还没有。
-function renderAssets(_d: Data): Kid[] {
-  return [
-    section("还没接入", "这一页不编数据 —— 把缺口写清楚，比列一堆空目录有用",
-      el("div", { class: "grid" },
-        card("这一页要什么数据源", "", [
-          ["是什么", "沉淀层：agent 每天产出的条目、来源、还能不能复用"],
-          ["依赖", el("span", { class: "mono" }, "GitHub #26、#27")],
-        ]),
-        card("现在能说的 / 不能说的", "", [
-          ["真源里有目录表", "顶层数据目录的名字与说明（在「组织」页）"],
-          ["目录里有什么", cannot("不知道 —— 目录 ≠ 沉淀，不把「有目录」当成「有资产」")],
-        ]))),
+// 执行面那一块：这份 config 是不是渲染产物、按哪份真相源生成的、里头有哪几个 project。
+function execSection(v: DataflowView): Kid {
+  const e = v.exec;
+  if (!e.config_present) {
+    return section("执行面", "gateway 实际吃的那份 config.toml",
+      el("p", { class: "empty" }, cannot(dash(e.note))));
+  }
+  const rows: Array<[string, Kid]> = [
+    ["指纹", e.has_fingerprint
+      ? el("span", { class: "mono" }, (e.version ?? "") + " · inputs=" + (e.inputs ?? ""))
+      : cannot("没有 anc 指纹 —— 手写或他源配置")],
+    ["生成于", e.has_fingerprint ? localTime(e.generated_at ?? "") : "—"],
+    ["project", e.projects.length === 0
+      ? cannot("一个都没扫到")
+      : el("span", { class: "mono" }, e.projects.join(", "))],
   ];
+  return section("执行面", "gateway 实际吃的那份 config.toml —— 策略面说得再好，也得它真吃上了才算",
+    card("这份 config 是谁", "", rows),
+    e.note ? el("p", { class: "empty" }, cannot(dash(e.note))) : "");
+}
+
+// 原料 —— 读者：所有人。这一页给的是**原料**：数据目录里现在有什么、多久没动过。
+// 「有目录 / 有文件」离「有资产」差着一整层，所以标题、口径、页脚都写「原料」，不写「沉淀」。
+function renderAssets(d: Data): Kid[] {
+  const v = d.assets;
+  if (!v) {
+    return [banner("bad", "读不到原料清单", [
+      el("span", {}, d.assetsErr === "" ? "服务没回 anc.assets/v1" : d.assetsErr),
+    ])];
+  }
+  const out: Kid[] = [];
+  if ((v.error ?? "") !== "") out.push(banner("bad", "真相源读不动", [el("span", {}, dash(v.error))]));
+  out.push(banner("warn", "这是原料，不是沉淀", [el("span", {}, dash(v.note))]));
+
+  const total = v.dirs.reduce((n, x) => n + x.files, 0);
+  out.push(section("规模", "真相源里那张「数据路由」表的一行一行，加上它底下现在有多少东西",
+    el("div", { class: "grid stats" },
+      statCard(String(v.dirs.length), "数据目录", "顶层"),
+      statCard(String(total), "原料文件", "全部加起来"),
+      statCard(String(v.charters), "立项书副本", "真源在客户侧"))));
+
+  const dirRows: Kid[][] = v.dirs.map((x) => [
+    el("span", { class: "mono" }, x.dir),
+    dash(x.summary),
+    String(x.files) + (x.truncated ? "（只数到这里）" : ""),
+    humanBytes(x.bytes),
+    x.newest ? localTime(x.newest) : cannot("没有文件"),
+  ]);
+  out.push(section("每个目录里有什么", "空目录照报 0 —— 「还没开始沉淀」是个真实状态，不是错误",
+    v.dirs.length === 0
+      ? emptyNote("真相源里还没有数据目录（`anc org init` 之后是一个都没有）。")
+      : table(["目录", "说明（真相源）", "文件", "体积", "最近变动"], dirRows)));
+
+  const flat: Array<{ path: string; dir: string; bytes: number; modified: string }> = [];
+  for (const x of v.dirs) for (const f of x.recent) flat.push({ path: f.path, dir: x.dir, bytes: f.bytes, modified: f.modified });
+  flat.sort((a, b) => (a.modified === b.modified ? (a.path < b.path ? -1 : 1) : (a.modified < b.modified ? 1 : -1)));
+  const top = flat.slice(0, 10);
+  out.push(section("最近动的文件", "每个目录各取最近 5 个，再合起来取前 10 —— 只列相对路径",
+    top.length === 0
+      ? emptyNote("所有数据目录都是空的。")
+      : table(["文件", "目录", "体积", "时间"],
+        top.map((f) => [el("span", { class: "mono" }, f.path), f.dir, humanBytes(f.bytes), localTime(f.modified)]))));
+
+  out.push(section("这一页不做什么", "说清楚边界，比多画几个卡片有用",
+    el("p", { class: "empty" },
+      "不把「有文件」说成「有资产」；不给产出打「能不能复用」的分（那要有判据，见议题 #26 / #27）；",
+      "只读 —— 没有任何写入口，也不动这些文件。")));
+  return out;
 }
 
 const overviewPage: Page = {
@@ -474,12 +625,14 @@ const runtimePage: Page = {
   question: "每个 bot 活着吗、真的能回话吗？", view: renderRuntime,
 };
 const dataflowPage: Page = {
-  id: "dataflow", label: "数据流", wired: false,
-  question: "谁授权了谁、通道开着吗、有没有越权？", view: renderDataflow,
+  id: "dataflow", label: "数据流", wired: true,
+  question: "谁可以做什么、通道开着吗？", view: renderDataflow,
 };
+// 页名还叫「沉淀」（那是这一块最终要回答的），但这一页现在只答得了「原料有哪些」——
+// 所以问题句按**现在真答得了**的写，不按以后的写。口径差在哪，页内写清了。
 const assetsPage: Page = {
-  id: "assets", label: "沉淀", wired: false,
-  question: "沉淀了什么、哪些能复用？", view: renderAssets,
+  id: "assets", label: "沉淀", wired: true,
+  question: "原料有哪些、多久没动了？", view: renderAssets,
 };
 
 const PAGES: Page[] = [overviewPage, orgPage, projectsPage, runtimePage, dataflowPage, assetsPage];

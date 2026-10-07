@@ -19,6 +19,12 @@ type Options struct {
 	Now     time.Time
 }
 
+// ProjectName 是一个成员在 gateway 配置里的 project 名（= `[[projects]] name`）。
+//
+// 规则只有这一处：任何要显示「同一个 bot」的地方都得走它 —— 各写各的，迟早
+// 出现「看板叫 alice、日志叫 demo-alice」这种对不上号的现场。
+func ProjectName(companyID, member string) string { return companyID + "-" + member }
+
 // Plan 是一次渲染的产物与账目。
 type Plan struct {
 	Text        string
@@ -66,7 +72,7 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		}
 		p.Issues = append(p.Issues, pr.Issues...)
 
-		name := o.Company.ID + "-" + m.Name
+		name := ProjectName(o.Company.ID, m.Name)
 		p.Projects = append(p.Projects, name)
 		ph := sha256hex(pr.Text)
 		p.PersonaHash[name] = ph
