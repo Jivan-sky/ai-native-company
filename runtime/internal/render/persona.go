@@ -55,6 +55,7 @@ type Result struct {
 
 // Persona 按七段式三层叠加渲染 persona。
 // base 层（段 3/4/6/7）逐字固定；role 层给 职责 / 风格 / 术语表；member 层整块作末段。
+// 公司有 domains.md 时追加段 8「业务域」——没有这张表的 vault，产物逐字与从前一样。
 func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, error) {
 	pol := o.Policy
 	var issues []org.Issue
@@ -63,6 +64,9 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 	issues = append(issues, lintLayer(pol, "roles/"+role.Role+"/persona.md",
 		strings.Join(roleLayerText(role), "\n"))...)
 	issues = append(issues, lintLayer(pol, "members/"+m.Name+"/persona.md", m.Body)...)
+	// 域表里的字也要进 persona，所以同一套体检必须覆盖它：
+	// 三引号破 TOML 那次生产事故，不因为字来自表格就豁免。
+	issues = append(issues, lintDomainCells(pol, o, m)...)
 
 	// 路由表：role.vault_scope 命中的行置顶并标「你的主力」。
 	main, other := splitRouting(o.Routing, role.VaultScope)
@@ -83,6 +87,10 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 		{"5 风格", joinNonEmpty(role.Sections["风格"], role.Sections["术语表"])},
 		{"6 收资料 SOP", baseIntakeSOP},
 		{"7 动态事实引用", baseDynamicFacts},
+	}
+	// 段 8 只在公司划了域时出现；没划域的公司，persona 一个字节都不变。
+	if seg := domainSection(o, m); seg != "" {
+		segs = append(segs, struct{ name, text string }{"8 业务域", seg})
 	}
 
 	var b strings.Builder
@@ -128,23 +136,30 @@ func extraTexts(role org.Role) []string {
 func lintLayer(p *org.Policy, name, text string) []org.Issue {
 	var out []org.Issue
 	for i, line := range strings.Split(text, "\n") {
-		where := fmt.Sprintf("%s 第 %d 行", name, i+1)
-		if reSlots.MatchString(line) {
-			out = append(out, p.Issue("persona.slot.unreplaced", where, "含未替换的双花括号槽位（多半是模板没跑完）"))
-		}
-		if reTriQuote.MatchString(line) {
-			out = append(out, p.Issue("persona.toml.quote_break", where, "含三个连续单引号（会破坏 TOML 多行 literal，拒绝静默转义）"))
-		}
-		if reEnvRef.MatchString(line) {
-			out = append(out, p.Issue("persona.env.substitution", where, "含美元大括号引用（会被 gateway 的 env 替换吞掉，请改写）"))
-		}
-		if loc := reAbsPath.FindStringSubmatch(line); loc != nil {
-			out = append(out, p.Issue("persona.path.absolute", where,
-				"出现绝对路径 %s（vault_root 之外的本机路径会被搬机器时打脸）", loc[1]))
-		}
-		if reFrozen.MatchString(line) {
-			out = append(out, p.Issue("persona.fact.frozen", where, "出现「当前仅有 / 目前只有」句式 —— 疑似把易变事实烤进了 persona"))
-		}
+		out = append(out, lintLine(p, fmt.Sprintf("%s 第 %d 行", name, i+1), line)...)
+	}
+	return out
+}
+
+// lintLine 体检一行文本。档次一律来自规则表 —— 实现里不许再硬编码档次，
+// 否则规则表就不是唯一出口了。
+func lintLine(p *org.Policy, where, line string) []org.Issue {
+	var out []org.Issue
+	if reSlots.MatchString(line) {
+		out = append(out, p.Issue("persona.slot.unreplaced", where, "含未替换的双花括号槽位（多半是模板没跑完）"))
+	}
+	if reTriQuote.MatchString(line) {
+		out = append(out, p.Issue("persona.toml.quote_break", where, "含三个连续单引号（会破坏 TOML 多行 literal，拒绝静默转义）"))
+	}
+	if reEnvRef.MatchString(line) {
+		out = append(out, p.Issue("persona.env.substitution", where, "含美元大括号引用（会被 gateway 的 env 替换吞掉，请改写）"))
+	}
+	if loc := reAbsPath.FindStringSubmatch(line); loc != nil {
+		out = append(out, p.Issue("persona.path.absolute", where,
+			"出现绝对路径 %s（vault_root 之外的本机路径会被搬机器时打脸）", loc[1]))
+	}
+	if reFrozen.MatchString(line) {
+		out = append(out, p.Issue("persona.fact.frozen", where, "出现「当前仅有 / 目前只有」句式 —— 疑似把易变事实烤进了 persona"))
 	}
 	return out
 }
@@ -194,6 +209,120 @@ func nonEmpty(parts ...string) []string {
 	for _, p := range parts {
 		if strings.TrimSpace(p) != "" {
 			out = append(out, strings.TrimSpace(p))
+		}
+	}
+	return out
+}
+
+// domainSection 渲染段 8「业务域」。两张表，各有各的边界：
+//
+//   - 自己负责的域：全列（是什么 / 数据在哪 / 找谁），另附口径与原件来源 —— 这一域的事得干得了；
+//   - 全公司业务域目录：只有「是什么 / 找谁」。别的域的 data 与 terms **不在这里**
+//     （SPEC §6「数据默认不通」）—— 要跨域就按「找谁」接头，走人，不走近道。
+//
+// 返回空串 = 这家公司没划域，调用方不输出这一段。
+func domainSection(o *org.Org, m org.Member) string {
+	if len(o.Domains) == 0 {
+		return ""
+	}
+	mine := make(map[string]bool, len(m.Domains))
+	for _, s := range m.Domains {
+		mine[s] = true
+	}
+
+	var b strings.Builder
+	b.WriteString("你负责的业务域：\n\n| 域 | 名称 | 是什么 | 数据在哪 | 找谁 |\n|---|---|---|---|---|")
+	rows := 0
+	var notes []string
+	for _, d := range o.Domains {
+		if !mine[d.Slug] {
+			continue
+		}
+		rows++
+		fmt.Fprintf(&b, "\n| %s | %s | %s | %s | %s |",
+			d.Slug, cell(d.Name), cell(d.What), cell(d.Data), whoLabel(o, d.Who))
+		if s := strings.Join(nonEmpty(d.Terms, d.Sources), "；"); s != "" {
+			notes = append(notes, "- "+d.Slug+"："+cell(s))
+		}
+	}
+	if rows == 0 {
+		b.WriteString("\n| — | 还没给你划域（在 members/" + m.Name + "/persona.md 的 domains 里写） | — | — | — |")
+	}
+	if len(notes) > 0 {
+		b.WriteString("\n\n口径与原件来源：\n\n" + strings.Join(notes, "\n"))
+	}
+
+	b.WriteString("\n\n全公司业务域目录（跨域协作时按「找谁」接头；别的域的 data 与术语不在这里，要用就走人）：\n\n| 域 | 名称 | 是什么 | 找谁 |\n|---|---|---|---|")
+	other := 0
+	for _, d := range o.Domains {
+		if mine[d.Slug] {
+			continue
+		}
+		other++
+		fmt.Fprintf(&b, "\n| %s | %s | %s | %s |", d.Slug, cell(d.Name), cell(d.What), whoLabel(o, d.Who))
+	}
+	if other == 0 {
+		b.WriteString("\n| — | 暂无其他域 | — | — |")
+	}
+	return b.String()
+}
+
+// whoLabel 把 who 里的岗位解成「岗位（人名）」。
+// 岗位稳定、人易变，所以表里只维护岗位，人名在渲染时从 members/ 现算 ——
+// 看板与 persona 因此不会各存一份名单，也就不会互相漂移。
+func whoLabel(o *org.Org, role string) string {
+	title := ""
+	if r, ok := o.Roles[role]; ok {
+		title = strings.TrimSpace(r.Title)
+	}
+	if title == "" {
+		title = strings.TrimSpace(role)
+	}
+	if title == "" {
+		return "—"
+	}
+	var names []string
+	for _, mem := range o.Enabled() {
+		if mem.Role != role {
+			continue
+		}
+		if n := strings.TrimSpace(mem.DisplayName); n != "" {
+			names = append(names, n)
+		} else {
+			names = append(names, mem.Name)
+		}
+	}
+	if len(names) == 0 {
+		return title + "（暂无人）"
+	}
+	return title + "（" + strings.Join(names, "、") + "）"
+}
+
+// cell 是表单元的渲染：空值给「—」；竖线与换行会拆歪表格，就地压平。
+func cell(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "—"
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(s, "|", "\\|"), "\n", " ")
+}
+
+// lintDomainCells 体检域表里即将注入 persona 的每一个单元格。
+// 只在「真的会进上下文」的格子上花力气：自己的域全列，别人的域只有名称 / 是什么 / 找谁。
+func lintDomainCells(p *org.Policy, o *org.Org, m org.Member) []org.Issue {
+	mine := make(map[string]bool, len(m.Domains))
+	for _, s := range m.Domains {
+		mine[s] = true
+	}
+	var out []org.Issue
+	for _, d := range o.Domains {
+		where := org.DomainWhere(d.Line)
+		cells := []string{d.Name, d.What, d.Who}
+		if mine[d.Slug] {
+			cells = append(cells, d.Data, d.Sources, d.Terms)
+		}
+		for _, c := range cells {
+			out = append(out, lintLine(p, where, c)...)
 		}
 	}
 	return out

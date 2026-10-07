@@ -74,6 +74,7 @@ type Member struct {
 	Model       string
 	Admin       bool
 	Disabled    bool
+	Domains     []string // 所属业务域（slug，见 domains.md）；persona 第 8 段与授权作用域都用它
 	Feishu      Feishu
 	Body        string
 }
@@ -90,6 +91,7 @@ type Org struct {
 	Company  Company
 	Roles    map[string]Role
 	Members  []Member // 按 Name 排序
+	Domains  []Domain // domains.md 的业务域表（罗盘）；文件不存在时为空
 	Routing  []Routing
 	Policy   *Policy // 生效规则表（出厂默认 + company.md 的 policy 段覆盖）
 	Warnings []Issue // 非红档的校验发现；调用方必须回显，不许吞
@@ -271,6 +273,9 @@ func Load(root string) (*Org, error) {
 		if m.Disabled, err = d.Bool("disabled"); err != nil {
 			return nil, err
 		}
+		if m.Domains, err = d.StrList("domains"); err != nil {
+			return nil, err
+		}
 		if m.Feishu.AppID, err = d.Str("feishu.app_id"); err != nil {
 			return nil, err
 		}
@@ -290,7 +295,16 @@ func Load(root string) (*Org, error) {
 	if o.Routing, err = scanRouting(root); err != nil {
 		return nil, err
 	}
+	// 域表（罗盘）。文件不在 = 这家公司还没划域，不算错（存量 vault 向后兼容）。
+	// 它的发现与 policy 段的问题同一批回显：都是「真相源本身」的问题，不是 persona 文本问题。
+	domains, domIssues, err := LoadDomains(root, pol)
+	if err != nil {
+		return nil, err
+	}
+	o.Domains = domains
+	polIssues = append(polIssues, domIssues...)
 	rep := o.Validate(pol)
+	o.validateDomains(pol, rep)
 	rep.Merge(&Report{Issues: polIssues})
 	if len(rep.Fatal()) > 0 {
 		return nil, &LoadError{Report: rep}
@@ -433,7 +447,7 @@ func (o *Org) Validate(p *Policy) *Report {
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
 func (o *Org) InputsHash(h Host) string {
 	var b strings.Builder
-	b.WriteString("v1\n")
+	b.WriteString("v2\n") // v2：member 行加入 domains，并补上域表 —— 输入变了，指纹代次也得变
 	fmt.Fprintf(&b, "host|%s|%s|%s\n", h.VaultRoot, h.HomesRoot, h.DataDir)
 	c := o.Company
 	fmt.Fprintf(&b, "company|%s|%s|%s|%s|%s|%v|%d|%s|%s|%d|%s\n",
@@ -445,11 +459,14 @@ func (o *Org) InputsHash(h Host) string {
 			r.AllowedTools, r.VaultScope, r.Skills, r.Sections["职责"], r.Sections["风格"], r.Sections["术语表"], r.Extra)
 	}
 	for _, m := range o.Members {
-		fmt.Fprintf(&b, "member|%s|%s|%s|%s|%v|%v|%s|%s|%v|%v|%s\n", m.Name, m.DisplayName, m.Role, m.Model,
-			m.Admin, m.Disabled, m.Feishu.AppID, m.Feishu.OpenID, m.Feishu.ExtraAllowFrom, m.Feishu.AllowChat, m.Body)
+		fmt.Fprintf(&b, "member|%s|%s|%s|%s|%v|%v|%v|%s|%s|%v|%v|%s\n", m.Name, m.DisplayName, m.Role, m.Model,
+			m.Admin, m.Disabled, m.Domains, m.Feishu.AppID, m.Feishu.OpenID, m.Feishu.ExtraAllowFrom, m.Feishu.AllowChat, m.Body)
 	}
 	for _, r := range o.Routing {
 		fmt.Fprintf(&b, "routing|%s|%s\n", r.Dir, r.Summary)
+	}
+	for _, d := range o.Domains {
+		fmt.Fprintf(&b, "domain|%s|%s|%s|%s|%s|%s|%s\n", d.Slug, d.Name, d.What, d.Who, d.Data, d.Sources, d.Terms)
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])

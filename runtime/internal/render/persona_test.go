@@ -123,3 +123,77 @@ func addOrgPolicy(t *testing.T, vault string, lines ...string) {
 		t.Fatal(err)
 	}
 }
+
+// 段 8「业务域」：自己的域给整行（含 data），别人的域只给目录（它的 terms 不外泄）。
+func TestDomainSegmentScoping(t *testing.T) {
+	o, host := fixtureOrg(t, "domains")
+	alice, ok := o.Member("alice")
+	if !ok {
+		t.Fatal("取不到 alice")
+	}
+	res, err := Persona(o, o.Roles[alice.Role], alice, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txt := res.Text
+	if !strings.Contains(txt, "## 8 业务域") {
+		t.Fatalf("没渲染段 8：\n%s", txt)
+	}
+	// 自己的域：整行，data 在
+	if !strings.Contains(txt, "| trade | 大宗贸易 |") || !strings.Contains(txt, "| projects |") {
+		t.Fatalf("自己的域没给全列：\n%s", txt)
+	}
+	// who 填的是岗位，渲染时才解成人名 —— 名单只有一份，不会漂移
+	if !strings.Contains(txt, "经理（Alice Wang）") {
+		t.Fatalf("who 没派生成「岗位（人名）」：\n%s", txt)
+	}
+	// 别人的域：只在目录里，且它的术语不许进 alice 的上下文
+	if !strings.Contains(txt, "| logistics | 物流 |") {
+		t.Fatalf("全公司域目录里没有 logistics：\n%s", txt)
+	}
+	if strings.Contains(txt, "ETA") {
+		t.Fatalf("别人域的术语进了 alice 的上下文：\n%s", txt)
+	}
+}
+
+// 没有 domains.md 就不出段 8：存量 vault 的 persona 逐字不变。
+func TestNoDomainSegmentWithoutTable(t *testing.T) {
+	o, host := fixtureOrg(t, "one")
+	alice, ok := o.Member("alice")
+	if !ok {
+		t.Fatal("取不到 alice")
+	}
+	res, err := Persona(o, o.Roles[alice.Role], alice, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(res.Text, "业务域") {
+		t.Fatalf("没有 domains.md 不该出段 8：\n%s", res.Text)
+	}
+}
+
+// 域表里的字也会进 persona —— 三引号红线不因字来自表格而豁免（SPEC §171 事故防线）。
+func TestDomainCellLintBlocksRender(t *testing.T) {
+	v := copyFixture(t, "domains")
+	path := filepath.Join(v, "domains.md")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(b), "进出口合同的签订", "进出口合同的'''签订", 1)
+	if broken == string(b) {
+		t.Fatal("没改到 what 单元格，这条测试就白测了")
+	}
+	if err := os.WriteFile(path, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o, err := org.Load(v)
+	if err != nil {
+		t.Fatalf("校验期不该拦这个（它是 persona 文本问题）：%v", err)
+	}
+	if _, err := Build(o, Options{Host: org.Host{VaultRoot: "/vault", HomesRoot: "/homes", DataDir: "/data"}, Version: "test", Now: fixedNow}); err == nil {
+		t.Fatal("域表里的三引号应当拒绝渲染")
+	} else if !strings.Contains(err.Error(), "persona.toml.quote_break") {
+		t.Fatalf("拒绝理由应当带上规则 id，实际 %v", err)
+	}
+}

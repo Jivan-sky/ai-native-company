@@ -59,10 +59,11 @@ cc-connect 的 `config.toml`；**默认 dry-run**，落盘必须显式 `--apply`
 
 ```
 vault/
-├─ company/company.md         公司自描述 + defaults + policy（规则覆盖）
-├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + model / mode / allowed_tools
-├─ members/<name>/persona.md  成员层：display_name / role / model / feishu.*
-└─ <数据目录>/CLAUDE.md        顶层数据目录 → persona 段 3 的路由表（首句即说明）
+	├─ company/company.md         公司自描述 + defaults + policy（规则覆盖）
+	├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + model / mode / allowed_tools
+	├─ members/<name>/persona.md  成员层：display_name / role / model / feishu.*
+	├─ domains.md                 业务域表（罗盘）：slug / name / what / who / data / sources / terms
+	└─ <数据目录>/CLAUDE.md        顶层数据目录 → persona 段 3 的路由表（首句即说明）
 ```
 
 两道差分门，防的都是「不可逆」而不是「你不听话」：
@@ -88,6 +89,33 @@ policy:
 - 规则 id 拼错、级别值非法 → 直接拦：拼错等于「你以为关了其实没关」。
 - 全表随时可查：`anc org check <vault> --rules`。
 - 非红档发现**必须回显**（`anc render` / `anc org check` 都会打），门禁不许静默。
+
+### 业务域表：桥上的罗盘（`domains.md`）
+
+一块业务一行。它是**「域标签」客体的唯一定义处** —— persona 上下文、未来授权的「域」作用域、
+看板的分区都从这一张表长出来，所以只有一处维护。
+
+```
+| slug | name | what | who | data | sources | terms |
+|---|---|---|---|---|---|---|
+| trade | 大宗贸易 | 进出口合同的签订、执行与结算 | manager | projects | 邮件、合同扫描件 | 保留英文：pipeline |
+```
+
+- `slug` 机器用（进文件名与代码），必须小写 ASCII；`name` 给人看。
+- `who` 填**岗位**：渲染时从 `members/` 现算成人名（`经理（Alice、Bob）`），
+  所以人事变动不用改表，也不会「表里张三、实际李四」。同一张表既给管理层看「谁在做哪块」，
+  也给业务人员查「这件事该找谁」。
+- `data` 是**指针**（vault 顶层目录名），不是说明 —— 目录的说明归该目录的 `CLAUDE.md`。
+- **列可以多，认不得的列忽略**；列序随便排，按表头认，不按位置猜。
+- 表可以空着（只留表头）= 还没划域，不算错。
+
+渲染边界：**自己所属的域整行进 persona（段 8）**；别人的域只给一行目录
+（域 / 名称 / 是什么 / 找谁），**不给它的 `data` 与 `terms`**。要跨域就按「找谁」接头、走授权。
+**没有 `domains.md` 的 vault，persona 一个字节都不变**（存量零影响）。
+
+域表里的字同样要过 persona 的体检（三引号 / `${}` / 绝对路径 …）—— 它也是要进上下文的文本。
+
+规则默认整组 `warn`：域表是新能力，先观察；想卡死在 `policy:` 段写 `domain.slug.format: fatal`。
 
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
