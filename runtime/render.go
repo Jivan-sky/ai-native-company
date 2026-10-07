@@ -92,9 +92,11 @@ func cmdRender(args []string) int {
 
 	existing, readErr := os.ReadFile(cfgPath)
 	hasExisting := readErr == nil
-	_, oldInputs, _, oldFP := "", "", "", false
+	st := readState(cfgPath)
+	existing, hasExisting, oldFP := st.Existing, st.HasFile, st.HasFP
+	oldInputs := ""
 	if hasExisting {
-		_, oldInputs, _, oldFP = renderpkg.Fingerprint(string(existing))
+		_, oldInputs, _, _ = renderpkg.Fingerprint(string(existing))
 	}
 
 	fmt.Printf("anc render —— org → gateway config\n")
@@ -179,25 +181,59 @@ func cmdRender(args []string) int {
 		return 0
 	}
 
-	// 差分校验（两条门）
-	if hasExisting && !oldFP && !*adopt {
-		fmt.Fprintf(os.Stderr, "\n拒绝覆盖：%s 没有 anc 指纹（手写或他源配置）。确认要接管再加 --adopt。\n", cfgPath)
+	if err := commitConfig(st, plan, o, host, renderGates{Adopt: *adopt, AllowScale: *allowScale}); err != nil {
+		fmt.Fprintf(os.Stderr, "\n%v\n", err)
 		return 1
 	}
-	if hasExisting {
-		oldProjects := renderpkg.ProjectsIn(string(existing))
-		added, removed := diffSets(plan.Projects, oldProjects)
-		if (len(added) > 0 || len(removed) > 0) && !*allowScale {
-			fmt.Fprintf(os.Stderr, "\n拒绝落盘：本次会新增 %v / 删除 %v 个 project。确认无误再加 --allow-scale。\n", added, removed)
-			return 1
+	fmt.Printf("\n结论：已落盘。装载与回读（daemon install + 凭据桥 + 重启 + 探针）走 `anc apply`。\n")
+	return 0
+}
+
+// renderState 是「目标配置现在长什么样」—— 落盘的门禁全靠它判断。
+type renderState struct {
+	Path     string
+	Existing []byte
+	HasFile  bool // 目标文件在
+	HasFP    bool // 且带 anc 指纹（= 是我们上一轮生成的）
+}
+
+// readState 读一次现有配置。读不动（不存在）不是错 —— 首次落盘就是这样。
+func readState(cfgPath string) renderState {
+	st := renderState{Path: cfgPath}
+	b, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return st
+	}
+	st.Existing, st.HasFile = b, true
+	_, _, _, st.HasFP = renderpkg.Fingerprint(string(b))
+	return st
+}
+
+// renderGates 是落盘时的两条门禁。
+type renderGates struct {
+	Adopt      bool // 接管没有 anc 指纹的现有配置
+	AllowScale bool // 允许本次新增 / 删除 project
+}
+
+// commitConfig 是「落盘」这一步的唯一实现 —— `anc render --apply` 与 `anc apply` 共用。
+// 门禁与措辞只留在这里：别处再抄一遍，两边迟早会漂。
+//
+// 两条门都不是新设计的：adopt 拦「别人的文件」（没有 anc 指纹的配置不许静默覆盖），
+// allow-scale 拦「一次误操作静默上线 / 下线 bot」。
+func commitConfig(st renderState, plan *renderpkg.Plan, o *org.Org, host org.Host, gates renderGates) error {
+	if st.HasFile && !st.HasFP && !gates.Adopt {
+		return refusal{fmt.Sprintf("拒绝覆盖：%s 没有 anc 指纹（手写或他源配置）。确认要接管再加 --adopt。", st.Path)}
+	}
+	if st.HasFile {
+		added, removed := diffSets(plan.Projects, renderpkg.ProjectsIn(string(st.Existing)))
+		if (len(added) > 0 || len(removed) > 0) && !gates.AllowScale {
+			return refusal{fmt.Sprintf("拒绝落盘：本次会新增 %v / 删除 %v 个 project。确认无误再加 --allow-scale。", added, removed)}
 		}
 	}
-
-	if hasExisting {
-		backup := fmt.Sprintf("%s.bak-%s", cfgPath, time.Now().Format("20060102-150405"))
-		if err := os.WriteFile(backup, existing, 0o600); err != nil {
-			fmt.Fprintf(os.Stderr, "错误: 备份失败: %v\n", err)
-			return 1
+	if st.HasFile {
+		backup := fmt.Sprintf("%s.bak-%s", st.Path, time.Now().Format("20060102-150405"))
+		if err := os.WriteFile(backup, st.Existing, 0o600); err != nil {
+			return fmt.Errorf("备份失败: %w", err)
 		}
 		fmt.Printf("\n  备份       %s\n", backup)
 	}
@@ -211,22 +247,25 @@ func cmdRender(args []string) int {
 			continue
 		}
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			fmt.Fprintf(os.Stderr, "错误: 建 work_dir 失败 %s: %v\n", dir, err)
-			return 1
+			return fmt.Errorf("建 work_dir 失败 %s: %w", dir, err)
 		}
 		newHomes = append(newHomes, dir)
 	}
-	if err := writeAtomic(cfgPath, plan.Text); err != nil {
-		fmt.Fprintf(os.Stderr, "错误: 落盘失败: %v\n", err)
-		return 1
+	if err := writeAtomic(st.Path, plan.Text); err != nil {
+		return fmt.Errorf("落盘失败: %w", err)
 	}
-	fmt.Printf("  写入       %s（%d 个 project）\n", cfgPath, len(plan.Projects))
+	fmt.Printf("  写入       %s（%d 个 project）\n", st.Path, len(plan.Projects))
 	if len(newHomes) > 0 {
 		fmt.Printf("  家目录     新建 %d 个：%s\n", len(newHomes), strings.Join(newHomes, ", "))
 	}
-	fmt.Printf("\n结论：已落盘。gateway 重启与功能探针（kickstart + 90s 窗口）在阶段 B 落地。\n")
-	return 0
+	return nil
 }
+
+// refusal 是「被门禁拦下」：调用方打印后退出 1。
+// 与 IO 出错分开，是因为两者要现场做的事完全不同 —— 一个要人拍板，一个要修环境。
+type refusal struct{ msg string }
+
+func (r refusal) Error() string { return r.msg }
 
 // cmdOrgCheck 只加载 + 校验，不渲染。
 func cmdOrgCheck(args []string) int {
