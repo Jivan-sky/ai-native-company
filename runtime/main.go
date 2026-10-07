@@ -460,6 +460,8 @@ func cmdDoctor(args []string) int {
 	} else {
 		cs = append(cs, check{"目标目录可写", true, "未指定（跳过）"})
 	}
+	// 断电兜底：装机形态上的三条前提 —— 起得来吗（没装就明确跳过，见 startup.go）
+	cs = append(cs, startupChecks()...)
 	// 代理环境（本地部署最常见的坑：全局代理把国内 API 绕到境外）
 	proxied := false
 	for _, k := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
