@@ -108,9 +108,25 @@ func cmdRender(args []string) int {
 		fmt.Printf("  ⚠️  %s\n", w)
 	}
 
+	// 现有配置的安全缺口：产物必须完全显式。缺了就是静默沿用上游默认值 —— 必须说出来，不许吞。
+	var secGaps []string
+	if hasExisting {
+		if secGaps = renderpkg.SecurityGaps(string(existing)); len(secGaps) > 0 {
+			fmt.Printf("\n⛔ 现有配置有安全缺口 %d 项（渲染产物必须完全显式）\n", len(secGaps))
+			for _, g := range secGaps {
+				fmt.Printf("  - %s\n", g)
+			}
+		}
+	}
+
 	if *check {
 		if !hasExisting {
 			fmt.Printf("\n结论：目标配置不存在 —— 需要 `anc render --apply`。\n")
+			return 1
+		}
+		if len(secGaps) > 0 {
+			fmt.Printf("\n结论：先补安全缺口 —— 现有配置缺 %d 项显式声明，漂移比对留着补齐后再看。\n", len(secGaps))
+			fmt.Printf("FIX: 跑 `anc render --apply`\n")
 			return 1
 		}
 		oldHashes := renderpkg.PersonaHashesIn(string(existing))

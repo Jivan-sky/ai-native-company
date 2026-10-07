@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		fmt.Fprintf(&b, "data_dir = %s\n\n", tomlString(opt.Host.DataDir))
 	}
 	b.WriteString("[display]\nmode = \"full\"\n")
+	writeRelaySection(&b)
 
 	// 输出顺序：members 目录名排序 + devbot 殿后 —— 确定性让 diff 稳定。
 	members := append([]org.Member(nil), o.Enabled()...)
@@ -164,6 +166,83 @@ func allowFrom(o *org.Org, m org.Member) []string {
 	return out
 }
 
+// relayTimeoutSecs / relayVisibility 是 v1 的 bot 间通道口径：机制保留、默认零绑定。
+// 依据 SPEC §6 授权模型 —— 通道这个「能力」默认存在，通道里的「数据」默认不通；
+// 要通必须在真相源里显式开一条授权，而不是靠上游的默认值。
+const (
+	relayTimeoutSecs = 0
+	relayVisibility  = "summary"
+)
+
+// writeRelaySection 显式输出 bot 间通道声明。
+//
+// 上游 [relay] 段带默认值，且默认是「开着」（timeout_secs = 120）。产物里不写这一段，
+// 就等于默认放行 bot 间通道 —— 破一个 bot 就能问另一个 bot，与 SPEC §6 不变量 3 直接冲突。
+// 所以这里恒定显式输出：不依赖上游默认，是渲染器的责任。
+func writeRelaySection(b *strings.Builder) {
+	b.WriteString("\n# 安全相关段必须完全显式：上游 relay 默认 timeout_secs=120（通道开着），不写 = 静默放行。\n")
+	b.WriteString("# 口径：通道机制保留、默认零绑定；要通必须在真相源里显式开（SPEC §6 授权模型）。\n")
+	b.WriteString("[relay]\n")
+	fmt.Fprintf(b, "timeout_secs = %d\n", relayTimeoutSecs)
+	fmt.Fprintf(b, "visibility = %s\n", tomlString(relayVisibility))
+}
+
+// RelayIn 从产物里读回 [relay] 段的 timeout_secs。
+// ok=false 表示这一段根本没被显式写出来 —— 那就是在沿用上游默认值。
+func RelayIn(text string) (timeoutSecs int, ok bool) {
+	inRelay := false
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") {
+			inRelay = t == "[relay]"
+			continue
+		}
+		if !inRelay || strings.HasPrefix(t, "#") {
+			continue
+		}
+		k, v, found := strings.Cut(t, "=")
+		if !found || strings.TrimSpace(k) != "timeout_secs" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+// SecurityGaps 报告产物里安全相关的缺口。
+//
+// 判据（SPEC §6）：上游对安全相关的段有默认值，而那个默认值我们不知道也管不了 ——
+// 产物里缺一段，就等于静默接受它的默认。所以缺口有两类，都要报：
+//
+//	① 没写（沿用上游默认 120 = 通道开着）；
+//	② 写了但值不是 v1 口径（= 通道被打开）。
+//
+// ② 这一条是对「手改产物」的兜底：--check 的指纹比对只看 persona 与 inputs，
+// 手改一个 timeout_secs 不会动指纹，只有这条能看见它。
+func SecurityGaps(text string) []string {
+	var gaps []string
+	n, ok := RelayIn(text)
+	switch {
+	case !ok:
+		gaps = append(gaps, "[relay] 未显式声明：上游默认 timeout_secs=120（bot 间通道开着），不写 = 静默放行")
+	case n != relayTimeoutSecs:
+		gaps = append(gaps, fmt.Sprintf("[relay] timeout_secs = %d，不是 v1 口径的 %d：bot 间通道被打开了；要通必须走授权模型（SPEC §6）", n, relayTimeoutSecs))
+	}
+	return gaps
+}
+
+// AssertSecurityExplicit 是 SecurityGaps 的 error 形态，供渲染器自校验用。
+func AssertSecurityExplicit(text string) error {
+	if g := SecurityGaps(text); len(g) > 0 {
+		return fmt.Errorf("产物缺少显式声明的安全段（%d 项）:\n  - %s", len(g), strings.Join(g, "\n  - "))
+	}
+	return nil
+}
+
 // Fingerprint 解析指纹头，返回 (版本, inputs, 时间戳)；无指纹返回 ok=false。
 func Fingerprint(text string) (version, inputs, at string, ok bool) {
 	for _, line := range strings.Split(text, "\n") {
@@ -221,6 +300,9 @@ func ProjectsIn(text string) []string {
 // verifyRoundTrip 结构校验：把生成文本读回比对（project 数 / app_id 集合 / 每个 persona 的 SHA256）。
 func verifyRoundTrip(p *Plan, o *org.Org) ([]string, error) {
 	var warns []string
+	if err := AssertSecurityExplicit(p.Text); err != nil {
+		return nil, err
+	}
 	got := ProjectsIn(p.Text)
 	if len(got) != len(p.Projects) {
 		return nil, fmt.Errorf("round-trip 校验失败: 生成的 [[projects]] 有 %d 个，期望 %d 个", len(got), len(p.Projects))
