@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>ANC 看板</title>
+<!--
+  这是看板的**外壳**：样式与骨架手写在这里，界面内容由 app.js（TS 构建产物）填。
+  app.js 不是运行时依赖：它是构建期打出来的静态文件，随 anc 二进制一起嵌进去。
+-->
+<style>
+  :root {
+    --ink: #0b1f33;
+    --ink-2: #3d5f80;
+    --ink-3: #6b8aa6;
+    --line: rgba(255, 255, 255, 0.62);
+    --line-2: rgba(11, 31, 51, 0.08);
+    --sea: #0a84ff;
+    --glass: rgba(255, 255, 255, 0.56);
+    --glass-2: rgba(255, 255, 255, 0.36);
+    --shadow: 0 12px 34px rgba(12, 40, 70, 0.10), 0 2px 6px rgba(12, 40, 70, 0.05);
+    --radius: 20px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 15px/1.62 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(1100px 620px at 12% -8%, #d9f0ff 0%, rgba(217, 240, 255, 0) 62%),
+      radial-gradient(900px 560px at 92% 4%, #d6f6f0 0%, rgba(214, 246, 240, 0) 60%),
+      radial-gradient(760px 620px at 68% 106%, #e6ecff 0%, rgba(230, 236, 255, 0) 64%),
+      linear-gradient(168deg, #f6fbff 0%, #eef6fb 44%, #f4f9ff 100%);
+    background-attachment: fixed;
+  }
+  .glass {
+    background: var(--glass);
+    -webkit-backdrop-filter: blur(22px) saturate(165%);
+    backdrop-filter: blur(22px) saturate(165%);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 30px 22px 64px; }
+  header.top { padding: 22px 26px; display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap; }
+  .brand h1 { margin: 0; font-size: 27px; letter-spacing: -0.3px; font-weight: 650; }
+  .brand .sub { color: var(--ink-2); margin-top: 4px; font-size: 13.5px; }
+  .spacer { flex: 1 1 200px; }
+  .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 5px 11px; border-radius: 999px; font-size: 12.5px; color: var(--ink-2);
+    background: var(--glass-2); border: 1px solid var(--line); white-space: nowrap;
+  }
+  .chip.mono, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  button.refresh {
+    font: inherit; font-size: 13px; color: var(--ink); cursor: pointer;
+    padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--glass-2);
+  }
+  button.refresh:hover { background: rgba(255, 255, 255, 0.72); }
+  button.refresh:disabled { opacity: 0.5; cursor: default; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: none; }
+  .dot.ok { background: #1db954; }
+  .dot.warn { background: #e8a33d; }
+  .dot.bad { background: #e0483d; }
+  section { margin-top: 20px; padding: 20px 24px 24px; }
+  section > h2 {
+    margin: 0 0 2px; font-size: 15px; font-weight: 620; letter-spacing: 0.2px;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  }
+  section > h2 .hint { font-weight: 400; font-size: 12.5px; color: var(--ink-3); }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(266px, 1fr)); margin-top: 16px; }
+  .card {
+    padding: 15px 16px; border-radius: 16px;
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid var(--line-2);
+    box-shadow: 0 2px 10px rgba(12, 40, 70, 0.04);
+  }
+  .card h3 { margin: 0 0 8px; font-size: 15px; font-weight: 620; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; }
+  .card dt { color: var(--ink-3); white-space: nowrap; }
+  .card dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  th { color: var(--ink-3); font-weight: 520; font-size: 12.5px; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  a { color: var(--sea); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .banner { margin-top: 20px; padding: 16px 20px; border-radius: 18px; font-size: 13.5px; }
+  .banner h3 { margin: 0 0 8px; font-size: 14px; font-weight: 620; }
+  .banner ul { margin: 0; padding-left: 20px; }
+  .banner li { margin: 3px 0; }
+  .banner.bad { background: rgba(255, 236, 234, 0.74); border: 1px solid rgba(224, 72, 61, 0.28); color: #7d1f18; }
+  .banner.warn { background: rgba(255, 247, 231, 0.76); border: 1px solid rgba(232, 163, 61, 0.32); color: #7a5312; }
+  .empty { color: var(--ink-3); font-size: 13px; margin: 14px 0 0; }
+  footer { margin-top: 26px; color: var(--ink-3); font-size: 12.5px; line-height: 1.95; }
+  footer strong { color: var(--ink-2); font-weight: 560; }
+  .loading { padding: 40px 4px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<main id="app"><div class="loading">正在读取真相源…</div></main>
+<noscript><main><div class="glass" style="padding:20px 24px">看板需要 JavaScript 才能渲染。</div></main></noscript>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

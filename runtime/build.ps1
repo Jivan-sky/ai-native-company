@@ -35,6 +35,22 @@ if (-not $verLine) { throw "在 main.go 里找不到 const version" }
 $Version = $verLine.Matches[0].Groups[1].Value
 Write-Host "anc 版本：$Version" -ForegroundColor Cyan
 
+# --- 看板前端产物新鲜度 ---
+# 产物是入库的静态文件（现场编译 Go 二进制不需要 node），所以「改了 TS 忘了 build」
+# 会静默打出旧界面。这里不拦，只把它喊出来。
+$UiSrc = Join-Path $Root "boardui\src"
+$UiOut = Join-Path $Root "internal\board\ui\app.js"
+if (-not (Test-Path -LiteralPath $UiOut)) {
+    throw "缺 $UiOut —— 先跑：cd boardui; npm run build"
+}
+if (Test-Path -LiteralPath $UiSrc) {
+    $outTime = (Get-Item -LiteralPath $UiOut).LastWriteTimeUtc
+    $stale = @(Get-ChildItem -LiteralPath $UiSrc -Recurse -File | Where-Object { $_.LastWriteTimeUtc -gt $outTime })
+    if ($stale.Count -gt 0) {
+        Write-Warning "看板前端源码比产物新（$($stale.Count) 个文件）。先跑：cd boardui; npm run build —— 否则打出来的二进制里是旧界面。"
+    }
+}
+
 # --- 清理旧产出 ---
 if (Test-Path -LiteralPath $Dist) {
     Write-Host "清理旧产出：$DistAbs"

@@ -1,0 +1,16 @@
+{
+  "name": "anc-board-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ANC 看板前端：源码用 TS，构建期打成静态 app.js，嵌进 anc 二进制（运行时不需要 node）",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

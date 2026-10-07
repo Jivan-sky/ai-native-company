@@ -28,7 +28,10 @@ anc org init ./climax-vault --client 某车队 --id climax --members alice,bob
 anc org check ./climax-vault --rules
 anc render ./climax-vault --apply
 
-# 6. 服务单元：默认只打印，--apply 才真落盘；install 再加 --apply 才真装载
+# 6. 起只读看板（本地；前端已嵌在二进制里 —— 不需要 node、不需要外网）
+anc board serve ./climax-vault          # http://127.0.0.1:8787
+
+# 7. 服务单元：默认只打印，--apply 才真落盘；install 再加 --apply 才真装载
 anc service render --org ./climax-vault --bot alice --goos darwin
 anc service status --org ./climax-vault --bot alice
 ```
@@ -184,6 +187,31 @@ anc org export <vault>            # stdout 出一份 JSON，消费方自己重�
   看板据此显示「这个项目的材料进来了没」。
 - 非红档发现走 **stderr**，stdout 恒为纯 JSON（有测试盯着这条）。
 
+### 看板（`anc board serve`）
+
+```
+anc board serve <vault> [--addr 127.0.0.1:8787]
+```
+
+一个**只读**的本地看板：打开浏览器就能看见「这家公司现在长什么样」—— 业务域、项目、
+角色与成员、数据路由，外加真相源的健康度。**改完 vault 刷新即见**（每次请求现读，不缓存）。
+
+- **数据源**：就是上面那个投影（`anc.board/v1`）+ 校验发现（与 `anc org check` 同一张规则表）。
+  看板不自己算口径，也不另存一份 —— 免得看板和 persona 各说各话。
+- **只读是硬约束**：只放行 GET / HEAD，别的方法一律 405。没有写入口，就不存在越权写入口。
+- **默认只绑 `127.0.0.1`**：看板里有组织与项目信息。要给别人看请走 ssh 端口转发；
+  绑到别处会打警告（不拦你，但你得知道自己在干什么）。
+- **不含凭据面字段**：`feishu.app_id` / `open_id` 一律不进投影；连「文件缺失」这类
+  到不了报告的报错，也会把本机绝对路径摘成 `<vault>` 再出门。
+- **红档不隐藏**：`/api/issues` 如实端出校验发现，界面把它摆在最上面 ——
+  vault 坏了的时候，看板正是用来看「哪里坏了」的。
+- **三块还没有数据源**：运行态（哪个 bot 在跑）、数据流管控（跨域 / 通道授权）、
+  沉淀区（agent 产出）—— 界面上明说「还没接入」，**不编假数据**。它们是阶段 C 探针的活。
+
+前端源码是 TS（`runtime/boardui/`），**只在构建期存在**：`npm run build` 打成
+`internal/board/ui/app.js`，再由 `go:embed` 打进二进制。交付物里没有 node、没有 node_modules，
+现场编译也不需要 npm —— **产物要一起提交**，否则二进制里还是旧界面（有测试盯着这条）。
+
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
 - `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
@@ -191,6 +219,10 @@ anc org export <vault>            # stdout 出一份 JSON，消费方自己重�
 - 真实拉起 + 功能探针（kickstart + 90s 窗口）在阶段 B 的服务单元里落地。
 - 测试三层（`go test ./...`）：性质测试（确定性 / 往返读回 / 时间只影响指纹头）、
   负面断言（**只断规则 id，不断文案**）、一个结构快照 `testdata/golden/one.snapshot`（`-update` 重写）。
+- 看板已验证：端点（首页 / app.js / 投影 / 发现）、只读口径（写方法一律 405）、
+  内嵌产物完备（挡「忘了 build」）、不外泄（越权路径 404、本机路径被摘）、
+  真监听 + 优雅关闭。**未验证**：浏览器里的视觉与交互（本机没有可用的无头浏览器）——
+  自己跑一次 `anc board serve <vault>` 打开看看才算数。
   不存全文 golden —— 它的失败模式是「改一个字就红」，然后人就会习惯性 `-update`，测试就死了。
 
 ## 服务单元（`anc service`）
@@ -262,6 +294,10 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
+| `internal/board/server.go` | 看板的只读 HTTP 出口（GET / HEAD；投影 + 校验发现） |
+| `internal/board/ui/` | 看板前端**产物**（手写 `index.html` + 构建出的 `app.js`）；`go:embed` 进二进制 |
+| `boardui/` | 看板前端**源码**（TS + esbuild；`npm run build` 出到 `internal/board/ui/`） |
+| `boardserve.go` | `anc board serve` 的 CLI（默认只绑本机、优雅退出） |
 | `service.go` | `anc service render/status/install/uninstall` 的 CLI（用户级服务单元） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
