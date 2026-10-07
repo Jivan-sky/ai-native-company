@@ -666,16 +666,56 @@ func scanRouting(root string) ([]Routing, error) {
 		}
 		summary := ""
 		if b, err := os.ReadFile(filepath.Join(root, e.Name(), "CLAUDE.md")); err == nil {
-			for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" || strings.HasPrefix(line, "#") {
-					continue
-				}
-				summary = strings.TrimLeft(line, "-*0123456789. ")
-				break
-			}
+			summary = routingSummary(string(b))
 		}
 		out = append(out, Routing{Dir: e.Name(), Summary: summary})
 	}
 	return out, nil
+}
+
+// routingSummary 从数据目录的 CLAUDE.md 里取「这个目录放什么」—— 它会整行进 persona 段 3「数据来源」。
+//
+// 跳过四类行，每一类都是踩过的坑，别顺手删掉：
+//   - 空行、`#` 标题：标题是名字不是说明（没写说明时显示 —，不是显示名字）；
+//   - `<...>` 占位符整行：脚手架留下的「这里还没写」。它长得像说明，进去却是一条**假路** ——
+//     agent 会照表去一个根本没被描述清楚的地方翻。存量 vault 里已经有这种文件，
+//     所以这层判断不能只靠改模板（改模板只管以后新生成的）。
+//   - `<!-- ... -->` 注释（含跨行）：注释是写给自己看的，模板提示就藏在这里，不该当说明。
+//
+// 一条有效行都没有时返回空串，由渲染层显示 `—`。
+func routingSummary(text string) string {
+	inComment := false
+	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		line := strings.TrimSpace(raw)
+		if inComment {
+			i := strings.Index(line, "-->")
+			if i < 0 {
+				continue
+			}
+			inComment = false
+			line = strings.TrimSpace(line[i+3:])
+		}
+		if i := strings.Index(line, "<!--"); i >= 0 {
+			if j := strings.Index(line[i+4:], "-->"); j >= 0 {
+				line = strings.TrimSpace(line[:i] + " " + line[i+4+j+3:])
+			} else {
+				inComment = true
+				line = strings.TrimSpace(line[:i])
+			}
+		}
+		line = strings.TrimSpace(strings.TrimLeft(line, "-*0123456789. "))
+		if line == "" || strings.HasPrefix(line, "#") || isPlaceholder(line) {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+// isPlaceholder 认整行就是一个 `<尖括号包起来的话>` —— 模板脚手架的「还没写」。
+func isPlaceholder(s string) bool {
+	if len(s) < 2 || s[0] != '<' || s[len(s)-1] != '>' {
+		return false
+	}
+	return strings.Count(s, "<") == 1 && strings.Count(s, ">") == 1
 }

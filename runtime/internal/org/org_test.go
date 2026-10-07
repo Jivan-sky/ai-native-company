@@ -311,3 +311,69 @@ func TestRoutingExcludesStructuralDirs(t *testing.T) {
 		}
 	}
 }
+
+// 数据目录的说明会整行进 persona 段 3「数据来源」。取错了不是「少一条线索」，
+// 是给 agent 指一条假路 —— 所以这里盯的是「什么不算说明」。
+func TestRoutingSummaryPicksRealDescription(t *testing.T) {
+	cases := []struct {
+		name, in, want string
+	}{
+		{"普通说明", "# 客户\n\n客户档案与联系人口径（一处维护）。\n", "客户档案与联系人口径（一处维护）。"},
+		{"标题下面是空行", "# 客户\n\n", ""},
+		{"只有标题", "# 客户\n", ""},
+		{"列表项也算说明", "# 客户\n\n- 客户档案与合同原件\n", "客户档案与合同原件"},
+		{"编号项", "1. 订舱与到货跟踪\n", "订舱与到货跟踪"},
+		// 模板脚手架：`<...>` 是「还没写」，不是说明（存量 vault 里就有这种文件）。
+		{"模板占位符整行", "# 物流\n\n- <这个目录放什么。这一行会进 persona 的「数据来源」路由表，写清楚它才找得着路>\n", ""},
+		{"占位符在前真说明在后", "- <这里还没写>\n\n真说明。\n", "真说明。"},
+		{"尖括号不是占位符", "- <A> 与 <B> 的对照表\n", "<A> 与 <B> 的对照表"},
+		// 注释是写给自己看的，模板提示就藏在注释里。
+		{"只有注释", "# 项目\n\n<!-- 在这里补一行：这个目录住什么资料。 -->\n", ""},
+		{"跨行注释", "<!-- 提示第一行\n     提示第二行\n-->\n\n在跑项目的进展与卡点。\n", "在跑项目的进展与卡点。"},
+		{"行内注释夹在说明前", "<!-- 提示 --> 在跑项目的进展与卡点。\n", "在跑项目的进展与卡点。"},
+		{"CRLF", "# 客户\r\n\r\n客户档案。\r\n", "客户档案。"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := routingSummary(c.in); got != c.want {
+				t.Fatalf("routingSummary 取到 %q，期望 %q", got, c.want)
+			}
+		})
+	}
+}
+
+// 模板与扫描必须说同一件事：脚手架空着生成出来的目录，一条说明都不算。
+// 这两个东西分家过一次（模板留占位符、扫描不认），这条用例防再分家。
+func TestTemplatePlaceholderIsNotARoute(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "templates", "org", "data-dir-CLAUDE.md.tmpl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := routingSummary(strings.ReplaceAll(string(b), "{{DATA_DIR}}", "客户"))
+	if got != "" {
+		t.Fatalf("按模板新生成的目录说明取到 %q —— 模板占位符又变成一条假路", got)
+	}
+}
+
+// 存量 vault 的真实形态：早期 `anc org init` 生成的 CLAUDE.md 里还留着占位符行。
+// 扫描这一层就得当它是空气，否则修复只对新 vault 生效。
+func TestRoutingSkipsLegacyPlaceholder(t *testing.T) {
+	v := copyVault(t, "domains")
+	body := "# 客户\n\n- <这个目录放什么。这一行会进 persona 的「数据来源」路由表，写清楚它才找得着路>\n"
+	if err := os.WriteFile(filepath.Join(v, "clients", "CLAUDE.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o, err := Load(v)
+	if err != nil {
+		t.Fatalf("应当加载通过：%v", err)
+	}
+	for _, r := range o.Routing {
+		if r.Dir == "clients" {
+			if r.Summary != "" {
+				t.Fatalf("clients 的说明取到了占位符：%q", r.Summary)
+			}
+			return
+		}
+	}
+	t.Fatalf("clients 应当仍在路由表里（只是还没写说明）：%v", o.Routing)
+}
