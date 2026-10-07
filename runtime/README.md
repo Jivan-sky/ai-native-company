@@ -257,6 +257,33 @@ anc timeline list <vault> [--limit N] [--before <RFC3339>] [--band <档>] [--sta
 - **目录不存在 = 还没开始记 = 空时间线，不是错**（刚 `init` 的机器不该因此报红）。
 - 坏行只报 `文件名:行号`，不带本机路径（看板是观测面，不是凭据面）。
 
+### 接入面的信封（`anc envelope`）
+
+```
+anc envelope check <vault> <信封.json> [--json]
+```
+
+不管对面是 Claude Code、Codex、DSH、Hermes、OpenClaw，还是一个插件、一条 MCP ——
+进了 ANC 就只剩一种东西：**信封**。网关可替换（A 换 B 是 adapter 的事），**信封不变**（#44）。
+
+- **判据**：只靠信封就能答出六件事 —— 谁 / 代谁 / 哪块业务 / 要什么 / 证据在哪 / 要不要人拍。
+  `check` 就把这六问答出来。后两问**只列原文、不做判断**：要不要人拍由信封自己说（`needs`），
+  我们不从字符串里猜意图。
+- **身份不靠自报**：`who` 与 `on_behalf_of` 必须能在真相源（`members/` / `roles/` / `domains.md`）里
+  解出来；解不出不是「格式错」，是**这个人不存在**。所以分两段报：**结构**（读不读得懂 ——
+  缺 `id` / `ts` 不是 RFC3339 / 缺 `who` → 拒收，退出码 1）与**绑定**（指向真不真 —— 一条发现）。
+- **只有三样必需**：`id` / `ts`(RFC3339) / `who`。其余留空不拦 ——
+  现场先发一句，比逼人填全字段然后干脆不发要好。
+- **词表不锁死**：`kind` 只认 `ask` / `report` / `notify` / `ingest` / `proposal` 去归类，
+  认不出的**原样保留**（落一条 warn）；`needs` 是自由文本，一个词都不认。加词只改数据。
+- **不设门禁**：七条发现整组默认 `warn`（只回显，不拦）。想提红或想关掉，写进
+  `company.md` 的 `policy:` 段（`envelope.who.unknown = fatal`，`= off` = 整条不出）——
+  **这就是「开关」：门禁是数据，不是代码里的 if**。生效档位看 `anc org check <vault> --rules`。
+- **域 / 项目表为空就不报**：没有 `domains.md` / `projects.md` 的存量 vault，
+  不该因为「有人发了封信」被提醒 —— 门禁不许长在别人的文档上。
+- 真相源本身是红的（`org.Load` 红档）→ 绑不了、直接退出 1，不编一份绿灯。
+
+形状与口径见 `internal/envelope/`。**它不发、不写、不拦** —— 只解析 + 绑真相源。
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
 - `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
@@ -380,7 +407,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | 路径 | 说明 |
 |---|---|
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；D4/D5/D6 已拍板，D1/D2 未拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `board` / `org` / `version`） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `envelope` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
@@ -391,6 +418,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `timeline.go` | `anc timeline add` / `list` 的 CLI（append-only，不改旧行） |
 | `internal/timeline/` | 决策与执行留存的读写与折叠（纯 Go 标准库；按作者分片、词表不锁死） |
 | `internal/board/timeline.go` | 时间线的只读出口（`/api/timeline`，`anc.timeline/v1`） |
+| `envelope.go` | `anc envelope check` 的 CLI（解析 + 绑真相源，只读） |
+| `internal/envelope/` | 接入面的信封：类型 / 解析 / 与真相源绑定（与 harness 无关的那一层，#44） |
 | `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |

@@ -712,6 +712,61 @@ diff / review / 回滚 —— 二进制库这三样全丢。代价如实记：�
 
 **顺带改掉的一处自相矛盾**：总览页原来手抄了一份「两块还没接数据源」（数据流 / 原料），
 而那两页早就是「已接入」了。现在从 `PAGES` 现算 —— 导航与总览只有一处口径。
+### 7.1.13 接入面的信封：`anc envelope`（2026-10-08，单元 17 条 + 活体实测）
+
+#44 的第一块落地：**与 harness 无关的那一层**。网关可替换（#30 已盘 CC / Codex / DSH / Hermes /
+OpenClaw 五家怎么接），可换的是网关，**信封不变** —— 所以先把信封立住，再谈阶梯与入口。
+
+**形状**（`internal/envelope`）：`id` / `ts` / `who` / `on_behalf_of` / `scope{domain,project}` /
+`kind` / `body` / `refs` / `needs`。**只有 `id` / `ts` / `who` 必需** —— 其余留空不拦。
+
+**两段报，刻意分开**：
+
+| 段 | 判什么 | 怎么报 |
+|---|---|---|
+| 结构（`Parse`） | 读不读得懂 | 缺 `id` / `ts` 非 RFC3339 / 缺 `who` → **拒收**，退出码 1 |
+| 绑定（`Bind`） | 指向的东西在真相源里**存不存在** | 一条发现，档位走生效规则表 |
+
+分开的理由：结构错是「你格式写错了」，绑定错是「我们公司没有这个人」——
+混在一起报，人分不清该改 JSON 还是该查人事。
+
+**七条发现，整组默认 warn**：`envelope.who.unknown` / `on_behalf_of.missing` /
+`on_behalf_of.unknown` / `scope.domain.unknown` / `scope.project.unknown` / `kind.missing` /
+`kind.unknown`。这个档不是随口定的 —— **域表 / 项目表立的就是这个先例**：新能力先「看见」、
+不先「拦」，一条红线都不设。要提红写 `company.md` 的 `policy:` 段（`= fatal`），要关掉写 `= off`。
+七条全部登记在 `org.DefaultRules` 里，`anc org check --rules` 能看见；
+**有测试盯着这件事** —— 规则 id 一旦拼错没登记，`Policy.Level` 的兜底是 `fatal`，等于偷偷上了门禁。
+
+**身份不许自报**：`who` 必须能在 `members/` 里解出来；`on_behalf_of` 支持 `member:名字` /
+`role:岗位` / `domain:slug` 三种前缀，也接受**裸名字**（按 成员 → 岗位 → 域 的固定顺序解，
+不猜）。这是 #44 的验收判据之一。
+
+**表为空就不报**：没有 `domains.md` / `projects.md` 的 vault，`scope` 一条都不出 ——
+同 `LoadDomains` / `LoadProjects` 的谦让：**门禁不许长在别人的文档上**。
+
+**判据摊开**：`check` 顺带把六问打出来（谁 / 代谁 / 哪块业务 / 要什么 / 证据在哪 / 要不要人拍）。
+后两问**只列原文**：要不要人拍由信封自己说（`needs`），我们不从字符串里猜意图。
+
+**实测**（2026-10-08，本机 `dist/anc.exe`，对着 `testdata/orgs/domains` 与真沙箱 vault）：
+
+| 用例 | 结果 |
+|---|---|
+| 干净信封（`who=alice`、`on_behalf_of=member:alice`、`scope=trade/trade-q3`、`kind=ask`） | 六问全答出，**0 项发现**，exit 0 |
+| 到处不对（`who=nobody`、`bot:alice`、`nope/nope-q9`、`escalate`） | **5 项 warn**，一条不落，exit 0（不拦） |
+| 缺 `who` | 拒收：「缺 who —— 判据要求只靠信封就能答出谁」，exit 1 |
+| 空域表 / 空项目表的 vault | `scope` 两条**不报**，其余 3 条照报 |
+| `policy: envelope.who.unknown = fatal`（实测：把影响域拷进临时 vault 改 `company.md`） | 变 `🔴`，**exit 1** |
+| `policy: envelope.kind.unknown = off` | 那条**整条不出** |
+| `anc org check --rules` | 七条 `envelope.*` 都在表里，覆盖标记 `★` 也对 |
+
+`gofmt` / `go vet` / `go test -count=1 ./...` **十一包全绿**（envelope 包 17 条）。
+路上真踩到并修掉一处：`Bind` 一开始直接 append 裸切片，绕过了 `Report.Add` 的丢弃逻辑，
+**`off` 档关不掉** —— 改成走 `*org.Report` 后才真的能关（有测试锁住）。
+
+**仍未落**（#44 的其余三项，别当做了）：入口的抽象边界（收 / 发 / 会话归属 / usage / 拒答 五件事）、
+能力降级阶梯（MCP → 插件 → skills → CLI → 只读 HTTP）在客户端侧怎么发、**入口唯一性**
+（一机一网关 = 一份日志 / 计量 / 审计）怎么落代码。信封本身也**还没冻结** ——
+等一个真实接入（#46）来回压一遍再定。
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

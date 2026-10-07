@@ -115,6 +115,17 @@ var DefaultRules = []Rule{
 	// 仍然只告警：副本目录可能比表行**早到**（材料先丢进来、抽取还没做），那是进度问题不是错。
 	{"charter.entry.unmatched", LevelWarn, false, "落点里的副本目录在 projects.md 里没有对应 slug —— 多半是名字写错，或这一项还没抽成表行"},
 
+	// —— 接入面（信封 #44）——
+	// 与域表 / 项目表同一档、同一理由：接入面是新能力，身份与作用域先「看见」，不先「拦」。
+	// 想让某条变红，在 company.md 的 policy 段写 `规则id = fatal`（本组全部允许上调，也允许 off：
+	// 这就是 #44 说的「开关」—— 门禁是数据，不是代码里的 if）。
+	{"envelope.who.unknown", LevelWarn, false, "who 不是真相源里的成员 —— 身份不许自报（#44 验收：who 来自真相源）"},
+	{"envelope.on_behalf_of.missing", LevelWarn, false, "SPEC §2.3：bot 发出的必须带 on_behalf_of；缺了审计答不出「谁授权的」"},
+	{"envelope.on_behalf_of.unknown", LevelWarn, false, "on_behalf_of 解不出人 / 岗位 / 业务域 —— 署名指不到人"},
+	{"envelope.scope.domain.unknown", LevelWarn, false, "scope.domain 不在 domains.md 里 —— 这块业务不存在，授权无从落脚"},
+	{"envelope.scope.project.unknown", LevelWarn, false, "scope.project 不在 projects.md 里 —— 多半是拼错，或还没抽成表行"},
+	{"envelope.kind.missing", LevelWarn, false, "没写 kind —— 收件人得自己猜这是请示还是汇报"},
+	{"envelope.kind.unknown", LevelWarn, false, "kind 不在已知词表 —— 照收，只是归类不了（词表不锁死）"},
 	// —— 策略层（策略自己也要被校验，否则拼错规则名 = 你以为关了其实没关）——
 	{"policy.override.unknown", LevelFatal, true, "policy 段写了不存在的规则 id 或非法级别值"},
 	{"policy.override.locked", LevelFatal, true, "试图降级 / 关闭无例外红线（SPEC §6-5 / §171）"},
