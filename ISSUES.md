@@ -5,7 +5,7 @@
 > 编号 1–6 与 GitHub issue 同号（本文件是权威文本，GitHub 是镜像；改完一处要回写另一处）。
 > `N*` 是本轮新发现、GitHub 上还没开的条目 —— 开完 issue 后把号填进「GitHub」列。
 >
-> 最后更新：2026-10-06（运行层阶段 A/B 落地后）
+> 最后更新：2026-10-07（cc-connect v1.3.4 真拉起烟测后）
 
 ## 索引
 
@@ -22,6 +22,10 @@
 | [N4](#n4-空-allowed_tools--全开-未实测) | 本地 · 未开 | 「空 `allowed_tools` = 全开」未实测 | 一条校验规则的档位 |
 | [N5](#n5-装机侧的四个未实测项) | 本地 · 未开 | 装机侧的四个未实测项 | 阶段 B 的「装上了」≠「跑起来了」 |
 | [N6](#n6-org-真相源里存-open_id-与-23-的张力) | 本地 · 未开 | org 真相源里存 `open_id` 与 §2.3 的张力 | 真相源会不会夹带身份数据 |
+| [N7](#n7-anc-init--anc-org-init-裸跑缺模板目录即失败) | 本地 · 未开 | `anc init` / `anc org init` 裸跑缺模板目录即失败 | 装机第一步就挂 |
+| [N8](#n8-cc-connect-的-flag-文档与实现不一致) | 本地 · 未开 | cc-connect 的 flag 文档与实现不一致 | 脚本里写错一次就白跑一轮 |
+| [N9](#n9-上游-daemon-默认把明文捕获进服务文件design-d4) | 本地 · 未开 | 上游 daemon 默认把明文捕获进服务文件（= DESIGN D4） | 「全程无明文」的承诺 |
+| [N10](#n10-上游对未知配置键静默忽略) | 本地 · 未开 | 上游对未知配置键静默忽略 | 渲染产物的字段正确性 |
 
 ---
 
@@ -160,6 +164,21 @@ SPEC §5.9 能用一句话回答「Windows 上怎么落」。
 
 上游 CLI **未发布**，等它就是等一个不确定的时间点；全自建则要自己承担 IM 长连接、会话调度、出口审计。
 
+**本轮变化（2026-10-07，真拉起 cc-connect v1.3.4 后）**
+
+两个实测事实把这道题的范围改小了：
+
+1. **IM 长连接 + 会话调度 + 常驻，依赖的运行时已经做完了。** `cc-connect daemon
+   install / uninstall / start / stop / restart / status / logs` 一应俱全，Windows 落 `schtasks`
+   （实测 `cc-connect daemon status` → `Status: Not installed / Platform: schtasks`，只读命令，未装机）。
+   所以 (a) 里「`serve` 是最大工程块」这个前提被削掉一大半 —— `serve` 剩下的是
+   **org → 渲染 → 装载 → 探针**这一层编排，而不是重写一个 IM 网关。
+2. **但上游 daemon 有一处踩我们的红线**：`daemon install` 默认把 config.toml 里的 `${ENV}`
+   占位**捕获成实际值**写进服务文件（见 N9）。若选 (b)/(c) 直接借上游 daemon，
+   必须显式带 `--no-capture-secrets`。
+
+结论未变（仍建议 (c)），但**代价重估**：(c) 的成本从「写一个网关」降到「写一层编排 + 一个探针」。
+
 **建议：(c)**
 
 先做最小 `serve`，只服务成员 Bot、只读。理由：它是唯一碰到「对外说话」的模块，也是最大的工程块；
@@ -284,6 +303,134 @@ SPEC §2.3 说运行层只存岗位与职责、不存个人身份数据；
 **验收**
 
 真相源里搜不到任何 `open_id`；同时渲染出的 `allow_from` 仍然正确。
+
+---
+
+## N7. `anc init` / `anc org init` 裸跑缺模板目录即失败
+
+**现象（实测）**
+
+开发机上裸跑 `anc org init <dir> --client X --id Y`，报错退 1：模板查找路径只有
+**exe 同级 `templates/`** 和 **cwd 上级 `templates/`** 两处，两处都不存在就没有兜底。
+补上 `--templates <仓库>\runtime\templates` 后成功产出 8 个文件。
+
+**为什么这是个问题**
+
+装机第一步就是 `anc init`。如果它必须先知道仓库在哪、或者必须先把 `templates/` 摆到 exe 旁边，
+那「发一个 exe 出去」这个交付形态就是假的 —— 装机人第一步就挂，且报错只说找不到模板、
+没说去哪找、没说怎么补。
+
+**选项**
+
+- (a) **模板内嵌进二进制**（建议）：`go:embed` 把 `runtime/templates` 编进 exe，同时保留
+  `--templates` 覆盖。代价是改模板要重编（约 10 秒），换来「拷一个 exe 过去就能 init」。
+- (b) 保持外置，但把模板随发布包一起发，且报错里写清「去哪找 / 怎么补」。
+- (c) 保持外置 + 报错改进，接受「装机人要拿两个东西（exe + templates）」。
+
+**取舍的关键**：§5 的「重装一次 ≤ 10 分钟」是硬指标。两个东西还是三个东西，
+决定了这份指标能不能守住 —— 建议 (a)，因为「少一个要同步的东西」就是少一类漂移。
+
+**验收**
+
+一台**只有 `anc.exe`** 的干净机器上，`anc init` 一次成功，不需要任何 `--templates`。
+
+**为什么现在要记**：它不影响阶段 A/B 的结论，但会决定发布形态；等发布前再发现就得返工。
+
+**卡住谁**：发布形态、装机说明书、§7「重装 ≤ 10 分钟」的可达性。
+
+---
+
+## N8. cc-connect 的 flag 文档与实现不一致
+
+**现象（实测）**
+
+同一个二进制里两套风格 `--help` 与实现打架：
+
+- 顶层 `cc-connect --help` 写 `--config <path>` / `--force`（POSIX 双横线），**实测双横线可用**（我们就是用它跑的烟测）。
+- 子命令 `anc`-风的 Go 标准 `flag` 包那侧是单横线：`cc-connect daemon logs -n N`、`daemon` 的
+  `--config` 又确实是双横线；`daemon install --help` 直接报 `unknown flag: --help`（它不认 `--help`，
+  只认把用法打到 stdout）。
+
+**为什么这是个问题**
+
+围观者看 `--help` 写字面双横线，实际某处只认单横线（或反过来），写进文档/脚本就会「照抄文档却白跑一轮」。
+我们的 `host.json` 要记 pin、RUNBOOK 要写命令，这一条必须先钉死。
+
+**怎么定**
+
+**只信实测**：文档里出现的每条命令，都要在本机 1.3.4 上真跑一次再写。
+另：把「`--xx` 双横线」当默认（顶层 flag 实测可用），单横线只出现在明确验证过的子命令里。
+
+**验收**
+
+RUNBOOK / `host.json` 里出现的全部 cc-connect 命令，逐条实跑通过；出现单/双横线歧义的地方加一行实测注记。
+
+**卡住谁**：RUNBOOK 与任何写死 cc-connect 命令的脚本。
+
+---
+
+## N9. 上游 daemon 默认把明文捕获进服务文件（= DESIGN D4）
+
+**要定什么**
+
+若 D4 选 (b)/(c)（借上游 daemon 常驻），我们「**config / 备份 / diff 全程无明文**」的承诺
+（DESIGN §3 / §4.4 校验 2 / §9-3、§9-12）在服务文件这一环会不会破。
+
+**现象（实测 + 源码）**
+
+`cc-connect daemon install` 默认把 config.toml 里的 `${ENV}` 占位**解析成实际值再写进服务文件**
+（systemd unit / launchd plist / schtasks XML），plist 以 0600 落盘（源码 `daemon/launchd.go:57`
+注释明说是为这事）。opt-out 有两条：flag `--no-capture-secrets`，或环境变量
+`CC_DAEMON_NO_CAPTURE_SECRETS=1`（源码 `cmd/cc-connect/daemon.go:124-136`）。
+
+**选项**
+
+- (a) 借上游 daemon + 一律带 `--no-capture-secrets`（建议）：服务文件里只留 `${ENV}`，
+  真实值靠服务运行时的环境提供。**代价**：得保证服务进程能拿到这些 env
+  （launchd 的 `EnvironmentVariables` / systemd 的 `Environment=` / schtasks 的环境继承），
+  这正是 §9-12 `gateway-extra.toml` 之外要补的一处输入。
+- (b) 借上游 daemon，接受捕获，但把服务文件权限收到 600 并纳入备份边界：
+  **与「全程无明文」冲突，须先改 SPEC**，不建议。
+- (c) 自建 `anc service`（§1 已实现三平台单元生成）而不借上游 daemon：
+  明文问题回到我们手里，但要多维护一层与上游 daemon 重复的编排。
+
+**验收**
+
+装机后 `grep -r <真实 secret 值>` 扫服务文件目录（LaunchAgents / systemd user unit / schtasks XML）
+**搜不到**；同时 bot 能用这份凭据回话。
+
+**卡住谁**：D4 若选借上游 daemon，这条是前置条件，不是可选项。
+
+---
+
+## N10. 上游对未知配置键静默忽略
+
+**现象（实测）**
+
+往渲染产物里塞 `bogus_key_xyz = "hello"`（`[[projects]]` 层）与 `bogus_child = 1`
+（`[projects.agent.options]` 层），cc-connect 1.3.4 照常 `INFO config loaded`、零告警、正常起三项目。
+对照：同一个二进制对**未定义的 `${ENV}`** 是会告警的 —— 说明它只是不校验键名。
+
+**为什么这是个问题**
+
+`anc render` 是唯一上线路径，产物「被 gateway 接受」是我们唯一的端到端验证。
+但实测证明**「被接受」不等于「字段都对」**：字段名写错（比如上游把 `reset_on_idle_mins`
+改名）我们不会知道 —— 配置静默失效、行为退回默认值，而所有体检都是绿的。
+这正是 SPEC 点名的头号架构债（同一事实多处维护必然漂移）在**跨仓库**上的形态。
+
+**选项**
+
+- (a) **字段白名单测试**（建议）：拿 pin 版本的 `cc-connect config example` 当 schema 语料，
+  对我们产出的每个键断言「在样例里出现过」；命中不了的要人工判定「补样例 / 删字段」。
+  落点：`internal/org` 的渲染测试旁边（或 `internal/gateway`），进 `go test`。
+- (b) 每次升级 cc-connect 时人工对照 `config example` diff。**靠纪律，无自动拦截**。
+- (c) 上游提 feature request 要求未知键告警。等上游。
+
+**验收**
+
+故意把渲染器里某个键改成 `reset_on_idle_minutes`（多一个 s），`go test ./...` **必须红**。
+
+**卡住谁**：升级 cc-connect 的形态回归（与 DESIGN §7.1 那两行是同一件事）。
 
 ---
 

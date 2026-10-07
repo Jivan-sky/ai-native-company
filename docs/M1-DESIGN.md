@@ -334,6 +334,26 @@ TS 模板函数,三原型参数化:`{label, program_args, archetype: keepalive|i
 | ④ | `[projects.auto_compress]` 在 1.3.4 的字段名与语义(该段已设计为可选渲染) | 1.3.4 源码/文档核对 + 烟测 | 缺省不渲染即可,上下文治理登记为 M2 缺口 |
 | ⑤ | gateway 空闲时是否有周期性日志输出(watchdog「30min 内有输出」新鲜度探测的前提) | 烟测实例空闲观察 | 改用就绪标志时间戳 + 认证探针,不依赖日志频率 |
 
+### 10.1 实测结论(2026-10-07,结论来自真跑,不是推论)
+
+**环境**:本机 Windows;cc-connect **v1.3.4 / commit 27c1de8f / built 2026-06-16T07:52:29Z**,装在 `~/.anc/bin/cc-connect.exe`(不挂全局 PATH),二进制 SHA256 `571fce2b...7630968` 与上游 `checksums.txt` 核对一致。
+**烟测现场**:`%TEMP%\anc-smoke\` —— `anc org init` 生成 vault(3 成员 + 2 角色),`anc render --apply` 生成三项目 config(alice/bob `dontAsk`、devbot `bypassPermissions`),再拿真 gateway 拉起。
+
+| # | 结论 | 命令与实测输出 |
+|---|---|---|
+| ① | **成立**:`dontAsk` 被 1.3.4 接受并透传 | `cc-connect --config gateway\config.toml` → 三项目各自 `INFO msg="platform ready"` + `INFO msg="engine started" project=smoke-alice agent=claudecode platforms=1`,**全程无档位告警**。源码对照:`agent/claudecode/claudecode.go:291` 返回 `dontAsk`,`agent/claudecode/session.go:997` 做 `cs.dontAsk.Store(mode == "dontAsk")`,`core/cron.go:105` / `core/timer.go:79` 的档位白名单同样含 `dontAsk`;自带样例 `config.example.toml:790` 明列该档 |
+| ② | **成立**:未定义变量 → **替换为空字符串**,只发 `WARN`,不中断加载 | 不设 env 直接跑:`WARN config: env var placeholder references unset variable var=ANC_FEISHU_SECRET_ALICE placeholder=${ANC_FEISHU_SECRET_ALICE}`(三个引用各一条) → `INFO config loaded path=gateway\config.toml` → 随后才 `level=ERROR msg="failed to create platform" project=smoke-alice type=feishu error="feishu: app_id and app_secret are required"`,exit 1。源码:`config/config.go:769-781` 的 `resolveEnvPlaceholders()`,`val, ok := os.LookupEnv(...)`,`!ok` 时仅 `slog.Warn` 然后 `return val`(空串) |
+| ③ | **成立**:parse error fail-fast,且报出行号 | 尾部追加畸形 `[[projects]` 后计时:`ms=79 exit=1`,输出 `Error loading config (bad.toml): parse config: toml: line 231 (last key "projects.platforms.options"): expected end of table array name delimiter ']', but got '\n' instead` |
+| ④ | **字段名确认**:`enabled` / `max_tokens` / `min_gap_mins` | `cc-connect config example`(1.3.4 自带)原文:`# [projects.auto_compress]` / `# enabled = true` / `# max_tokens = 12000     # estimated token threshold to trigger compression` / `# min_gap_mins = 30      # minimum minutes between auto-compress runs (default 30)`。语义即「估算 token 超阈值触发压缩 + 两次压缩最小间隔」;§11 已把该段列为可选渲染,当前渲染器未渲染它 |
+| ⑤ | **成立**:空闲期静默,无周期日志 | 70 s 空闲跑:stdout 共 **46 行**,其中 `feishu: websocket error` 仅 **3 行**(三项目各一次,SDK 退避后不再刷),无任何周期心跳输出。**推论**:watchdog 不能依赖「空闲日志频率」判活,§10 表里的回退方案(就绪标志时间戳 + 认证探针)是必经之路 |
+
+**同批拿到的额外实测(不在 ①-⑤ 内,同样影响设计)**
+
+- **config 形态被接受**:`[[projects.platforms]]` + `[projects.platforms.options]`(数组元素 + 其子表)1.3.4 吃得下,三项目全部 `platform ready`;渲染器当前产出形态无需改。
+- **`data_dir` 生效**:`INFO msg="api server started" socket=<data_dir>\run\api.sock`(`data_dir` 取的就是我们渲染进 config 的那个值)—— 指定目录被认,没回流到默认 `~/.cc-connect`。
+- **长 persona 走文件不走命令行**:`append_system_prompt` 的合入内容由 `agent/claudecode/session.go:257-291` 写进临时文件,以 `--append-system-prompt-file` 传给 claude(注释写明规避 Windows 8192 字节命令行上限,#1376)。对我们有利:七段 persona 再长也不撞命令行长度。
+- **未知键静默忽略**(登记为 ISSUES N10):往 config 里塞 `bogus_key_xyz = "hello"` / `bogus_child = 1`,`INFO config loaded` 照常、零告警。**渲染器的字段漂移不会被上游拦住**,需要自己有白名单测试。
+
 ## 11. 排期(4 + 2 周)
 
 - **W1**:org schema + frontmatter + 渲染器 + golden;W1 实测清单(§10)全部出结论。

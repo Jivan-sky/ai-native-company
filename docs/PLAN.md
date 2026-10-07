@@ -14,13 +14,17 @@
 
 目标:在一台干净 Mac mini 上,`anc init` + 引导 checklist 走完,得到一个能回话的 N-bot 公司。详细技术设计见 [M1-DESIGN.md](./M1-DESIGN.md)。
 
-> **下一步(本仓库自加,非上游原文):拉真 gateway,先把门口的未知数关掉。**
+> **真 gateway 门前的未知数(本仓库自加,非上游原文)—— 2026-10-07 已完成。**
 >
-> 1. 取 `github.com/chenhg5/cc-connect` **pin v1.3.4**(MIT,Go 单二进制)。不取最新:#1562(同实例多飞书 app 共享 WS 丢第二个 bot 的消息)在 1.4.x 仍 open,1.3.4 是唯一有多 bot 生产实证的版本。二进制落 `~/.anc/bin/`,不挂全局 PATH;`host.json` 记 pin。
-> 2. 用 `anc org init` 生成的最小 vault 跑 `anc render --apply`,拿渲染产物**真起一次** gateway(假 secret;短窗口内无 config parse error 即过,随后 kill)。
-> 3. 回填三处:`docs/M1-DESIGN.md` §10 的 **W1 实测项 ①-⑤**(dontAsk 档是否被接受并透传 / `${ENV}` 未定义变量的替换行为 / parse error 是否 fail-fast / `auto_compress` 段的字段名与语义 / 空闲期是否有周期日志)、`runtime/DESIGN.md` §0-**D4**(`serve` 自建还是等上游——它是阶段 C 之后全部工作的前置,不跑真 gateway 只能猜)、以及同文 §7 表里「gateway 是否接受这份配置」一行。
+> 1. [x] 取 `github.com/chenhg5/cc-connect` **pin v1.3.4**(MIT,Go 单二进制)。不取最新:#1562(同实例多飞书 app 共享 WS 丢第二个 bot 的消息)在 1.4.x 仍 open,1.3.4 是唯一有多 bot 生产实证的版本。二进制落 `~/.anc/bin/`,不挂全局 PATH;`host.json` 记 pin。**实测**:二进制自报 `v1.3.4 / commit 27c1de8f / built 2026-06-16T07:52:29Z`,`--version` exit 0,SHA256 与上游 `checksums.txt` 一致。
+> 2. [x] 用 `anc org init` 生成的最小 vault 跑 `anc render --apply`,拿渲染产物**真起一次** gateway。**实测**:三项目(alice/bob `dontAsk`、devbot `bypassPermissions`)全部 `platform ready` + `engine started`,末行 `INFO msg="cc-connect is running" projects=3` —— 配置形态被接受;随后 kill(无残留进程)。
+> 3. [x] 三处回填完成:`docs/M1-DESIGN.md` §10.1 的 **W1 实测项 ①-⑤**(全部成立)、`runtime/DESIGN.md` §0-**D4**(新增证据:上游自带 daemon,`serve` 范围缩小;另暴露 `--no-capture-secrets` 这一明文风险)、以及同文 §7.1「gateway 是否接受这份配置」(+ 两条新增的字段白名单测试)。
 >
-> 验收:三处回填的都是**实测结论**(带命令与实际输出),不是推论;① ② 若不成立,按 §10 表里的回退列处置。
+> **① ② 都成立**,未触发 §10 表里的回退列。三处回填全部是实测结论(带命令与实际输出)。
+>
+> **新开台账**:ISSUES **N7**(`anc init` 裸跑缺模板目录即失败 —— 影响发布形态)、**N8**(cc-connect flag 文档与实现不一致)、**N9**(上游 daemon 默认把明文捕获进服务文件 —— 与「全程无明文」冲突)、**N10**(上游对未知配置键静默忽略 —— 需要字段白名单测试)。
+>
+> **硬卡点不变**:D4(=`serve` 谁写)/ N1 未拍板前,不往下做阶段 C。D4 的代价本轮已重估((c) 从「写一个网关」降到「写一层编排 + 一个探针」)。
 
 - [ ] 从 reference deployment 抽出 generic 部分,形成 **vault 模板仓库**(目录骨架、CONTRIBUTING、路由 CLAUDE.md/AGENTS.md 双文件、templates/)
 - [x] **org 真相源 schema**(members/ + roles/,markdown + frontmatter)与 **config 渲染器**(org → cc-connect config.toml,原子写 + 三重校验 + dry-run)——已落地在 `runtime/`(阶段 A/B;gofmt / vet / `go test -count=1 ./...` 四包实测全绿)
