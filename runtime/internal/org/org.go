@@ -144,10 +144,24 @@ type Host struct {
 	DataDir   string
 }
 
-// skipDirs 是不当数据目录扫描的顶层目录（结构目录，不是业务数据）。
+// skipDirs 是不当数据目录扫描的顶层目录。
+//
+// 判据只有一条：**它是不是「人把资料放进来、agent 去查」的地方**（SPEC §4.3 的 `<domain>/`）。
+// 不是的就不进路由表 —— 路由表会整行进 persona 段 3「数据来源」，多进去一个不等于多一条线索，
+// 等于给 agent 指错路（它会照表去一个根本没有业务资料的地方翻）。
+//
+// 分两组。加新顶层目录时先想清楚属于哪一组，别让它默认漏进路由表：
+//   - 结构目录（SPEC §4.3 列举）：roles / members / skills / company / templates / scripts；
+//   - 本库的落点（本仓库自己认的目录，不是客户的业务资料）：
+//     docs（本库说明）、_originals（原件层，实际住在各 domain 目录里，这是顶层兜底）、
+//     charters（立项书副本落点 —— 资产页已单独统计它，进路由表还会**重复计一次**）、
+//     timeline（决策与执行留存：谁记谁读，不是给人放业务资料的地方）。
 var skipDirs = map[string]bool{
+	// 结构目录（SPEC §4.3）
 	"roles": true, "members": true, "skills": true, "company": true,
-	"templates": true, "scripts": true, "docs": true, "_originals": true,
+	"templates": true, "scripts": true,
+	// 本库的落点
+	"docs": true, "_originals": true, "charters": true, "timeline": true,
 }
 
 var (

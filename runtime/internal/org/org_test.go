@@ -279,3 +279,35 @@ func TestResetOnIdleRejectsNegative(t *testing.T) {
 	_, err := Load(v)
 	assertRule(t, err, "company.defaults.reset_on_idle.invalid")
 }
+
+// 顶层「本库落点」不许进路由表。路由表整行进 persona 段 3「数据来源」——
+// 多进去一个不等于多一条线索，等于让 agent 照表去一个没有业务资料的地方翻。
+//
+// 这条盯的是**一类**问题，不是两个名字：charters 来自资产页（那里它已被单独统计，
+// 进路由表还会重复计一次），timeline 来自留存记录（谁记谁读）。
+func TestRoutingExcludesStructuralDirs(t *testing.T) {
+	v := copyVault(t, "domains")
+	// 模拟「有人记过一条留存」之后 vault 的样子：timeline/ 会真的出现在顶层。
+	if err := os.MkdirAll(filepath.Join(v, "timeline"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o, err := Load(v)
+	if err != nil {
+		t.Fatalf("应当加载通过：%v", err)
+	}
+	got := map[string]bool{}
+	for _, r := range o.Routing {
+		got[r.Dir] = true
+	}
+	for _, bad := range []string{"charters", "timeline", "docs", "_originals", "roles", "members", "company", "templates", "scripts", "skills"} {
+		if got[bad] {
+			t.Errorf("%s 不该进路由表（结构目录 / 本库落点）", bad)
+		}
+	}
+	// 业务数据目录一个都不能少 —— 修这个问题不许把真数据目录一起关掉。
+	for _, want := range []string{"projects", "shipments", "clients"} {
+		if !got[want] {
+			t.Errorf("%s 是业务数据目录，应当进路由表（实际 %v）", want, o.Routing)
+		}
+	}
+}
