@@ -47,6 +47,17 @@ func toolResult(ts, denial string) string {
 	return `{"type":"user","timestamp":"` + ts + `","toolUseResult":{"ok":true},"toolDenialKind":` + d + `,"message":{"content":[]}}`
 }
 
+// 一次**没成功**的工具调用：记录里带 is_error，还有当时的原话。
+func toolResultErr(ts, toolUseID, denial, text string) string {
+	d := "null"
+	if denial != "" {
+		d = `"` + denial + `"`
+	}
+	block := `{"type":"tool_result","is_error":true,"tool_use_id":"` + toolUseID + `","content":` + jsonString(text) + `}`
+	return `{"type":"user","timestamp":"` + ts + `","toolUseResult":{"x":1},"toolDenialKind":` + d +
+		`,"message":{"content":[` + block + `]}}`
+}
+
 func assistant(ts, id string, in, out int, blocks string) string {
 	return `{"type":"assistant","timestamp":"` + ts + `","message":{"id":"` + id + `","usage":{"input_tokens":` +
 		itoa(in) + `,"output_tokens":` + itoa(out) + `},"content":` + blocks + `}}`
@@ -116,6 +127,41 @@ func TestScanDedupesByMessageIDAndUnionsTools(t *testing.T) {
 }
 
 // cost-state 是**累计快照**不是流水：取最后一次，不能相加。
+// 没成功的动作要按**种类**分开记，并带上工具名与记录原话（截掉给模型看的提示尾巴）。
+func TestScanExtractsFailuresByKind(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.jsonl")
+	writeLines(t, p,
+		promptAt("p1", "2026-10-07T12:00:00Z", "帮我看看"),
+		assistant("2026-10-07T12:00:01Z", "m1", 10, 5, `[{"type":"tool_use","name":"Bash","id":"c1"}]`),
+		assistant("2026-10-07T12:00:02Z", "m2", 10, 5, `[{"type":"tool_use","name":"Read","id":"c2"}]`),
+		assistant("2026-10-07T12:00:03Z", "m3", 10, 5, `[{"type":"tool_use","name":"Glob","id":"c3"}]`),
+		toolResultErr("2026-10-07T12:00:04Z", "c1", "permission-rule",
+			"Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may* try again."),
+		toolResultErr("2026-10-07T12:00:05Z", "c2", "", "File does not exist. Note: your current working directory is D:\\work."),
+		toolResult("2026-10-07T12:00:06Z", ""), // 成功的一次：不该留下失败记录
+	)
+	var s Session
+	if _, err := scan(p, &s); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Failures) != 2 {
+		t.Fatalf("该抽到 2 条失败，拿到 %d：%+v", len(s.Failures), s.Failures)
+	}
+	den, fail := s.Failures[0], s.Failures[1]
+	if den.Kind != "denied" || den.Tool != "Bash" {
+		t.Errorf("权限挡下的该记成 denied/Bash：%+v", den)
+	}
+	if strings.Contains(den.Why, "IMPORTANT") {
+		t.Errorf("原因该截掉给模型看的提示尾巴：%q", den.Why)
+	}
+	if fail.Kind != "failed" || fail.Tool != "Read" || !strings.Contains(fail.Why, "File does not exist") {
+		t.Errorf("执行失败该记成 failed/Read 且保留原话：%+v", fail)
+	}
+	if n := len(s.Turns[0].Failures); n != 2 {
+		t.Errorf("两笔失败都该落在第 1 轮，拿到 %d", n)
+	}
+}
+
 func TestScanCostStateLastWins(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "s.jsonl")
 	writeLines(t, p,

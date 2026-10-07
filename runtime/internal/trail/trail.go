@@ -105,6 +105,20 @@ type ToolCount struct {
 	Count int    `json:"count"`
 }
 
+// Failure 是一次**没成功的动作**。它不是「故障」的同义词，得看 Kind：
+//
+//	denied —— 被权限规则挡下（人没给这个动作的权，不是坏了）；
+//	failed —— 真执行失败（文件不在、路径不存……）。
+//
+// 两者要分开讲：把「权限没给」说成「故障」，就会把人引去查一个不存在的问题；
+// 反过来把真失败说成「权限不够」，人就会去加权限，然后问题还在。
+type Failure struct {
+	Kind string    `json:"kind"` // denied | failed
+	Tool string    `json:"tool,omitempty"`
+	Why  string    `json:"why,omitempty"` // 记录里的原话（截断），不转述
+	At   time.Time `json:"at,omitempty"`
+}
+
 // Turn 是一轮：谁在什么时候问的、这一轮 agent 用了什么、花了多少。
 //
 // 这是「留痕」的最小单位。**不问「决定是什么」** —— 那是判断层的事，得挂在事实层之上，
@@ -116,6 +130,10 @@ type Turn struct {
 	Tools    []ToolCount   `json:"tools,omitempty"`
 	Denied   int           `json:"denied,omitempty"`
 	Duration time.Duration `json:"duration_ns,omitempty"`
+
+	// Failures 是这一轮里**没成功**的动作，带记录里的原话。
+	// 判据层（internal/judge）就长在这些字段上 —— 事实层只负责把话说准，不解释。
+	Failures []Failure `json:"failures,omitempty"`
 }
 
 // Subagent 是一次子任务：主 agent 用 Agent 工具拉起的旁路会话。
@@ -158,7 +176,8 @@ type Session struct {
 	GitBranch    string `json:"git_branch,omitempty"`
 
 	Tools     []ToolCount `json:"tools,omitempty"`
-	Denials   []ToolCount `json:"denials,omitempty"` // 被权限规则挡下的动作，按 kind 计
+	Denials   []ToolCount `json:"denials,omitempty"`  // 被权限规则挡下的动作，按 kind 计
+	Failures  []Failure   `json:"failures,omitempty"` // 全段会话里没成功的动作（含子任务的）
 	Subagents []Subagent  `json:"subagents,omitempty"`
 
 	// Problems 是「这份账没读全」的地方。**必须说出来** —— 静默少报等于把
@@ -272,11 +291,20 @@ func ReadSession(project, slot string, historic bool, claudeHome, workDir, id, a
 		// 子任务花的钱是**这个 bot 花的**，一律并进会话总账；能对上 toolUseId 就再归到
 		// 拉起它的那一轮（这样「哪一轮花了多少」才解释得了总账）。
 		s.Usage = s.Usage.Add(sub.Usage)
+		parent := -1
 		if m, ok := readMeta(strings.TrimSuffix(f, ".jsonl") + ".meta.json"); ok {
 			sa.Agent, sa.Desc = m.AgentType, m.Description
 			if i, ok := uses[m.ToolUseID]; ok && i >= 0 && i < len(s.Turns) {
 				s.Turns[i].Usage = s.Turns[i].Usage.Add(sub.Usage)
+				parent = i
 				sa.Turn = i + 1
+			}
+		}
+		// 子任务里没成功的动作也算这一轮的（同一个 id 归位）。
+		for _, fa := range sub.Failures {
+			s.Failures = append(s.Failures, fa)
+			if parent >= 0 {
+				s.Turns[parent].Failures = append(s.Turns[parent].Failures, fa)
 			}
 		}
 		if sa.Turn == 0 {
@@ -379,8 +407,10 @@ func scan(path string, s *Session) (map[string]int, error) {
 		toolTurn = map[string]int{}
 		subTools = map[string]int{}
 		denials  = map[string]int{}
-		uses     = map[string]int{} // tool_use id → 轮次
-		ends     []time.Time        // 每一轮最后一条记录的时刻（算这一轮实际干了多久）
+		uses     = map[string]int{}    // tool_use id → 轮次
+		useName  = map[string]string{} // tool_use id → 工具名
+		failures []Failure
+		ends     []time.Time // 每一轮最后一条记录的时刻（算这一轮实际干了多久）
 		badLines int
 		cur      = -1
 	)
@@ -427,6 +457,15 @@ func scan(path string, s *Session) (map[string]int, error) {
 						turns[cur].Denied++
 					}
 				}
+				// 没成功的动作：记录里带 is_error 的那些。**原话照抄**（截断），不转述 ——
+				// 「File does not exist」和「Permission denied」是两件完全不同的事。
+				for _, f := range failuresIn(l.Message.Content, l.Denial, useName) {
+					f.At = ts
+					failures = append(failures, f)
+					if cur >= 0 {
+						turns[cur].Failures = append(turns[cur].Failures, f)
+					}
+				}
 				continue
 			}
 			// 用户的一轮提问：新开一轮。
@@ -467,6 +506,9 @@ func scan(path string, s *Session) (map[string]int, error) {
 				}
 				if tr.ID != "" && cur >= 0 {
 					uses[tr.ID] = cur
+				}
+				if tr.ID != "" && tr.Name != "" {
+					useName[tr.ID] = tr.Name
 				}
 			}
 			mark(ts)
@@ -514,6 +556,7 @@ func scan(path string, s *Session) (map[string]int, error) {
 		}
 	}
 	s.Turns = append(s.Turns, turns...)
+	s.Failures = append(s.Failures, failures...)
 	for name, n := range subTools {
 		s.Tools = bumpBy(s.Tools, name, n)
 	}
@@ -593,6 +636,82 @@ func contentText(raw json.RawMessage) string {
 type toolRef struct{ Name, ID string }
 
 // toolUses 取这一行里的工具调用（一行只带一个 block，所以调用方要取并集）。
+// failuresIn 从一条工具结果里挑出**没成功**的那些，并说清是哪一种没成功。
+//
+// 判据全在记录里现成的字段上，我们不自己推断：
+//   - `is_error` 为真 = 这次工具调用没成；
+//   - 同一条记录带 `toolDenialKind` = 被**权限规则**挡下（不是坏了），
+//     这时 is_error 的原话是「Permission to use X has been denied…」；
+//   - 没有 toolDenialKind 的 = 真执行失败（文件不在、路径不存…），原因取记录原话。
+//
+// 工具名优先用 tool_use_id 回查主记录里的 tool_use（最准）；查不到就留空，
+// **不猜**（宁可少一个名字，也不要给一个错的名字）。
+func failuresIn(content json.RawMessage, denial string, useName map[string]string) []Failure {
+	if len(content) == 0 {
+		return nil
+	}
+	var blocks []struct {
+		Type      string          `json:"type"`
+		IsError   bool            `json:"is_error"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return nil
+	}
+	var out []Failure
+	for _, b := range blocks {
+		if b.Type != "tool_result" || !b.IsError {
+			continue
+		}
+		kind := "failed"
+		if denial != "" {
+			kind = "denied"
+		}
+		out = append(out, Failure{
+			Kind: kind,
+			Tool: useName[b.ToolUseID],
+			Why:  reasonHead(blockText(b.Content)),
+		})
+	}
+	return out
+}
+
+// blockText 把 block 的 content 取成人话：可能是字符串，也可能是 [{type,text}]。
+func blockText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var parts []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &parts) != nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(p.Text)
+	}
+	return b.String()
+}
+
+// reasonHead 取原因的第一句。上游在拒绝理由后面接了一长段给模型看的 IMPORTANT 提示，
+// 那是给 agent 的指令、不是给人看的原因 —— 切掉。
+func reasonHead(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.Index(s, "IMPORTANT:"); i > 0 {
+		s = s[:i]
+	}
+	if i := strings.IndexByte(s, '\n'); i > 0 {
+		s = s[:i]
+	}
+	return head(s, promptHead*2)
+}
+
 func toolUses(raw json.RawMessage) []toolRef {
 	if len(raw) == 0 {
 		return nil
