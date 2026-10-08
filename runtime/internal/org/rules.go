@@ -63,6 +63,7 @@ var DefaultRules = []Rule{
 
 	// —— 成员层 ——
 	{"member.name.duplicate", LevelFatal, false, "同名成员会生成同名 project，gateway 只留一个"},
+	{"member.name.format", LevelWarn, false, "成员名是成员 id：它拼出凭据键名 ANC_FEISHU_SECRET_<名大写>，还进 project 名与 homes/<名>；带 - . 空格或中文时拼出的键名不是合法环境变量名，凭据写不进 secrets.env，bot 静默起不来"},
 	{"member.display_name.missing", LevelFatal, false, "persona 段 1 的「服务对象」会渲染成 —"},
 	{"member.role.missing", LevelFatal, false, "role 不存在就没有 persona 基线，渲染直接失败"},
 	{"member.model.unresolved", LevelFatal, false, "member 没写 model，role / company 也没写，无处回退"},

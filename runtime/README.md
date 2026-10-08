@@ -419,7 +419,7 @@ anc apply ./climax-vault --apply            # 真做
 |---|---|---|
 | 1 | 校验 | org 真相源；红档即停（一个文件都不用动） |
 | 2 | 渲染 | 与 `anc render` **同一份实现**（同一条 `commitConfig`、同一套门禁 `--adopt` / `--allow-scale`） |
-| 3 | 体检 | 产物引用的 `${ENV}`，`~/.anc/secrets.env` 里齐不齐（缺键 = 装载前就停） |
+| 3 | 体检 | 产物**要求的凭据键**（渲染时记账，不回读文本），`~/.anc/secrets.env` 里齐不齐（缺键 = 装载前就停；键名本身写不出来时另行说清，那是改名的事，不是补键的事） |
 | 4 | 装载 | `cc-connect daemon install --config <cfg> --no-capture-secrets --force` |
 | 5 | 凭据桥 | 把 `secrets.env` 读进 daemon 的进程环境（上游没有 dotenv，这一步不能省） |
 | 6 | 重启 | `cc-connect daemon restart --force` |
@@ -515,8 +515,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
 | `internal/org/grants.go` | 授权表（`grants/**/*.md`，一个 grant 一个文件）的扫描与跨表校验 |
-| `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读、`${ENV}` 引用提取（装载前体检用） |
-| `internal/apply/` | 装载的纯逻辑：secrets.env 解析 / 缺键判定 + 凭据落点注入（Windows：上游装载体托管区；Linux：systemd drop-in。都幂等、带指纹） |
+| `internal/render/` | 纯函数渲染：persona 七段叠加 + lint、config 全量生成 + 往返回读、凭据键记账（`Plan.SecretKeys` / `FeishuSecretKey`，装载前体检吃它）+ `${ENV}` 引用回读（与账交叉校验用） |
+| `internal/apply/` | 装载的纯逻辑：secrets.env 解析 / 键名合法性（`LegalKey`）/ 缺键判定 + 凭据落点注入（Windows：上游装载体托管区；Linux：systemd drop-in。都幂等、带指纹） |
 | `templates/org/` | vault 骨架模板（纯文件，现场可直接改） |
 | `testdata/orgs/` | 校验正/负例 vault（one / six / disabled / broken-validate / broken-section） |
 | `testdata/golden/` | 结构快照（只锁语义） |

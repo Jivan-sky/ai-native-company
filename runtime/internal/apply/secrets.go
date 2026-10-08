@@ -30,6 +30,12 @@ type SecretsFile struct {
 
 var reKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// LegalKey 判断一个键名写不写得进凭据文件（与解析同一把尺子）。
+//
+// 用它的地方只有一处：体检时把「这个键只是没写」和「这个键根本写不出来」分开报。
+// 两者都拦，但后者照着「补键」的提示去补也永远补不上 —— 得先改键名是怎么拼出来的。
+func LegalKey(k string) bool { return reKey.MatchString(k) }
+
 // ParseSecrets 解析 KEY=VALUE。空行与 # 开头的行忽略；只按**第一个** = 切分，
 // 值里可以再有 =（base64 常见）。同一个键出现多次取最后一条 —— 与 shell 的 source 一致，
 // 人接手这份文件时的直觉也是这个。

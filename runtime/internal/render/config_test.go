@@ -250,3 +250,65 @@ func TestResetOnIdleFollowsData(t *testing.T) {
 		t.Fatalf("数据写 45，产物应当也是 45：\n%s", plan.Text)
 	}
 }
+
+// 产物要哪些凭据键，是写 app_secret 那一行当场记下的账（键名跟着成员名走）。
+// 账和「回读产物文本」必须一致 —— 不一致就说明账记错了，体检会去要一个不存在的键。
+func TestSecretKeysAreRecorded(t *testing.T) {
+	o, host := fixtureOrg(t, "six")
+	p, err := Build(o, Options{Host: host, Version: "test", Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "ANC_FEISHU_SECRET_ALICE,ANC_FEISHU_SECRET_BOB,ANC_FEISHU_SECRET_CAROL,ANC_FEISHU_SECRET_DAVE,ANC_FEISHU_SECRET_ERIN,ANC_FEISHU_SECRET_DEVBOT"
+	if got := strings.Join(p.SecretKeys, ","); got != want {
+		t.Fatalf("SecretKeys = %s\n        想要 %s（顺序 = project 顺序）", got, want)
+	}
+	accounted := map[string]bool{}
+	for _, k := range p.SecretKeys {
+		accounted[k] = true
+	}
+	refs := EnvRefs(p.Text)
+	if len(refs) != len(accounted) {
+		t.Fatalf("产物引用 %d 个键，账上是 %d 个：%v vs %v", len(refs), len(accounted), refs, p.SecretKeys)
+	}
+	for _, ref := range refs {
+		if !accounted[ref] {
+			t.Fatalf("产物引用了 %s，账上没有", ref)
+		}
+	}
+}
+
+// 成员名带中文时，账必须照样如实记下那个键 —— 哪怕它写不进 secrets.env。
+//
+// 回读器看不见它（那把正则只认 ASCII），这正是「账要记、不能回读」的现场：
+// 回读会把「这个 bot 永远要不到凭据」说成「✅ 齐」。
+func TestSecretKeysKeepUnwritableNames(t *testing.T) {
+	o, host := fixtureOrg(t, "one")
+	for i := range o.Members {
+		if o.Members[i].Name == "alice" {
+			o.Members[i].Name = "张三"
+		}
+	}
+	p, err := Build(o, Options{Host: host, Version: "test", Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const key = "ANC_FEISHU_SECRET_张三"
+	if !strings.Contains(p.Text, "${"+key+"}") {
+		t.Fatalf("产物里没有 ${%s}：%v", key, p.SecretKeys)
+	}
+	found := false
+	for _, k := range p.SecretKeys {
+		if k == key {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("账上没有 %s：%v", key, p.SecretKeys)
+	}
+	for _, ref := range EnvRefs(p.Text) {
+		if ref == key {
+			t.Fatalf("回读器居然看得见 %s —— 这条用例的前提变了", key)
+		}
+	}
+}

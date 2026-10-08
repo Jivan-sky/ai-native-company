@@ -170,7 +170,14 @@ var skipDirs = map[string]bool{
 var (
 	reID     = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	reOpenID = regexp.MustCompile(`^ou_`)
-	reH2     = regexp.MustCompile(`(?m)^##\s+(.+?)\s*$`)
+
+	// reMemberKeyBody 是成员名在凭据键名里允许出现的字符。
+	//
+	// 尺子取自「这个 bot 能不能拿到凭据」这一件具体的事，不取自「名字好不好看」：
+	// 键名是 ANC_FEISHU_SECRET_<成员名大写>，而装载侧解析凭据只认 [A-Za-z_][A-Za-z0-9_]*，
+	// 所以成员名里出现 - . 空格 或中文，键名就写不出来 —— 不报错，只是这个 bot 静默起不来。
+	reMemberKeyBody = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
+	reH2            = regexp.MustCompile(`(?m)^##\s+(.+?)\s*$`)
 )
 
 // ValidCompanyID 判断公司 id 合不合法。导出它是为了在生成骨架时就能拦住 ——
@@ -516,6 +523,11 @@ func (o *Org) Validate(p *Policy) *Report {
 			rep.Add(p.Issue("member.name.duplicate", where, "成员 id 重复"))
 		}
 		seenName[m.Name] = true
+		if !reMemberKeyBody.MatchString(strings.ToUpper(m.Name)) {
+			rep.Add(p.Issue("member.name.format", where,
+				"name=%q 是成员 id（不是 display_name）：它拼出凭据键名 %s，而这个键名不是合法的环境变量名（装载侧只认 [A-Za-z_][A-Za-z0-9_]*）—— 凭据写不进 secrets.env，这个 bot 会静默起不来。改成 ASCII 字母数字（例：zhangsan），- 与 . 也不行",
+				m.Name, "ANC_FEISHU_SECRET_"+strings.ToUpper(m.Name)))
+		}
 		if m.DisplayName == "" {
 			rep.Add(p.Issue("member.display_name.missing", where, "缺 display_name"))
 		}

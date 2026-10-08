@@ -25,6 +25,12 @@ type Options struct {
 // 出现「看板叫 alice、日志叫 demo-alice」这种对不上号的现场。
 func ProjectName(companyID, member string) string { return companyID + "-" + member }
 
+// FeishuSecretKey 是一个成员的 app_secret 在 secrets.env 里的键名。
+//
+// 规则只有这一处：渲染器按它写引用、体检按它要键、现场按它填凭据 —— 各算各的迟早对不上号。
+// 键名由**成员名大写**拼成，所以成员名必须能拼出合法环境变量名（见 org 规则 member.name.format）。
+func FeishuSecretKey(member string) string { return "ANC_FEISHU_SECRET_" + strings.ToUpper(member) }
+
 // Plan 是一次渲染的产物与账目。
 type Plan struct {
 	Text        string
@@ -33,6 +39,15 @@ type Plan struct {
 	PersonaHash map[string]string
 	Issues      []org.Issue // 规则表定的校验发现（warn 档必须回显）
 	Warns       []string    // 不由规则表管的散装提示（例如未实测字段）
+
+	// SecretKeys 是这份产物**要求**的凭据键（顺序即 project 顺序），装载前的体检吃它。
+	//
+	// 它是账，不是回读：键名在写 app_secret 那一行当场记下。为什么不用正则回读产物文本 ——
+	// 键名由成员名拼出（ANC_FEISHU_SECRET_<成员名大写>），中文名拼出的键**回读不到**
+	// （那把正则只认 ASCII），于是体检看着产物却看不见这个键、报「✅ 齐」，
+	// 而现场等来的却是一个没有凭据、静默起不来的 bot。
+	// 键名唯一跟着成员名唯一走（member.name.duplicate 是红档），与 Projects 一一对应。
+	SecretKeys []string
 }
 
 // Build 全量生成 gateway config.toml。全量生成、不打补丁；手改视为事故。
@@ -107,7 +122,9 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		b.WriteString("\n[[projects.platforms]]\ntype = \"feishu\"\n")
 		b.WriteString("\n[projects.platforms.options]\n")
 		fmt.Fprintf(&b, "app_id = %s\n", tomlString(m.Feishu.AppID))
-		fmt.Fprintf(&b, "app_secret = %s\n", tomlString("${ANC_FEISHU_SECRET_"+strings.ToUpper(m.Name)+"}"))
+		key := FeishuSecretKey(m.Name)
+		p.SecretKeys = append(p.SecretKeys, key)
+		fmt.Fprintf(&b, "app_secret = %s\n", tomlString("${"+key+"}"))
 		if allow := allowFrom(o, m); len(allow) > 0 {
 			fmt.Fprintf(&b, "allow_from = %s\n", tomlString(strings.Join(allow, ",")))
 		}
