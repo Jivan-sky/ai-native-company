@@ -74,7 +74,8 @@ type AssetsView = {
 
 // 决策与执行的留存（`/api/timeline`，schema = anc.timeline/v1）—— 读者：跟进的人 / 老板。
 // 这一页给的是**人和 agent 自己写下来的**记录（`anc timeline add`），不是从会话里推出来的。
-// 三档只按 status 配色；**认不出的词原样留着、画灰** —— 以后加词只改数据，不用改这里。
+// 三档只按 status 配色、形状跟「档」走（实心圆 / 带光环的圆 / 菱形 / 空心虚线圈，见 index.html 的 .dot）；
+// **认不出的词原样留着、画空心虚线圈** —— 以后加词只改数据，不用改这里。
 type TimelineEntryView = {
   id: string; case?: string; at: string; kind?: string; status?: string;
   by?: string; role?: string; to?: string; domain?: string; project?: string;
@@ -296,9 +297,14 @@ function alertBanners(i: Issues): Kid[] {
   return out;
 }
 
-function statCard(n: string, k: string, sub: string): HTMLElement {
+// 第 4 个参数是可选的状态灯：数字旁的形状和下面表里读到的**一模一样** —— 图例跟实际用的是同一套，
+// 不另画一套「好看的图例」（形状与含义见 index.html 的 .dot）。
+function statCard(n: string, k: string, sub: string, dot?: string): HTMLElement {
   return el("div", { class: "card stat" },
-    el("div", { class: "n" }, n), el("div", { class: "k" }, k), el("div", { class: "sub" }, sub));
+    el("div", { class: "n" }, n),
+    el("div", { class: "k" },
+      dot ? el("span", { class: "st" }, el("span", { class: dot }), el("span", {}, k)) : k),
+    el("div", { class: "sub" }, sub));
 }
 
 function statSection(v: BoardView): Kid {
@@ -654,6 +660,15 @@ const BAND_WORD: Record<string, string> = {
 };
 const bandWord = (b: string): string => BAND_WORD[b] ?? "灰 · 认不出的词";
 
+// 四档图例：形状 → 含义。摆出来是给**不看颜色**的读者留一条路（色盲、灰度截图、小屏）。
+function bandLegend(): HTMLElement {
+  return el("p", { class: "legend" },
+    dotLine("dot ok", el("span", {}, "实心圆 · 已完成")),
+    dotLine("dot warn", el("span", {}, "带光环的圆 · 运行中")),
+    dotLine("dot bad", el("span", {}, "菱形 · 卡点或失败")),
+    dotLine("dot gray", el("span", {}, "空心虚线圈 · 认不出的词（没判过）")));
+}
+
 // 状态原词照排（不翻译、不吞）：认不出的词也得让人看见它长什么样。
 const statusCell = (status: string | undefined): Kid =>
   (status ?? "").trim() === "" ? cannot("没写 status") : el("span", { class: "mono" }, status ?? "");
@@ -693,14 +708,16 @@ function renderTimeline(d: Data): Kid[] {
       v.bad.map((b) => el("span", { class: "mono" }, b))));
   }
 
-  out.push(section("三档", "只按 status 配色：done=绿 / running=黄 / blocked·failed=红 —— 认不出的词原样留着、画灰",
+  out.push(section("三档",
+    "只按 status 配色，形状跟档走：done=实心圆 / running=带光环的圆 / blocked·failed=菱形 / 认不出的词=空心虚线圈（原样留着，不吞）",
     el("div", { class: "grid stats" },
-      statCard(String(v.counts.green), "绿 · 已完成", "status=done"),
-      statCard(String(v.counts.yellow), "黄 · 运行中", "status=running"),
-      statCard(String(v.counts.red), "红 · 卡点 / 失败", "blocked · failed"),
+      statCard(String(v.counts.green), "绿 · 已完成", "status=done", "dot ok"),
+      statCard(String(v.counts.yellow), "黄 · 运行中", "status=running", "dot warn"),
+      statCard(String(v.counts.red), "红 · 卡点 / 失败", "blocked · failed", "dot bad"),
       statCard(String(v.counts.unknown), "灰 · 认不出的词",
-        v.counts.unknown === 0 ? "没有，词表没跑偏" : "原样保留，不吞"),
-      statCard(String(v.entries), "流水条数", "折叠成 " + v.total + " 个 case"))));
+        v.counts.unknown === 0 ? "没有，词表没跑偏" : "原样保留，不吞", "dot gray"),
+      statCard(String(v.entries), "流水条数", "折叠成 " + v.total + " 个 case")),
+    bandLegend()));
 
   const rows: Kid[][] = v.cases.map((c) => [
     dotLine(bandDot(c.band), statusCell(c.status)),
