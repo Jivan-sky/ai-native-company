@@ -294,6 +294,7 @@ func cmdOrgCheck(args []string) int {
 	fmt.Printf("  角色    %s\n", strings.Join(roleNames(o), ", "))
 	fmt.Printf("  成员    启用 %d / 共 %d\n", len(o.Enabled()), len(o.Members))
 	fmt.Printf("  路由    %s\n", routingDirs(o))
+	fmt.Printf("  授权    %d 条\n", len(o.Grants))
 	if over := o.Policy.OverrideIDs(); len(over) > 0 {
 		fmt.Printf("  规则覆盖 %s\n", strings.Join(over, ", "))
 	}

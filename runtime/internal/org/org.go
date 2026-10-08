@@ -132,6 +132,7 @@ type Org struct {
 	Domains  []Domain      // domains.md 的业务域表（罗盘）；文件不存在时为空
 	Projects []Project     // projects.md 的项目汇总（一行一个项目）；文件不存在时为空
 	Charters []CharterCopy // charters/ 的立项书副本条目；目录不存在时为空
+	Grants   []Grant       // grants/ 的授权条目（SPEC §6 授权模型）；目录不存在 = 零条授权，不算错
 	Routing  []Routing
 	Policy   *Policy // 生效规则表（出厂默认 + company.md 的 policy 段覆盖）
 	Warnings []Issue // 非红档的校验发现；调用方必须回显，不许吞
@@ -155,13 +156,15 @@ type Host struct {
 //   - 本库的落点（本仓库自己认的目录，不是客户的业务资料）：
 //     docs（本库说明）、_originals（原件层，实际住在各 domain 目录里，这是顶层兜底）、
 //     charters（立项书副本落点 —— 资产页已单独统计它，进路由表还会**重复计一次**）、
-//     timeline（决策与执行留存：谁记谁读，不是给人放业务资料的地方）。
+//     timeline（决策与执行留存：谁记谁读，不是给人放业务资料的地方）、
+//     grants（授权表是**控制面真相源**，不是业务资料：路由表回答「去哪找业务资料」，
+//     它回答「谁被允许做什么」——SPEC §3：真相源仓库 ≠ bot 的工作区）。
 var skipDirs = map[string]bool{
 	// 结构目录（SPEC §4.3）
 	"roles": true, "members": true, "skills": true, "company": true,
 	"templates": true, "scripts": true,
 	// 本库的落点
-	"docs": true, "_originals": true, "charters": true, "timeline": true,
+	"docs": true, "_originals": true, "charters": true, "timeline": true, "grants": true,
 }
 
 var (
@@ -173,6 +176,19 @@ var (
 // ValidCompanyID 判断公司 id 合不合法。导出它是为了在生成骨架时就能拦住 ——
 // 等渲染到一半才报，人已经填了一堆东西了。
 func ValidCompanyID(s string) bool { return reID.MatchString(s) }
+
+// SplitRef 拆 kind:name 引用（member: / role: / domain: / project: …）；没有冒号 = 裸名。
+//
+// 导出它是为了让「怎么读一个引用」只有一处实现：org 的校验（hasActor）与 envelope 的
+// on_behalf_of 解析（bind.resolves）必须解出同一个答案，两份实现迟早会漂。
+// 裸名的**优先顺序由调用方定**（org 里是 成员 → 岗位；envelope 里是 成员 → 岗位 → 域），
+// 这个函数只负责切开，不负责解释。
+func SplitRef(s string) (kind, name string) {
+	if i := strings.IndexByte(s, ':'); i > 0 {
+		return strings.ToLower(strings.TrimSpace(s[:i])), strings.TrimSpace(s[i+1:])
+	}
+	return "", strings.TrimSpace(s)
+}
 
 // Load 读取并校验一棵 org 真相源树。
 func Load(root string) (*Org, error) {
@@ -377,10 +393,20 @@ func Load(root string) (*Org, error) {
 	if o.Charters, err = ScanCharters(root); err != nil {
 		return nil, err
 	}
+	// 授权表（grants/）。判据与上面三处同一个：目录不在 = 还没建表，不算错 ——
+	// 「没有 grant 就是不通」是口径，不是缺陷（SPEC §6 不变量 1）。
+	// 一个 grant 一个文件，扫描递归：分层是为了人快速定位，不是为了代码 —— 换分层不用改代码。
+	grants, grantIssues, err := ScanGrants(root, pol)
+	if err != nil {
+		return nil, err
+	}
+	o.Grants = grants
+	polIssues = append(polIssues, grantIssues...)
 	rep := o.Validate(pol)
 	o.validateDomains(pol, rep)
 	o.validateProjects(pol, rep)
 	o.validateCharters(pol, rep)
+	o.validateGrants(pol, rep)
 	rep.Merge(&Report{Issues: polIssues})
 	if len(rep.Fatal()) > 0 {
 		return nil, &LoadError{Report: rep}
@@ -585,6 +611,12 @@ func (o *Org) InputsHash(h Host) string {
 	}
 	for _, c := range o.Charters {
 		fmt.Fprintf(&b, "charter|%s\n", c.Slug)
+	}
+	// 授权表也进指纹：它同样是「加载出来的组织状态」的一部分，改了要能被人看见。
+	// 零条授权的 vault 不会因此多出任何字节 —— 存量指纹不变，所以 v5 不必跳版本。
+	for _, g := range o.Grants {
+		fmt.Fprintf(&b, "grant|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n",
+			g.Path, g.Slug, g.From, g.To, g.Action, g.Object, g.TTL, g.OnBehalfOf, g.Reason, g.Body)
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])

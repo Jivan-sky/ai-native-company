@@ -46,7 +46,8 @@ type Record struct {
 // 为什么在 **data 目录**、而不是 vault（git）：
 //   - 这是**流量**，不是真相。真相（谁被授权做什么）在 git 里；每一封信都进 git，
 //     就是每天刷 diff —— 同一个理由让 §13 Q15 的「进度」不进表。
-//   - 而且 vault 顶层目录会被 org 当成「数据目录」扫进路由表（`scanRouting`）——
+//   - 而且 vault 顶层新目录默认会被 org 当成「数据目录」扫进路由表（`scanRouting`；
+//     除非像 timeline / grants 那样进 skipDirs）——
 //     一封信都不该改变谁的数据来源。
 //
 // 为什么按 who 分片：两个 agent 同时发，就碰不到同一个文件（同 timeline 的做法，
