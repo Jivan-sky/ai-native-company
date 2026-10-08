@@ -155,29 +155,36 @@ func TestStartupHintIsPlatformSpecific(t *testing.T) {
 	}
 }
 
-// 成员名拼出的键名根本写不进凭据文件时，装载必须拦。
+// 成员名改成一个拼不出合法键名的形状之后，装载必须拦 —— 而且是在**渲染之前**就拦。
 //
-// 这条是「静默」变「出声」的落点：改名之前，产物里那个键回读不到，
-// 体检拿着自己漏掉一个键的清单报「✅ 齐」，现场等来的是一个没有凭据、
-// 起不来的 bot；现在账如实记，缺就是缺，还会说清是「写不出来」而不是「漏写了」。
-func TestApplyRefusesUnwritableSecretKey(t *testing.T) {
+// 这条是「静默」变「出声」的落点：改名之前，产物里那个键回读不到，体检拿着自己
+// 漏掉一个键的清单报「✅ 齐」，现场等来的是一个没有凭据、起不来的 bot。
+// 现在红档拦在真相源那一层，命令连渲染都进不去。
+func TestApplyBlocksUnwritableSecretKeyName(t *testing.T) {
 	vault, cfg, secrets, daemon := applyFixture(t)
-	personaPath := filepath.Join(vault, "members", "alice", "persona.md")
-	raw, err := os.ReadFile(personaPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := strings.ReplaceAll(string(raw), "name: alice", "name: alice-2")
-	if err := os.WriteFile(personaPath, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+	// 改名要连着 company.md 的 admins 一起改：不跟着改会被 company.admins.unknown 拦下，
+	// 退出码同样是 1，但拦下的就不是本用例要测的那条规则了。
+	for _, rel := range []string{
+		filepath.Join("members", "alice", "persona.md"),
+		filepath.Join("company", "company.md"),
+	} {
+		path := filepath.Join(vault, rel)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := strings.ReplaceAll(string(raw), "alice", "alice-2")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	code := quiet(t, func() int {
 		return cmdApply([]string{vault, "--config", cfg, "--secrets", secrets, "--daemon", daemon})
 	})
 	if code != 1 {
-		t.Fatalf("键名写不出来时退出码 = %d，想要 1", code)
+		t.Fatalf("成员名拼不出合法键名时退出码 = %d，想要 1", code)
 	}
-	// 凭据文件里那个键即便写进去也读不懂 —— 解析器与装载用的是同一把尺子。
+	// 那个键即便写进凭据文件也读不懂 —— 解析器与成员名规则用的是同一把尺子。
 	if apply.LegalKey("ANC_FEISHU_SECRET_ALICE-2") {
 		t.Fatal("ANC_FEISHU_SECRET_ALICE-2 被当成合法键名了：解析尺子漏了")
 	}

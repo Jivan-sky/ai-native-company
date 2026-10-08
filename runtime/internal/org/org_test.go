@@ -378,34 +378,45 @@ func TestRoutingSkipsLegacyPlaceholder(t *testing.T) {
 	t.Fatalf("clients 应当仍在路由表里（只是还没写说明）：%v", o.Routing)
 }
 
-// 成员名拼不出合法凭据键名时（中文 / 带 - . 空格）：只告警、不拦。
+// 成员名拼不出合法凭据键名时（中文 / 带 - . 空格）：红档，拦在渲染之前。
 //
-// 为什么是 warn 不是 fatal：存量 vault 不该因为一条新规则突然渲染不出来 ——
-// 拦的那一处交给装载（缺键本来就拦），这里只负责让人看见。
-// 为什么要报：这个 bot 的凭据键名写不进 secrets.env，它拿不到凭据、静默起不来。
-func TestMemberNameFormatWarnsWithoutBlocking(t *testing.T) {
+// 判据同 company.id.format：这个 bot 的凭据根本写不进 secrets.env，
+// 装出来的必然是一个没有凭据、起不来的实例。与其让现场对着一份「没缺键」的
+// 体检报告排障，不如在真相源这一层就点名是哪个名字不合法。
+func TestMemberNameFormatBlocksBadNames(t *testing.T) {
 	vault := copyVault(t, "one")
-	// 改名要连着 company.md 的 admins 一起改：那条是红档（admins 指向不存在的成员），
-	// 不跟着改就会被别的原因拦下，测不到本规则。
+	// 改名要连着 company.md 的 admins 一起改，否则会被 company.admins.unknown 先拦下。
 	renameMember(t, vault, "alice", "张三")
+	_, err := Load(vault)
+	if err == nil {
+		t.Fatal("中文成员名应当被拦下（红档）")
+	}
+	if !strings.Contains(err.Error(), "member.name.format") {
+		t.Fatalf("报错里没点名这条规则：%v", err)
+	}
+	if !strings.Contains(err.Error(), "ANC_FEISHU_SECRET_张三") {
+		t.Fatalf("报错里没说清是哪个键名写不出来：%v", err)
+	}
+}
+
+// 但它不锁死：存量 vault 里已经有中文成员名的，在 company.md 里降一级就能先跑起来。
+// 降级之后唯一还看得见的护栏是装载那一步的「键名根本写不出来」告警（见 apply 侧）。
+func TestMemberNameFormatCanBeDowngraded(t *testing.T) {
+	vault := copyVault(t, "one")
+	renameMember(t, vault, "alice", "张三")
+	addPolicy(t, vault, "member.name.format: warn")
 	o, err := Load(vault)
 	if err != nil {
-		t.Fatalf("warn 档不该拦下加载：%v", err)
+		t.Fatalf("降级到 warn 之后不该再拦：%v", err)
 	}
-	var got []string
+	var found bool
 	for _, w := range o.Warnings {
 		if w.Rule == "member.name.format" {
-			got = append(got, w.Msg)
+			found = true
 		}
 	}
-	if len(got) != 1 {
-		t.Fatalf("member.name.format 发现 %d 条，想要 1 条：%v", len(got), got)
-	}
-	if !strings.Contains(got[0], "ANC_FEISHU_SECRET_张三") {
-		t.Fatalf("告警没说清是哪个键名写不出来：%s", got[0])
-	}
-	if _, enabled := o.Member("张三"); !enabled {
-		t.Fatal("改名后的成员必须仍在启用列表里（warn 不拦）")
+	if !found {
+		t.Fatal("降级之后这条发现必须仍然可见 —— 降级是「先跑起来」，不是「看不见」")
 	}
 }
 

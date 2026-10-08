@@ -2,7 +2,7 @@
 
 > 本文是 `../SPEC.md` 的**工程派生视图**：SPEC 管口径，本文管「口径怎么落到一台客户机器上」。冲突一律以 SPEC 为准；实现过程中若被迫改口径，先改 SPEC，再回来改本文。
 >
-> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、**我们自己那套**服务单元（systemd / launchd / schtasks 一个都没装过 —— D4 之后常驻交给上游 daemon，装载走 `anc apply`；上游那份 Windows 计划任务已实测装载成功）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。**`anc trail` 的判断层已落地**（2026-10-07：判据是**数据**不是代码，`--rules` 可整份替换、不用重编译；只出结论不设门禁，每条结论都带来源与证据，见 §7.1.7）。**`anc apply` 已落地（Windows 腿 2026-10-07；**Linux 腿 2026-10-08**）**：一条命令走完七步 —— 校验 org → 渲染（与 `anc render` 同一套门禁：同一份 `commitConfig`）→ 凭据体检 → `cc-connect daemon install --no-capture-secrets --force` → 凭据桥 → `restart --force` → 回读（platform ready + 只读探针）；沙箱真跑通（`platform ready 1/1`、探针绿、任务定义里既无键名也无密钥值、重跑幂等），dry-run 与真装载各一次，见 §7.1.8。**仍未实测**：**macOS 腿的凭据注入**（零实现）；Windows 腿的**登录自启**（上游任务写的是 `-AtLogOn`，要注销 / 重启才验得到 —— 归 #42）。Linux 腿的凭据注入与「重启 / 断电后自己起来」都已实测（§7.1.10 / §7.1.11）。**`anc doctor` 多了一组「断电兜底」只读自检**（Linux 三条前提 / Windows 触发器 + 电源条件；真机实测，见 §7.1.11）。**看板三分区接齐了**（2026-10-08：运行态 = 防假绿探针、数据流 = 策略面 + 执行面事实、原料 = 数据目录清单；**事件面与沉淀层仍未实现**，页内如实列缺 —— 见 `README.md` 看板一节）。**授权表（`grants/`）已有落点与结构校验**（2026-10-08：一个 grant 一个文件、十条规则整组 `warn`、看板投影全量；**执行层与按人过滤视图未做** —— 见 §7.1.15）。**凭据键名不再回读文本，改为渲染时记账**（2026-10-08：成员名非 ASCII 或带 `-` 时，曾经发出一个要不到凭据、静默起不来的 bot；现在体检点名那个键并拦下，真二进制 dry-run 三种形态各复现一次，见 §7.1.16）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
+> **验证状态：设计稿，未在任何客户现场跑过。** 已实测的是 `anc init / doctor / assets / version`，§2 阶段 A 的 `anc render / anc org check`，以及 **阶段 A 的外部验证：真 cc-connect 已接受这份配置，且 Windows 与 Linux 两腿结果一致**（2026-10-07 烟测，v1.3.4，三项目全部 `platform ready` / `engine started`；细节见 §7.1 与 `../docs/M1-DESIGN.md` §10.1。Linux 腿跑在 WSL2 Ubuntu，`anc` 由 HEAD 交叉编译）。**会话与 agent 真交互已打通**（2026-10-07：飞书真人发消息 → agent 真回话，`turn complete tools=3`；同日两次「引擎全绿但回不了话」的故障已定位并修复 —— `work_dir` 从未创建、空白名单在 `dontAsk` 下等于全拒，见 `../docs/M1-DESIGN.md` 与议题 #37）。**`anc probe` 只读两源已落地**（socket 真拨 + 会话事实），并已抓过残留 socket 与「agent 从没起来过」两类假绿；**看板运行态页已接入**（2026-10-07：看板与 CLI 共用 internal/probe 同一份判据，走独立端点 /api/runtime，anc board serve --data 起；活体经 HTTP 与真实浏览器引擎各验一次，响应里逐条摘掉本机路径）。**尚未实测**：**macOS 腿（零覆盖）**、**我们自己那套**服务单元（systemd / launchd / schtasks 一个都没装过 —— D4 之后常驻交给上游 daemon，装载走 `anc apply`；上游那份 Windows 计划任务已实测装载成功）、探针的**功能级 ping**（那要真发一条消息、烧 token —— 已拍板**不做**，裁判权留给人工，见 ../SPEC.md §13 Q17）。**`anc notify` 已落地**（2026-10-07：判据做成纯函数 + 18 条档位用例，活体 dry-run 与「无 socket」负例均已实测，**真发到飞书并跑完整条闭环**，见 §7.1.5）。**`anc trail` 已落地**（2026-10-07：留痕的事实层 —— 只读聚合 cc-connect 会话与 harness 原生记录；三条口径与 claude 自己的 cost-state **对拍到逐字段相等**；活体 + 负例 + JSON 均已实测，见 §7.1.6）。**`anc trail` 的判断层已落地**（2026-10-07：判据是**数据**不是代码，`--rules` 可整份替换、不用重编译；只出结论不设门禁，每条结论都带来源与证据，见 §7.1.7）。**`anc apply` 已落地（Windows 腿 2026-10-07；**Linux 腿 2026-10-08**）**：一条命令走完七步 —— 校验 org → 渲染（与 `anc render` 同一套门禁：同一份 `commitConfig`）→ 凭据体检 → `cc-connect daemon install --no-capture-secrets --force` → 凭据桥 → `restart --force` → 回读（platform ready + 只读探针）；沙箱真跑通（`platform ready 1/1`、探针绿、任务定义里既无键名也无密钥值、重跑幂等），dry-run 与真装载各一次，见 §7.1.8。**仍未实测**：**macOS 腿的凭据注入**（零实现）；Windows 腿的**登录自启**（上游任务写的是 `-AtLogOn`，要注销 / 重启才验得到 —— 归 #42）。Linux 腿的凭据注入与「重启 / 断电后自己起来」都已实测（§7.1.10 / §7.1.11）。**`anc doctor` 多了一组「断电兜底」只读自检**（Linux 三条前提 / Windows 触发器 + 电源条件；真机实测，见 §7.1.11）。**看板三分区接齐了**（2026-10-08：运行态 = 防假绿探针、数据流 = 策略面 + 执行面事实、原料 = 数据目录清单；**事件面与沉淀层仍未实现**，页内如实列缺 —— 见 `README.md` 看板一节）。**授权表（`grants/`）已有落点与结构校验**（2026-10-08：一个 grant 一个文件、十条规则整组 `warn`、看板投影全量；**执行层与按人过滤视图未做** —— 见 §7.1.15）。**凭据键名不再回读文本，改为渲染时记账**（2026-10-08：成员名非 ASCII 或带 `-` 时，曾经发出一个要不到凭据、静默起不来的 bot；现在`member.name.format` 在真相源那一层就拦下，降级为 warn 时由装载的「键名写不出来」告警兜底 —— 真二进制 dry-run 四种形态各复现一次，见 §7.1.16）。§7 列出必须实测的项、怎么验、通过判据 —— 在跑通之前，本文任何一条都不许当「已实现」讲。
 >
 > **语言交代：Go**（复用 `anc` 单 exe，新增 `bootstrap` / `render` / `service` / `serve`）。理由：同一份源码跨 macOS / Windows / Linux，常驻进程不许自带运行时，装配器已经是 Go。代价：现场改**逻辑**要重编（约 10 秒）；对应缓解是 persona、模板、业务规则全部外置成纯文件，改这些不用重编译。
 
@@ -893,18 +893,28 @@ bot 侧的按人过滤视图、看板上「谁能做什么」那个页（投影�
 不再回读文本。账与回读在 ASCII 名这一档必须一致（用例断言），在非 ASCII 这一档**必须不一致** ——
 回读看不见它，这正是账存在的理由。键名只有一个出处：`render.FeishuSecretKey`。
 
-**顺手补的两处「说出来」**：
+**新规则 `member.name.format`：红档，拦在渲染之前**（2026-10-08 采纳深度评审 P0-4 的建议；先做成
+warn 跑了一轮，同日按「判据同 `company.id.format`」提成红档）。判据是同一条：这个 bot 的凭据根本
+写不进 `secrets.env`，装出来的必然是一个起不来的实例 —— 与其让现场对着一份「没缺键」的体检报告
+排障，不如在真相源那一层点名是哪个名字不合法。
 
-- 新规则 `member.name.format`（**warn，不是红线**）：成员名拼不出合法键名时报警并点名那个键。
-  为什么 warn 不 fatal —— 存量 vault 不该因为一条新规则突然渲染不出来；拦的那一处本来就在装载
-  （缺键 = 停），这条只负责让人看见。想变红：`policy: member.name.format = fatal`。
-- 体检报缺键时，把「**只是没写**」与「**根本写不出来**」分开说。后者照着「补键」那条 FIX 去补也
-  永远补不上（解析器与装载用同一把尺子 `apply.LegalKey`），所以直接给改名的 FIX。
+**它不锁死**（存量 vault 里已经有中文成员名的不该突然渲染不出来）：
 
-| 场景 | 命令 | 结果 |
+```yaml
+policy:
+  member.name.format: warn      # 先跑起来；这时下面那条装载告警是唯一的护栏
+```
+
+**体检那条「写不出来」的说明，是给降级准备的**：红档开着时它按定义不可达（名合法 ⇒ 键名合法）；
+一旦被降级成 `warn` / `off`，它就是这个形状唯一的护栏。所以体检报缺键时，把「**只是没写**」与
+「**根本写不出来**」分开说 —— 后者照着「补键」那条 FIX 去补也永远补不上（解析器与成员名规则用同一
+把尺子 `apply.LegalKey`），直接给改名的 FIX。
+
+| 场景 | 命令 | 结果（2026-10-08 实测） |
 |---|---|---|
 | 全 ASCII 名（基线） | `anc apply <vault>` | `引用 2 个：…_ALICE, …_DEVBOT` + ✅ 齐，exit 0 |
-| 成员名 `张三`（中文） | 同上 | `引用 2 个：…_张三, …_DEVBOT` + 🔴「不是合法的环境变量名」，exit 1 |
+| 成员名 `张三`，红档开着 | 同上 | **停在 [1/7] 校验**：`[member.name.format] members/张三/persona.md: …它拼出凭据键名 ANC_FEISHU_SECRET_张三…`，exit 1；渲染都没进去 |
+| 同一份 vault，降级 `member.name.format: warn` | 同上 | 放行到 [2/7] 渲染（`project 2 个：demo-张三, demo-devbot`），停在 [3/7] 体检：`🔴 其中有 ANC_FEISHU_SECRET_张三：不是合法的环境变量名，写不进凭据文件` + 改名 FIX，exit 1 |
 | 成员名 `alice-2`（带 `-`） | 同上 | 同上（`-` 同样拼不出合法键名），exit 1 |
 | 干净 fixture 四份（one / six / domains / disabled） | `internal/org` 用例 | `member.name.format` 一条都不报 —— 规则不变成噪音 |
 
