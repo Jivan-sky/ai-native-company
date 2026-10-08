@@ -40,7 +40,7 @@ func TestJudgeFollowsRuleData(t *testing.T) {
 	rules := []Rule{{
 		ID: "my-rule", Scope: ScopeTurn, Level: LevelWarn,
 		Title: "我自己定的判据", Say: "挡了 {denied} 次（{denied_tools}）",
-		When: []Cond{{"denied", ">=", 2}},
+		When: []Cond{{Metric: "denied", Op: ">=", Value: 2}},
 	}}
 	s := sess(
 		turn(time.Now(), denied("Bash")),                       // 1 次：不够
@@ -65,7 +65,7 @@ func TestJudgeFollowsRuleData(t *testing.T) {
 func TestEvidenceOnlyRelevantKind(t *testing.T) {
 	rules := []Rule{{
 		ID: "denied-only", Scope: ScopeTurn, Level: LevelWarn,
-		Title: "被权限挡下", Say: "{denied} 次", When: []Cond{{"denied", ">=", 1}},
+		Title: "被权限挡下", Say: "{denied} 次", When: []Cond{{Metric: "denied", Op: ">=", Value: 1}},
 	}}
 	s := sess(turn(time.Now(), denied("Bash"), failed("Read", "File does not exist")))
 	fs := Judge(s, rules)
@@ -86,7 +86,7 @@ func TestEvidenceOnlyRelevantKind(t *testing.T) {
 func TestNoEvidenceNoFinding(t *testing.T) {
 	rules := []Rule{{
 		ID: "needs-evidence", Scope: ScopeTurn, Level: LevelWarn,
-		Title: "没有证据的结论", Say: "{}", When: []Cond{{"turns", ">=", 1}},
+		Title: "没有证据的结论", Say: "{}", When: []Cond{{Metric: "turns", Op: ">=", Value: 1}},
 	}}
 	s := sess(turn(time.Now()))
 	if fs := Judge(s, rules); len(fs) != 0 {
@@ -113,12 +113,12 @@ func TestValidateRejectsBadRules(t *testing.T) {
 		rule Rule
 		want string
 	}{
-		{"没 id", Rule{Scope: ScopeTurn, Say: "x", When: []Cond{{"denied", ">=", 1}}}, "缺 id"},
-		{"scope 乱写", Rule{ID: "a", Scope: "company", Say: "x", When: []Cond{{"denied", ">=", 1}}}, "scope"},
+		{"没 id", Rule{Scope: ScopeTurn, Say: "x", When: []Cond{{Metric: "denied", Op: ">=", Value: 1}}}, "缺 id"},
+		{"scope 乱写", Rule{ID: "a", Scope: "company", Say: "x", When: []Cond{{Metric: "denied", Op: ">=", Value: 1}}}, "scope"},
 		{"没有条件", Rule{ID: "a", Scope: ScopeTurn, Say: "x"}, "没有条件"},
-		{"指标不存在", Rule{ID: "a", Scope: ScopeTurn, Say: "x", When: []Cond{{"tpkens", ">=", 1}}}, "不存在"},
-		{"比较符乱写", Rule{ID: "a", Scope: ScopeTurn, Say: "x", When: []Cond{{"denied", "≈", 1}}}, "比较符"},
-		{"占位符不存在", Rule{ID: "a", Scope: ScopeTurn, Say: "{tool}", When: []Cond{{"denied", ">=", 1}}}, "占位符"},
+		{"指标不存在", Rule{ID: "a", Scope: ScopeTurn, Say: "x", When: []Cond{{Metric: "tpkens", Op: ">=", Value: 1}}}, "不存在"},
+		{"比较符乱写", Rule{ID: "a", Scope: ScopeTurn, Say: "x", When: []Cond{{Metric: "denied", Op: "≈", Value: 1}}}, "比较符"},
+		{"占位符不存在", Rule{ID: "a", Scope: ScopeTurn, Say: "{tool}", When: []Cond{{Metric: "denied", Op: ">=", Value: 1}}}, "占位符"},
 	}
 	for _, c := range cases {
 		err := c.rule.Validate()
@@ -193,11 +193,11 @@ func TestMatch(t *testing.T) {
 		conds []Cond
 		want  bool
 	}{
-		{[]Cond{{"denied", ">=", 2}}, true},
-		{[]Cond{{"denied", ">=", 3}}, false},
-		{[]Cond{{"denied", "==", 2}, {"failed", "==", 0}}, true},
-		{[]Cond{{"denied", "==", 2}, {"failed", ">", 0}}, false},
-		{[]Cond{{"failed", "!=", 1}}, true},
+		{[]Cond{{Metric: "denied", Op: ">=", Value: 2}}, true},
+		{[]Cond{{Metric: "denied", Op: ">=", Value: 3}}, false},
+		{[]Cond{{Metric: "denied", Op: "==", Value: 2}, {Metric: "failed", Op: "==", Value: 0}}, true},
+		{[]Cond{{Metric: "denied", Op: "==", Value: 2}, {Metric: "failed", Op: ">", Value: 0}}, false},
+		{[]Cond{{Metric: "failed", Op: "!=", Value: 1}}, true},
 	}
 	for i, c := range cases {
 		if got := match(c.conds, metrics); got != c.want {

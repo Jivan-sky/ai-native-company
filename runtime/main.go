@@ -108,6 +108,8 @@ func main() {
 		os.Exit(cmdTimeline(args))
 	case "envelope":
 		os.Exit(cmdEnvelope(args))
+	case "gate":
+		os.Exit(cmdGate(args))
 	case "org":
 		if len(args) > 0 && args[0] == "check" {
 			os.Exit(cmdOrgCheck(args[1:]))
@@ -160,6 +162,8 @@ func usage() {
    anc envelope check <vault> <信封.json>  接入面的信封：解析 + 绑真相源（只读）
    anc envelope serve <vault> [--addr 127.0.0.1:8791]
                                     接入面：harness 走 MCP 把信封递进来（无状态，默认只绑本机）
+   anc gate <vault> [--rules <文件>] [--show-rules] [--json]
+                                    交付链路的门：五道门的证据落痕了没有（只出结论，不设门禁）
   anc version
 
 三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：

@@ -12,6 +12,11 @@
 // **这里没有门禁。** judge 只出结论，不拦任何事、不改退出码、不自动动手。
 // 它判错了，代价应该只是「多了一行话」，不是「一件本该发生的事没发生」。
 //
+// 两个作用域，一个引擎：
+//
+//	session / turn —— 会话层，事实来自 harness 的记录（`anc trail`）；
+//	delivery       —— 交付层，事实来自真相源仓库（`anc gate`，见 delivery.go）。
+//
 // 新增**事实**（比如「工具调用耗时」）才需要动 fact 层与指标表 —— 这条边界是故意的：
 // 判据可以随便长，事实必须来自记录、不能从判断里反推出来。
 package judge
@@ -30,11 +35,16 @@ import (
 const Schema = "anc.judge/v1"
 
 // Scope 是一条判据作用在哪一层。
+//
+// session / turn 是**会话层**：事实来自 harness 的记录（turns / denied / failed…）。
+// delivery 是**交付层**：事实来自真相源仓库（org 结构 + timeline 留痕）—— 见 delivery.go。
+// 两层共用这一个引擎与这一套 schema：判据即数据的机制只有一套。
 type Scope string
 
 const (
-	ScopeSession Scope = "session"
-	ScopeTurn    Scope = "turn"
+	ScopeSession  Scope = "session"
+	ScopeTurn     Scope = "turn"
+	ScopeDelivery Scope = "delivery"
 )
 
 // Level 只是标签，不是门禁：warn = 值得看一眼，info = 记着就行。
@@ -56,6 +66,11 @@ type Cond struct {
 	Metric string `json:"metric"`
 	Op     string `json:"op"` // >= > == != <= <
 	Value  int    `json:"value"`
+
+	// Case 只在 delivery 作用域里有意义：把指标限制在 timeline 的**某一个 case** 上
+	// （一道门就是一个 case，见 delivery.go）。引擎不认识任何一道具体的门 —— 门名跟着数据走。
+	// 别的作用域写了它会被拒：同样宁可拒绝，也不要让它静默失效。
+	Case string `json:"case,omitempty"`
 }
 
 // Rule 是一条判据。**整条都是数据** —— 引擎里没有任何 if 认识它。
@@ -68,6 +83,13 @@ type Rule struct {
 	Title string `json:"title"`
 	Say   string `json:"say"`
 	When  []Cond `json:"when"`
+
+	// NoEvidenceOk 声明「这条判据的结论本身就是『没有证据』」（缺勤类判据：一段账读不到、
+	// 一道门没落痕）。不写它，引擎要求结论必须点得回原件 —— 那道闸的理由是
+	// 「说了但指不回原件，等于让人去信一句没根据的话」。
+	//
+	// 它是**数据**，不是引擎里的一个特判：引擎不认识任何一条具体的判据。
+	NoEvidenceOk bool `json:"no_evidence_ok,omitempty"`
 }
 
 // Finding 是一条结论。Source 与 Evidence 是它和「猜测」的分界线：
@@ -83,9 +105,10 @@ type Finding struct {
 	Evidence []string `json:"evidence,omitempty"`
 }
 
-// metricNames 是**引擎支持的全部指标**。规则写了不存在的指标会被拒（不静默当 0）——
-// 一条永远不会命中的判据，比一条写错的判据更难发现。
-var metricNames = map[string]bool{
+// sessionMetricNames 是**会话作用域支持的全部指标**。规则写了不存在的指标会被拒
+// （不静默当 0）—— 一条永远不会命中的判据，比一条写错的判据更难发现。
+// 交付作用域的指标在 delivery.go，两套分开：写错作用域的指标一样要拒。
+var sessionMetricNames = map[string]bool{
 	"turns":      true, // 有几轮
 	"denied":     true, // 被权限规则挡下的动作数
 	"failed":     true, // 真执行失败的动作数
@@ -111,25 +134,28 @@ func Builtin() []Rule {
 			ID: "turn-denied-repeat", Scope: ScopeTurn, Level: LevelWarn,
 			Title: "这一轮的动作被权限规则反复挡下",
 			Say:   "有 {denied} 个动作被权限规则挡下（{denied_tools}）：不是坏了，是这个动作没被授权。",
-			When:  []Cond{{"denied", ">=", 2}},
+			When:  []Cond{{Metric: "denied", Op: ">=", Value: 2}},
 		},
 		{
 			ID: "turn-tool-failed", Scope: ScopeTurn, Level: LevelWarn,
 			Title: "这一轮有工具执行失败",
 			Say:   "{failed} 个工具调用失败：{failed_whys}",
-			When:  []Cond{{"failed", ">=", 1}},
+			When:  []Cond{{Metric: "failed", Op: ">=", Value: 1}},
 		},
 		{
 			ID: "session-denied-heavy", Scope: ScopeSession, Level: LevelInfo,
 			Title: "整段会话的权限缺口明显",
 			Say:   "全段 {denied} 次动作被权限规则挡下（{denied_tools}）—— 要么补授权，要么确认它本就不该碰。",
-			When:  []Cond{{"denied", ">=", 5}},
+			When:  []Cond{{Metric: "denied", Op: ">=", Value: 5}},
 		},
 		{
 			ID: "session-unreadable", Scope: ScopeSession, Level: LevelWarn,
 			Title: "这段账读不到",
 			Say:   "原生记录没读到，下面任何结论都不成立 —— 先修归集，再判它。",
-			When:  []Cond{{"unreadable", ">=", 1}},
+			When:  []Cond{{Metric: "unreadable", Op: ">=", Value: 1}},
+			// 结论本身就是「读不到」：要求它带证据等于逼着写假证据。
+			// 这条豁免以前写死在引擎里（`r.ID != "session-unreadable"`），现在回到数据里。
+			NoEvidenceOk: true,
 		},
 	}
 }
@@ -163,8 +189,10 @@ func (r Rule) Validate() error {
 	if strings.TrimSpace(r.ID) == "" {
 		return fmt.Errorf("缺 id")
 	}
-	if r.Scope != ScopeSession && r.Scope != ScopeTurn {
-		return fmt.Errorf("scope 只能是 session / turn，拿到 %q", r.Scope)
+	switch r.Scope {
+	case ScopeSession, ScopeTurn, ScopeDelivery:
+	default:
+		return fmt.Errorf("scope 只能是 session / turn / delivery，拿到 %q", r.Scope)
 	}
 	if r.Level == "" {
 		r.Level = LevelInfo
@@ -172,9 +200,13 @@ func (r Rule) Validate() error {
 	if len(r.When) == 0 {
 		return fmt.Errorf("%s：没有条件就该直接写死在事实里，别放在判据表里", r.ID)
 	}
+	caseName, err := ruleCase(r.When)
+	if err != nil {
+		return fmt.Errorf("%s：%w", r.ID, err)
+	}
 	for _, c := range r.When {
-		if !metricNames[c.Metric] {
-			return fmt.Errorf("%s：指标 %q 不存在（指标必须来自事实层；写错的判据永远不会命中）", r.ID, c.Metric)
+		if err := checkMetric(r.Scope, c); err != nil {
+			return fmt.Errorf("%s：%w", r.ID, err)
 		}
 		switch c.Op {
 		case ">=", ">", "==", "!=", "<=", "<":
@@ -183,11 +215,34 @@ func (r Rule) Validate() error {
 		}
 	}
 	for _, ph := range placeholders(r.Say) {
-		if !metricNames[ph] && !varNames[ph] {
+		switch {
+		case deliveryCaseMetrics[ph]:
+			// 按门统计的指标：这条判据得指着某一扇门，否则 {指标} 解不出来。
+			if caseName == "" {
+				return fmt.Errorf("%s：say 里的 {%s} 是按 case 统计的指标，这条判据没有写 case", r.ID, ph)
+			}
+		case sessionMetricNames[ph], deliveryGlobalMetrics[ph], varNames[ph]:
+		default:
 			return fmt.Errorf("%s：say 里的占位符 {%s} 既不是指标也不是变量（会原样打出去）", r.ID, ph)
 		}
 	}
 	return nil
+}
+
+// ruleCase 取一条判据里**唯一**的那个 case（没有则空）。一条判据里出现两个不同的 case
+// 就拒：{指标} 这类占位符是按 case 解出来的，两个 case 会让它解成哪一个说不清。
+func ruleCase(conds []Cond) (string, error) {
+	found := ""
+	for _, c := range conds {
+		if c.Case == "" {
+			continue
+		}
+		if found != "" && c.Case != found {
+			return "", fmt.Errorf("一条判据里出现了两个 case（%q / %q）：{指标} 是按 case 解出来的，解成哪一个说不清", found, c.Case)
+		}
+		found = c.Case
+	}
+	return found, nil
 }
 
 // Judge 对一段会话跑一遍判据。找不到证据的结论**不发** ——
@@ -205,8 +260,8 @@ func Judge(s trail.Session, rules []Rule) []Finding {
 			Title: r.Title, Say: render(r.Say, sess),
 		}
 		f.Evidence = evidence(s.Failures, kindsOf(r.When), 5)
-		if len(f.Evidence) == 0 && r.ID != "session-unreadable" {
-			continue // 没有证据就不发
+		if len(f.Evidence) == 0 && !r.NoEvidenceOk {
+			continue // 没有证据就不发（除非这条判据自己声明「结论就是没有证据」）
 		}
 		out = append(out, f)
 	}
@@ -222,7 +277,7 @@ func Judge(s trail.Session, rules []Rule) []Finding {
 				Title: r.Title, Say: render(r.Say, tf),
 			}
 			f.Evidence = evidence(t.Failures, kindsOf(r.When), 5)
-			if len(f.Evidence) == 0 {
+			if len(f.Evidence) == 0 && !r.NoEvidenceOk {
 				continue
 			}
 			out = append(out, f)
