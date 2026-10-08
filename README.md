@@ -33,7 +33,7 @@ ai-native-company/
 ├─ docs/            给实现读：上游四份实现视图的副本（M1 设计 / 里程碑 / 轻形态 MVP / 调研）
 ├─ skill/           给 Agent 读（待建）：可单独安装，FDE skill 路线 B 指向这里
 └─ runtime/         给机器跑：ANC 驻场装配器（anc-onsite 已并入）
-   └─ DESIGN.md     运行层落地设计（v0.1 草案，含 6 条待拍板）
+   └─ DESIGN.md     运行层落地设计（v0.1 草案；D4 / D5 / D6 已拍板，D1 / D2 与 D3 的其余部分未拍板）
 ```
 
 **真相源只有一份。** `skill/`、`runtime/` 都是 `SPEC.md` 的派生视图——改口径改 SPEC，不在这几处各改一遍。
@@ -55,8 +55,8 @@ ai-native-company/
 | `SPEC.md` | **v0.3 合并稿（2026-10-06）**· 骨架（工程实现层）来自上游 `HA7CH/ai-native-company` SPEC v0.1（MIT），组织模型与方法论层来自本仓库 v0.2 |
 | 开放问题 | 全部在 [GitHub Issues](https://github.com/Jivan-sky/ai-native-company/issues)；仓库内不再有台账文件 |
 | `skill/` | 未建 |
-| `runtime/` | 已并入 `anc-onsite`。**阶段 A/B 已落地**：`anc init` / `org init` / `org check` / `render` / `service`。本机实测：`gofmt` / `go vet` / `go test ./...`（四包）全绿、六个目标交叉编译通过。**端到端已打通**：真飞书 app（一条未绑公司账号的测试腿）走通「飞书发消息 → gateway → claude → 飞书回话」一轮，长连接形态免公网回调（见 `runtime/DESIGN.md` §7.1.3）。**仍未验证**：服务是否真被拉起（`anc serve` 未实现）、多 bot 并发 |
-| `runtime/DESIGN.md` | v0.1 草案（2026-10-06）· 6 条待拍板见其 §0；「必须实测清单」见其 §7 |
+| `runtime/` | 已并入 `anc-onsite`。**阶段 A / B / C 都落了**：A = `anc init` / `org init` / `org check` / `render`；B = `anc service`（**已退役**，2026-10-07 —— 它生成的单元跑的是根本不存在的 `anc serve`；见 `runtime/DESIGN.md` §1 与 §7.1.9）；C = `anc apply` / `probe` / `notify` / `trail` / `timeline` / `gate` / `envelope` / `board serve`。本机实测（2026-10-08）：`gofmt` / `go vet` / `go test -count=1 ./...` **十二包全绿**、六个目标（win / darwin / linux × amd64 / arm64）交叉编译 **6/6** 通过。**端到端已打通**：真飞书 app 走通「飞书发消息 → gateway → claude → 飞书回话」一轮，长连接形态免公网回调（见 `runtime/DESIGN.md` §7.1.3）；**装机腿** Windows（2026-10-07）与 Linux（2026-10-08）沙箱各真跑一次（§7.1.8 / §7.1.10）。**`anc serve` 不存在、也不该存在** —— 常驻交给上游 daemon（D4 拍板：`serve` 降级为 `apply`，见 `runtime/DESIGN.md` §0）。**仍未验证**：**macOS 腿（零覆盖，见议题 #23）**、多 bot 并发 |
+| `runtime/DESIGN.md` | 运行层落地设计 **v0.1 草案（2026-10-06）**· §0 六条决策里 **D4 / D5 / D6 已拍板**（D3 只拍了「空闲重置关掉」，其余未拍板）、D1 / D2 未拍板；「必须实测清单」与逐条实测记录见其 §7 |
 
 
 ## 与上游的关系
