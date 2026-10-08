@@ -38,7 +38,8 @@ type TimelineCaseView struct {
 // TimelineView 是 `/api/timeline` 的形状 —— 「卡在哪、谁在跟、下一步是谁的决定」。
 //
 // 先说清它**不是**什么：
-//   - 不是审计。谁**尝试**做了什么（含越权尝试）属于事件面，见 Missing。
+//   - 不是审计（`/api/audit`）。那一页是**系统记下来的**行使流水（含被拒的）；
+//     这一页是**人 / agent 自己写下来的**留存 —— 互补，不重叠：人会漏记，机器会漏判。
 //   - 不是从会话里推出来的。这些记录是**人 / agent 自己写下来的**（`anc timeline add`）；
 //     看板只折叠与呈现，不替谁总结，也不编一条。
 //
@@ -69,7 +70,7 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		Bad:    []string{},
 		Limit:  timelineDefaultLimit,
 		Missing: []string{
-			"审计：谁在什么时候、对谁、行使了什么（含被拒绝的尝试）—— SPEC §6 不变量 4「行使必留痕」要求记这条流水，审计器零实现（见议题 #43）",
+			"审计（谁想碰什么、谁想行使但没行使）不在这页 —— 那是**系统记下来的**流水，在「审计」页（`/api/audit`）。这一页只有人 / agent 自己写下来的那部分",
 			"谁能写：现在写入口是 `anc timeline add`，不设门禁（谁能写归授权层，议题 #32–#35）",
 		},
 		Note: "记录是人和 agent 自己写下来的，不是从会话里推出来的。三档只按 status 配色" +

@@ -287,9 +287,12 @@ func TestResetOnIdleRejectsNegative(t *testing.T) {
 // 进路由表还会重复计一次），timeline 来自留存记录（谁记谁读）。
 func TestRoutingExcludesStructuralDirs(t *testing.T) {
 	v := copyVault(t, "domains")
-	// 模拟「有人记过一条留存」之后 vault 的样子：timeline/ 会真的出现在顶层。
-	if err := os.MkdirAll(filepath.Join(v, "timeline"), 0o755); err != nil {
-		t.Fatal(err)
+	// 模拟「有人记过一条留存、系统记过一条行使」之后 vault 的样子：
+	// timeline/ 与 audit/ 会真的出现在顶层。
+	for _, d := range []string{"timeline", "audit"} {
+		if err := os.MkdirAll(filepath.Join(v, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	o, err := Load(v)
 	if err != nil {
@@ -299,7 +302,7 @@ func TestRoutingExcludesStructuralDirs(t *testing.T) {
 	for _, r := range o.Routing {
 		got[r.Dir] = true
 	}
-	for _, bad := range []string{"charters", "timeline", "docs", "_originals", "roles", "members", "company", "templates", "scripts", "skills"} {
+	for _, bad := range []string{"charters", "timeline", "audit", "docs", "_originals", "roles", "members", "company", "templates", "scripts", "skills"} {
 		if got[bad] {
 			t.Errorf("%s 不该进路由表（结构目录 / 本库落点）", bad)
 		}

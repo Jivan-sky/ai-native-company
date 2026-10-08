@@ -104,6 +104,8 @@ func main() {
 		os.Exit(cmdNotify(args))
 	case "trail":
 		os.Exit(cmdTrail(args))
+	case "audit":
+		os.Exit(cmdAudit(args))
 	case "timeline":
 		os.Exit(cmdTimeline(args))
 	case "envelope":
@@ -159,6 +161,7 @@ func usage() {
    anc notify <vault> [选项]         把报红推到负责人面前（默认 dry-run，--send 才真发）
    anc trail <vault> [选项]          只读聚合：谁问了什么、agent 干了什么、花了多少
    anc timeline add|list <vault>      决策与执行的留存记录（红 / 黄 / 绿三档，append-only）
+   anc audit log|add|collect <vault>  行使的流水：谁在什么时候、对谁、行使了什么（含被拒的）
    anc envelope check <vault> <信封.json>  接入面的信封：解析 + 绑真相源（只读）
    anc envelope serve <vault> [--addr 127.0.0.1:8791]
                                     接入面：harness 走 MCP 把信封递进来（无状态，默认只绑本机）
