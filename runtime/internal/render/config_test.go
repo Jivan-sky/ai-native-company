@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"anc/internal/apply"
 	"anc/internal/org"
 )
 
@@ -278,11 +279,11 @@ func TestSecretKeysAreRecorded(t *testing.T) {
 	}
 }
 
-// 成员名带中文时，账必须照样如实记下那个键 —— 哪怕它写不进 secrets.env。
+// 非 ASCII 名（中文）也要拿到**写得出**的键名：派生是全函数 —— ASCII 直通，其余按码点转义。
 //
-// 回读器看不见它（那把正则只认 ASCII），这正是「账要记、不能回读」的现场：
-// 回读会把「这个 bot 永远要不到凭据」说成「✅ 齐」。
-func TestSecretKeysKeepUnwritableNames(t *testing.T) {
+// 2026-10-08 之前这条用例钉的是「账要记、回读看不见」；现在钉相反的事实：键名是 ASCII，
+// 账与回读**一致**（回读看不见 = 当年那个「要不到凭据、静默起不来」的形状）。
+func TestSecretKeysEncodeNonASCIINames(t *testing.T) {
 	o, host := fixtureOrg(t, "one")
 	for i := range o.Members {
 		if o.Members[i].Name == "alice" {
@@ -293,7 +294,7 @@ func TestSecretKeysKeepUnwritableNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const key = "ANC_FEISHU_SECRET_张三"
+	const key = "ANC_FEISHU_SECRET_x005f20x004e09"
 	if !strings.Contains(p.Text, "${"+key+"}") {
 		t.Fatalf("产物里没有 ${%s}：%v", key, p.SecretKeys)
 	}
@@ -308,7 +309,48 @@ func TestSecretKeysKeepUnwritableNames(t *testing.T) {
 	}
 	for _, ref := range EnvRefs(p.Text) {
 		if ref == key {
-			t.Fatalf("回读器居然看得见 %s —— 这条用例的前提变了", key)
+			return
 		}
+	}
+	t.Fatalf("回读看不见 %s —— 键名该是 ASCII 了：%v", key, EnvRefs(p.Text))
+}
+
+// 键名的派生：存量 ASCII 名一个字节都不变；转义段定长、且与直通段按构造不相交。
+//
+// 「写得出写不出」由装载侧那把尺子说了算（apply.LegalKey），这儿不另写一条正则 —— 两条尺子迟早漂。
+func TestSecretKeyDerivation(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"alice", "ANC_FEISHU_SECRET_ALICE"},
+		{"devbot", "ANC_FEISHU_SECRET_DEVBOT"},
+		{"a_b", "ANC_FEISHU_SECRET_A_B"},
+		{"alice-2", "ANC_FEISHU_SECRET_ALICEx00002d2"},
+		{"a.b", "ANC_FEISHU_SECRET_Ax00002eB"},
+		{"张三", "ANC_FEISHU_SECRET_x005f20x004e09"},
+		{"白嘉伟", "ANC_FEISHU_SECRET_x00767dx005609x004f1f"},
+	} {
+		got := FeishuSecretKey(tc.name)
+		if got != tc.want {
+			t.Errorf("FeishuSecretKey(%q) = %s，想要 %s", tc.name, got, tc.want)
+		}
+		if !apply.LegalKey(got) {
+			t.Errorf("FeishuSecretKey(%q) = %s 不是合法的环境变量名 —— 装载侧写不进去", tc.name, got)
+		}
+	}
+	// 不同的名不许撞成同一个键（撞了就是两个人共用一个凭据槽）。
+	seen := map[string]string{}
+	for _, name := range []string{"alice", "alice.", "alice-2", "张三", "白嘉伟", "张 三", "手冢治虫", "a_b", "a.b"} {
+		k := FeishuSecretKey(name)
+		if prev, dup := seen[k]; dup {
+			t.Errorf("%q 与 %q 撞成同一个键 %s", name, prev, k)
+		}
+		seen[k] = name
+	}
+}
+
+// 已知残留：名只差大小写（alice / ALICE）会撞成同一个键 —— 存量键就是大写折叠出来的，
+// 要修得动存量 vault。这条把它钉成已知事实：哪天改了，就该红，逼着同步 DESIGN §7.1.16 的残留清单。
+func TestSecretKeyCaseFoldingResidual(t *testing.T) {
+	if FeishuSecretKey("Alice") != FeishuSecretKey("alice") {
+		t.Fatal("大小写折叠的残留没了 —— 同步 runtime/DESIGN.md §7.1.16 的「残留」一节，再改这条用例")
 	}
 }

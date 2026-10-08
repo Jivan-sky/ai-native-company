@@ -178,8 +178,9 @@ func cmdApply(args []string) int {
 	}
 
 	// ---- 3 体检：产物要哪些键、这份凭据文件里有没有 ----
-	// 键名从 plan 自己的账上取，不从产物文本回读：回读只认 ASCII，
-	// 中文成员名拼出的键它看不见，会把「这个 bot 要不到凭据」报成「✅ 齐」。
+	// 键名从 plan 自己的账上取，不从产物文本回读：2026-10-08 之前键名就是「成员名大写」，
+	// 中文名拼出的键回读看不见，会把「这个 bot 要不到凭据」报成「✅ 齐」。
+	// 现在键名是全函数派生（中文名也写得出合法键），账与回读一致 —— 但账仍是唯一出处。
 	step(3, "体检    产物要求的 ${ENV}")
 	refs := plan.SecretKeys
 	rawSecrets, readErr := os.ReadFile(secretsPath)
@@ -211,9 +212,11 @@ func cmdApply(args []string) int {
 		if len(unwritable) > 0 {
 			// 「这个键只是没写」和「这个键根本写不出来」处置都是拦，但修法完全不同 ——
 			// 不说清，现场会照着下面那条 FIX 去补一个永远补不上的键。
+			// 2026-10-08 起「写不出来」在正常渲染里已经不可达（键名全函数派生，中文名也写得出键），
+			// 走到这里只可能是产物被手改过、或派生逻辑坏了。
 			fmt.Fprintf(os.Stderr, "  🔴 其中有 %s：不是合法的环境变量名，写不进凭据文件\n", strings.Join(unwritable, "、"))
-			fmt.Fprintf(os.Stderr, "      键名 = ANC_FEISHU_SECRET_<成员名大写>，只认 [A-Za-z_][A-Za-z0-9_]*（成员名不能带 - . 空格，也不能是中文）。\n")
-			fmt.Fprintf(os.Stderr, "FIX: 把 members/ 下那个成员的 name（persona.md frontmatter）改成 ASCII 字母数字，重跑。\n")
+			fmt.Fprintf(os.Stderr, "      键名的写法只有一处：render.FeishuSecretKey（ANC_FEISHU_SECRET_ + 名字的 ASCII 转义），只认 [A-Za-z_][A-Za-z0-9_]*。\n")
+			fmt.Fprintf(os.Stderr, "FIX: 别手改产物 —— 重跑 `anc render`（或 `anc apply --apply`）按真相源重新生成。\n")
 		}
 		fmt.Fprintf(os.Stderr, "FIX: 往 %s 补齐这些键（明文只住这份文件，不要写进 config）。\n", secretsPath)
 		return 1
