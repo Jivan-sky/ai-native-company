@@ -310,6 +310,31 @@ anc timeline list <vault> [--limit N] [--before <RFC3339>] [--band <档>] [--sta
 - **目录不存在 = 还没开始记 = 空时间线，不是错**（刚 `init` 的机器不该因此报红）。
 - 坏行只报 `文件名:行号`，不带本机路径（看板是观测面，不是凭据面）。
 
+### 交付链路的门（`anc gate`）
+
+```
+anc gate <vault> [--rules <文件>] [--show-rules] [--json]
+```
+
+留痕有了，下一个问题是「**门过了没有**」。出厂五道 —— 诊断 / 证明 / 装机 / 沉淀 / 重构，
+判据分别来自《ANC 架构设计大框》§8.2 的落地链路与 SPEC §8 三个阶段门（不是这里现编的）。
+
+- **事实只有两个来源，都是真相源**：`org`（人 / 岗 / 域 / 项目 / 授权）+ `timeline` 留痕。
+  判据不自己造事实 —— 它只决定「这几个数放在一起算不算一件事」。
+- **一道门就是一个 case**，命名 `gate:<slug>`（例：`gate:proof`）。记法：
+
+  ```
+  anc timeline add <vault> -by fde -case gate:proof -status done -title "一线班长当场说这能帮到我，停止条件双方认可"
+  ```
+
+- **门名与判据都是数据**：出厂五门 × 两条（没落痕 / 有卡点）+ 一条全局缺勤 = 11 条。
+  `--show-rules` 看生效表，`--rules` 整份换掉；加一道门 = 加两行数据，不改代码。
+- **只判它看得出来的那两类**：「一线那句话算不算数」「产能到底扩没扩」要人判 ——
+  判据只负责把「该判的没落痕」摆到人面前，不替人下结论（同 SPEC §13 Q17：裁判权留给人工）。
+- **不设门禁**：只出结论，判据不影响退出码。（读不到 vault 这类真错误仍然非 0 —— 那不是判据的意见。）
+- 配色与看板同一套：`done` = 绿（通过）/ `blocked`·`failed` = 红（卡点）/ `running` = 黄；
+  认不出的词画**灰**。灰不算绿也不算红 —— 把灰当绿，就会把「没人判过」看成「过了」。
+
 ### 接入面的信封（`anc envelope`）
 
 ```
@@ -496,7 +521,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | 路径 | 说明 |
 |---|---|
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；D4/D5/D6 已拍板，D1/D2 未拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `envelope` / `board` / `org` / `version`） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `envelope` / `gate` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
@@ -511,6 +536,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/envelope/` | 接入面的信封：类型 / 解析 / 与真相源绑定（与 harness 无关的那一层，#44） |
 | `internal/mcp/` | 极小 MCP 服务端（streamable HTTP，无状态）：initialize / tools/list / tools/call |
 | `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
+| `gate.go` | `anc gate` 的 CLI：交付链路的门 —— org + timeline 两个真相源算事实，跑交付层判据（`internal/judge/delivery.go`） |
+| `internal/judge/` | 判据层（**判据是数据，不是代码**）：会话层（`anc trail`）+ 交付层（`anc gate`）一个引擎两个作用域；只出结论、不设门禁 |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
