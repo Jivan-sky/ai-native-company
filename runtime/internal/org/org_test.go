@@ -377,3 +377,68 @@ func TestRoutingSkipsLegacyPlaceholder(t *testing.T) {
 	}
 	t.Fatalf("clients 应当仍在路由表里（只是还没写说明）：%v", o.Routing)
 }
+
+// 成员名拼不出合法凭据键名时（中文 / 带 - . 空格）：只告警、不拦。
+//
+// 为什么是 warn 不是 fatal：存量 vault 不该因为一条新规则突然渲染不出来 ——
+// 拦的那一处交给装载（缺键本来就拦），这里只负责让人看见。
+// 为什么要报：这个 bot 的凭据键名写不进 secrets.env，它拿不到凭据、静默起不来。
+func TestMemberNameFormatWarnsWithoutBlocking(t *testing.T) {
+	vault := copyVault(t, "one")
+	// 改名要连着 company.md 的 admins 一起改：那条是红档（admins 指向不存在的成员），
+	// 不跟着改就会被别的原因拦下，测不到本规则。
+	renameMember(t, vault, "alice", "张三")
+	o, err := Load(vault)
+	if err != nil {
+		t.Fatalf("warn 档不该拦下加载：%v", err)
+	}
+	var got []string
+	for _, w := range o.Warnings {
+		if w.Rule == "member.name.format" {
+			got = append(got, w.Msg)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("member.name.format 发现 %d 条，想要 1 条：%v", len(got), got)
+	}
+	if !strings.Contains(got[0], "ANC_FEISHU_SECRET_张三") {
+		t.Fatalf("告警没说清是哪个键名写不出来：%s", got[0])
+	}
+	if _, enabled := o.Member("张三"); !enabled {
+		t.Fatal("改名后的成员必须仍在启用列表里（warn 不拦）")
+	}
+}
+
+// 反过来：合法名（ASCII 字母数字）一个字节都不许报 —— 否则这条规则会变成噪音。
+func TestMemberNameFormatQuietOnCleanFixtures(t *testing.T) {
+	for _, name := range []string{"one", "six", "domains", "disabled"} {
+		o, err := Load(fixture(t, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		for _, w := range o.Warnings {
+			if w.Rule == "member.name.format" {
+				t.Errorf("%s: 干净 fixture 报了 %s", name, w.Msg)
+			}
+		}
+	}
+}
+
+// renameMember 把成员 from 就地改成 to：persona.md 的 name，以及 company.md 里对它的引用。
+func renameMember(t *testing.T, vault, from, to string) {
+	t.Helper()
+	for _, rel := range []string{
+		filepath.Join("members", from, "persona.md"),
+		filepath.Join("company", "company.md"),
+	} {
+		p := filepath.Join(vault, rel)
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body := strings.ReplaceAll(string(raw), from, to)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

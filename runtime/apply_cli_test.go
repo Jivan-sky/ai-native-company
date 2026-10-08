@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"anc/internal/apply"
 	"anc/internal/org"
 	renderpkg "anc/internal/render"
 )
@@ -40,7 +41,7 @@ func applyFixture(t *testing.T) (vault, cfg, secrets, daemon string) {
 		t.Fatal(err)
 	}
 	var b strings.Builder
-	for _, ref := range renderpkg.EnvRefs(plan.Text) {
+	for _, ref := range plan.SecretKeys {
 		fmt.Fprintf(&b, "%s=值-%s\n", ref, ref)
 	}
 	if err := os.WriteFile(secrets, []byte(b.String()), 0o600); err != nil {
@@ -151,5 +152,33 @@ func TestStartupHintIsPlatformSpecific(t *testing.T) {
 	}
 	if startupHint("darwin") == "" {
 		t.Error("没覆盖的平台也要给一句兜底话，不许空手")
+	}
+}
+
+// 成员名拼出的键名根本写不进凭据文件时，装载必须拦。
+//
+// 这条是「静默」变「出声」的落点：改名之前，产物里那个键回读不到，
+// 体检拿着自己漏掉一个键的清单报「✅ 齐」，现场等来的是一个没有凭据、
+// 起不来的 bot；现在账如实记，缺就是缺，还会说清是「写不出来」而不是「漏写了」。
+func TestApplyRefusesUnwritableSecretKey(t *testing.T) {
+	vault, cfg, secrets, daemon := applyFixture(t)
+	personaPath := filepath.Join(vault, "members", "alice", "persona.md")
+	raw, err := os.ReadFile(personaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ReplaceAll(string(raw), "name: alice", "name: alice-2")
+	if err := os.WriteFile(personaPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code := quiet(t, func() int {
+		return cmdApply([]string{vault, "--config", cfg, "--secrets", secrets, "--daemon", daemon})
+	})
+	if code != 1 {
+		t.Fatalf("键名写不出来时退出码 = %d，想要 1", code)
+	}
+	// 凭据文件里那个键即便写进去也读不懂 —— 解析器与装载用的是同一把尺子。
+	if apply.LegalKey("ANC_FEISHU_SECRET_ALICE-2") {
+		t.Fatal("ANC_FEISHU_SECRET_ALICE-2 被当成合法键名了：解析尺子漏了")
 	}
 }

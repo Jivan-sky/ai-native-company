@@ -178,8 +178,10 @@ func cmdApply(args []string) int {
 	}
 
 	// ---- 3 体检：产物要哪些键、这份凭据文件里有没有 ----
-	step(3, "体检    产物引用的 ${ENV}")
-	refs := renderpkg.EnvRefs(plan.Text)
+	// 键名从 plan 自己的账上取，不从产物文本回读：回读只认 ASCII，
+	// 中文成员名拼出的键它看不见，会把「这个 bot 要不到凭据」报成「✅ 齐」。
+	step(3, "体检    产物要求的 ${ENV}")
+	refs := plan.SecretKeys
 	rawSecrets, readErr := os.ReadFile(secretsPath)
 	if readErr != nil {
 		fmt.Printf("  🔴 读不到凭据文件：%v\n", readErr)
@@ -200,6 +202,19 @@ func cmdApply(args []string) int {
 		// 这是本命令唯一的一处「拦」：装载一个必然起不来的 daemon，
 		// 代价是**这台机器上原来在跑的 bot 全部下线**（install/restart 都会先杀掉旧实例）。
 		fmt.Fprintf(os.Stderr, "  🔴 缺键 / 空值键：%s\n", strings.Join(append(append([]string{}, missing...), blank...), "、"))
+		var unwritable []string
+		for _, k := range missing {
+			if !apply.LegalKey(k) {
+				unwritable = append(unwritable, k)
+			}
+		}
+		if len(unwritable) > 0 {
+			// 「这个键只是没写」和「这个键根本写不出来」处置都是拦，但修法完全不同 ——
+			// 不说清，现场会照着下面那条 FIX 去补一个永远补不上的键。
+			fmt.Fprintf(os.Stderr, "  🔴 其中有 %s：不是合法的环境变量名，写不进凭据文件\n", strings.Join(unwritable, "、"))
+			fmt.Fprintf(os.Stderr, "      键名 = ANC_FEISHU_SECRET_<成员名大写>，只认 [A-Za-z_][A-Za-z0-9_]*（成员名不能带 - . 空格，也不能是中文）。\n")
+			fmt.Fprintf(os.Stderr, "FIX: 把 members/ 下那个成员的 name（persona.md frontmatter）改成 ASCII 字母数字，重跑。\n")
+		}
 		fmt.Fprintf(os.Stderr, "FIX: 往 %s 补齐这些键（明文只住这份文件，不要写进 config）。\n", secretsPath)
 		return 1
 	}
