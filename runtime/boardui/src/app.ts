@@ -474,11 +474,14 @@ function progressGap(): Kid {
       "拍板前这里空着 —— 见 SPEC §13 Q15 与 GitHub #36。"));
 }
 
-// 运行态三色口径（拍板）：绿 = 近期真回过话；黄 = 运行中 / 这个窗口没观测到；红 = 卡点，需人介入。
+// 运行态四档口径（拍板）：绿 = 近期真回过话；黄 = 运行中 / 这个窗口没观测到；红 = 卡点，需人介入；
+// 灰 = 真相源里**声明**了「还没接凭据」—— 本来就不该期待它回话，单列一档，
+// 免得跟黄糊在一起（混着看，整份报告都会不值得信）。
 const RUN_STATE: Record<string, { dot: string; label: string }> = {
   ok: { dot: "dot ok", label: "绿 · 近期回过话" },
   warn: { dot: "dot warn", label: "黄 · 运行中 / 未观测" },
   fail: { dot: "dot bad", label: "红 · 卡点，需介入" },
+  unwired: { dot: "dot gray", label: "灰 · 未接凭据" },
 };
 const runState = (s: string) => RUN_STATE[s] ?? { dot: "dot", label: dash(s) };
 

@@ -12,6 +12,7 @@ import (
 	"anc/internal/notify"
 	"anc/internal/org"
 	"anc/internal/probe"
+	renderpkg "anc/internal/render"
 )
 
 const notifyUsage = `anc notify —— 把运行态告警送到负责人面前（默认只打印，不发送）
@@ -86,10 +87,13 @@ func cmdNotify(args []string) int {
 
 	// 该喊谁：人名（给人看）+ project 名（给机器用）。真相源读不动就**不猜** ——
 	// 一份红报告配上猜错的责任人，比不喊还糟。
-	var handlers, targets, unresolved []string
+	var handlers, targets, unresolved, unwired []string
 	if o, err := org.Load(abs); err == nil {
 		handlers = o.AdminLabels()
 		targets, unresolved = notifyTargets(o)
+		// 声明「还没接凭据」的 bot 不该被喊 —— 它不是事故，喊了就是狼来了。
+		// 跟探针共用同一支算（各算各的迟早对不上号）。
+		unwired = renderpkg.UnwiredProjects(o)
 		if len(o.Company.Admins) == 0 {
 			unresolved = append(unresolved, "真相源里 company.admins 是空的 —— 现在没人可交")
 		}
@@ -100,7 +104,7 @@ func cmdNotify(args []string) int {
 
 	rep, err := probe.Run(probe.Options{
 		Vault: abs, Config: cfgPath, DataDir: dataPath,
-		Stale: *stale, Stall: *stall, Admins: handlers,
+		Stale: *stale, Stall: *stall, Admins: handlers, Unwired: unwired,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)

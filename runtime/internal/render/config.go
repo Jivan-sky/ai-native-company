@@ -25,6 +25,21 @@ type Options struct {
 // 出现「看板叫 alice、日志叫 demo-alice」这种对不上号的现场。
 func ProjectName(companyID, member string) string { return companyID + "-" + member }
 
+// UnwiredProjects 是「**声明**了还没接平台凭据」的 project 名（真相源里成员上的 unwired: true）。
+//
+// 只算**启用中的**：停用的成员本来就不进 config，多报一个只是噪声。
+// 四个消费方（anc probe / anc apply 的回读 / 看板运行态 / 告警）必须用同一个函数算 ——
+// 各算各的，就会出现「探针说灰、apply 回读说黄」这种自相矛盾的报告（2026-10-08 实测踩到）。
+func UnwiredProjects(o *org.Org) []string {
+	var out []string
+	for _, m := range o.Enabled() {
+		if m.Unwired {
+			out = append(out, ProjectName(o.Company.ID, m.Name))
+		}
+	}
+	return out
+}
+
 // FeishuSecretKey 是一个成员的 app_secret 在 secrets.env 里的键名。
 //
 // 规则只有这一处：渲染器按它写引用、体检按它要键、现场按它填凭据 —— 各算各的迟早对不上号。

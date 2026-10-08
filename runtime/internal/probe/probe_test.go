@@ -104,7 +104,7 @@ func TestProjectOfSessionFile(t *testing.T) {
 	}
 }
 
-// AllGreen 只有「网关在跑 + 每个 bot 都绿 + 没有残留」才为真。
+// AllGreen 只有「网关在跑 + 每个 bot 要么绿要么是声明未接 + 至少一个绿 + 没有残留」才为真。
 func TestAllGreen(t *testing.T) {
 	ok := Report{Gateway: "up", Bots: []Finding{{"a", StateOK, ""}}}
 	if !ok.AllGreen() {
@@ -114,6 +114,9 @@ func TestAllGreen(t *testing.T) {
 		{Gateway: "down", Bots: []Finding{{"a", StateOK, ""}}},
 		{Gateway: "up", Bots: []Finding{{"a", StateWarn, ""}}},
 		{Gateway: "up", Bots: []Finding{{"a", StateOK, ""}}, Extras: []string{"gone"}},
+		// 空集不判绿：什么都没验过，不是「没事」（全被声明未接 / config 里没有 project）。
+		{Gateway: "up", Bots: []Finding{}},
+		{Gateway: "up", Bots: []Finding{{"a", StateUnwired, ""}}},
 	} {
 		if bad.AllGreen() {
 			t.Fatalf("不该判绿：%+v", bad)
