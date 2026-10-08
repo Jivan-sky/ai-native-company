@@ -253,7 +253,7 @@ anc board serve <vault> [--addr 127.0.0.1:8787]
 | 项目 | 谁在做什么、到几号、卡住找谁？ | 跟进的人 / 老板 | 投影（`projects.md`） | 已接入 |
 | 时间线 | 卡在哪、谁在跟、下一步是谁的决定？ | 跟进的人 / 老板 | 决策与执行的留存（`timeline/*.jsonl`） | 已接入（**留存**：人自己写下来的） |
 | 审计 | 谁在什么时候、对谁、行使了什么（含被拒的）？ | 管理者 / 关心「谁碰了什么」的人 | 行使的流水（`audit/<YYYY-MM>.<行使者>.jsonl`） | 已接入（**事后归集 + 显式补记**） |
-| 运行态 | 每个 bot 活着吗、真的能回话吗？ | 运维 / FDE | 防假绿探针（socket 真拨 + 会话事实） | 已接入 |
+| 运行态 | 每个 bot 活着吗、真的能回话吗？ | 运维 / FDE | 防假绿探针（socket 真拨 + 会话事实 + 真相源里的 `unwired` 声明） | 已接入（**四档**：绿 / 黄 / 红 / 灰） |
 | 数据流 | 谁可以做什么、通道开着吗？ | 管理者 / 老板 | 策略面（真相源）+ 执行面（gateway 真吃的那份 config） | 已接入（**只有策略面**；事件面在审计页） |
 | 原料 | 原料有哪些、多久没动了？ | 所有人 | 真相源的数据目录 + 目录里现在有什么 | 已接入（**原料 ≠ 沉淀**，沉淀层见 #26 / #27） |
 - **数据源是七份各管各的契约**：投影（`anc.board/v1`，改组织才动）、校验发现（与 `anc org check`
@@ -465,6 +465,12 @@ anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?
   断言页面上出现了真数据（`⚠ 跨域` / `⚠ 域外` / `判不出（目标抽不出）` / `原话见 CLI`），且无本机路径泄露。
   **没验的**：真机观感；控制台错误数（要 CDP 才测得到）。上面那三条 CDP 级断言（导航点击切换 / 浏览器后退 /
   零控制台错误）现在是**六页时**的结论 —— 现在八页，**仍未重跑**。
+- 探针第四档「灰」（2026-10-09）：单元 6 条（`internal/probe` / `internal/render` / `internal/board` /
+  端到端各一条，共 7 条），**变异验证**过（删掉 `AllGreen` 里那行 `continue` → 两条立刻变红）。
+  **真 VM 实测**：`unwired: true` 声明 → `anc probe` 退出码 **0**、`anc apply` 回读一致、
+  `anc notify` 不喊、`--json` 里 `"state": "unwired"`；反向用例（三个 bot 全声明未接）**退出码 1** ——
+  **空集不判绿**（细节见 `DESIGN.md` §7.1.20）。
+  **没验的**：Windows 腿的真 VM（本机只跑过单元用例与端到端用例）。
 
 ## 装载（`anc apply`）
 
@@ -516,7 +522,7 @@ Windows 那份任务只有登录触发器 —— **断电重启后没人登录�
 <vault>/
 ├─ company/company.md         公司自描述 + defaults + policy（规则覆盖）
 ├─ roles/<role>/persona.md    角色层：职责 / 风格 / 术语表 + allowed_tools 等
-├─ members/<name>/persona.md  成员层：display_name / role / feishu.app_id / feishu.open_id
+├─ members/<name>/persona.md  成员层：display_name / role / feishu.app_id / feishu.open_id / unwired（选填）
 ├─ domains.md                 业务域表（罗盘）—— 空表，由 agent 访谈后填
 ├─ projects.md                项目表（立项书汇总）—— 空表，由 agent 抽取后填
 ├─ charters/CLAUDE.md         立项书副本落点 + 约定（接入契约；副本自己按 slug 建子目录）

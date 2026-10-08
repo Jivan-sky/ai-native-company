@@ -282,7 +282,7 @@ func cmdApply(args []string) int {
 	if d := diagnose(tail); d != "" {
 		fmt.Printf("  %s\n", d)
 	}
-	probeOpts := probe.Options{Vault: abs, Config: cfgPath, DataDir: dataPath, Admins: o.AdminLabels()}
+	probeOpts := probe.Options{Vault: abs, Config: cfgPath, DataDir: dataPath, Admins: o.AdminLabels(), Unwired: renderpkg.UnwiredProjects(o)}
 	if ready < want {
 		fmt.Fprintf(os.Stderr, "  🔴 platform ready %d/%d（等了 %s）—— 日志：%s\n", ready, want, *wait, logPath)
 		// 「没到 ready」至少两种病，光看日志分不出来：daemon 压根没跑，还是跑起来了但没到 ready。
@@ -304,7 +304,7 @@ func cmdApply(args []string) int {
 	if err != nil {
 		fmt.Printf("  ⚠️  探针读不动：%v\n", err)
 	} else {
-		mark := map[probe.State]string{probe.StateOK: "🟢", probe.StateWarn: "🟡", probe.StateFail: "🔴"}
+		mark := map[probe.State]string{probe.StateOK: "🟢", probe.StateWarn: "🟡", probe.StateFail: "🔴", probe.StateUnwired: "⚪"}
 		for _, b := range rep.Bots {
 			fmt.Printf("  %s %-18s %s\n", mark[b.State], b.Project, b.Why)
 		}

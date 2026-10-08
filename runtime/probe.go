@@ -10,6 +10,7 @@ import (
 
 	"anc/internal/org"
 	"anc/internal/probe"
+	renderpkg "anc/internal/render"
 )
 
 const probeUsage = `anc probe —— 运行态探针（防假绿，只读）
@@ -33,15 +34,18 @@ const probeUsage = `anc probe —— 运行态探针（防假绿，只读）
      （残留的 socket 文件会把「已经挂了」看成「在跑」）。
   2. <data>/sessions/*.json —— 会话事实（谁说过话、agent 起没起来、最后谁回的）。
 
-三档：
+四档：
   绿  窗口内有过**真实回复**（assistant 真回了话），不是「引擎起来了」。
   黄  没观测到 / 久无成功交互。「没消息 = 没事」是反模式，所以这一档不许报绿。
   红  有消息但 agent 起不来，或最后一轮迟迟不回。
+  灰  **还没接平台凭据**（真相源里声明 unwired: true）—— 本来就不该期待它回话，
+      不计绿也不计黄。绿的口径因此是「**已接凭据的都绿了**」，不是「所有 bot 都绿了」。
 
 裁判权留给人工：探针只观测、只报警，**不做任何自动处置**。
 报红时会连带说清「该交给谁」（真相源里的 company.admins）。
 
-退出码：0 全绿；1 有黄 / 红 / 残留；2 用法错误
+退出码：0 已接凭据的全绿（且至少有一个已接的）；1 有黄 / 红 / 残留，或**一个绿的都没有**；
+       2 用法错误。灰不参与计数 —— 没接凭据的不是事故，但「全都没接」也不是绿。
 `
 
 func cmdProbe(args []string) int {
@@ -84,6 +88,8 @@ func cmdProbe(args []string) int {
 	handlerWhy := ""
 	if o, err := org.Load(abs); err == nil {
 		opt.Admins = o.AdminLabels()
+		// 「还没接凭据」也是真相源里的**声明**（成员上的 `unwired: true`），同样不猜。
+		opt.Unwired = renderpkg.UnwiredProjects(o)
 		if len(opt.Admins) == 0 {
 			handlerWhy = "真相源里 company.admins 是空的 —— 现在没人可交"
 		}
@@ -119,7 +125,7 @@ func firstLine(s string) string {
 }
 
 func printProbe(rep probe.Report) {
-	mark := map[probe.State]string{probe.StateOK: "🟢", probe.StateWarn: "🟡", probe.StateFail: "🔴"}
+	mark := map[probe.State]string{probe.StateOK: "🟢", probe.StateWarn: "🟡", probe.StateFail: "🔴", probe.StateUnwired: "⚪"}
 	fmt.Printf("anc probe —— 运行态探针（只读）\n")
 	fmt.Printf("  vault    %s\n", rep.Vault)
 	fmt.Printf("  config   %s\n", rep.Config)
@@ -140,6 +146,15 @@ func printProbe(rep probe.Report) {
 	}
 	for _, f := range rep.Bots {
 		fmt.Printf("  %s %-18s %s\n", mark[f.State], f.Project, f.Why)
+	}
+	ok, warn, fail, unwired := rep.Tally()
+	if unwired > 0 {
+		fmt.Printf("\n  口径：已接凭据的 %d 个 —— %d 绿 / %d 黄 / %d 红；另 %d 个声明了未接凭据（不计绿也不计黄）。\n",
+			ok+warn+fail, ok, warn, fail, unwired)
+	}
+	if ok == 0 {
+		fmt.Println("\n⚠️  一个绿的都没有 —— 这不是全绿。什么都没验过（全被声明成未接凭据，或 config 里没有 project），")
+		fmt.Println("    所以退出码给 1：空集上的「都绿了」是空真，把它当健康是最纯的那种假绿。")
 	}
 	if len(rep.Extras) > 0 {
 		fmt.Println("\n⚠️  配置外的残留（不是运行态问题，但该清）")

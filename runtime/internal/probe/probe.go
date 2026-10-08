@@ -11,11 +11,12 @@
 //     （残留的 socket 文件会把「已经挂了」看成「在跑」，这正是假绿的经典长相）；
 //  2. <data>/sessions/*.json —— 会话事实：谁说过话、agent 起没起来、最后谁回的。
 //
-// 三档，且刻意让「绿」很难拿到（「没消息 = 没事」是反模式，见 DESIGN §「观测三源交叉」）：
+// 四档，且刻意让「绿」很难拿到（「没消息 = 没事」是反模式，见 DESIGN §「观测三源交叉」）：
 //
-//	ok   窗口内有过**真实回复**（assistant 真回了话）；
-//	warn 没观测到 / 久无成功交互 —— 这一档**不许**报绿；
-//	fail 有消息但 agent 起不来，或最后一轮迟迟不回。
+//	ok      窗口内有过**真实回复**（assistant 真回了话）；
+//	warn    没观测到 / 久无成功交互 —— 这一档**不许**报绿；
+//	fail    有消息但 agent 起不来，或最后一轮迟迟不回；
+//	unwired 声明过「还没接平台凭据」—— 本来就不该期待它回话，单列灰，不挡绿。
 package probe
 
 import (
@@ -34,13 +35,22 @@ import (
 // Schema 是这个报告的版本。有消费方（看板、watchdog）之后，字段增删一律改它。
 const Schema = "anc.runtime/v1"
 
-// State 是三档判定。
+// State 是四档判定。
 type State string
 
 const (
 	StateOK   State = "ok"
 	StateWarn State = "warn"
 	StateFail State = "fail"
+	// StateUnwired 是第四档（灰）：这个 bot **还没接平台凭据**，本来就不该期待它回话。
+	//
+	// 为什么必须单列一档：只有「黄」的话，「没接凭据」与「接了但没动静」混在一格里 ——
+	// 前者不是事故、后者要查，混着看会让人整份报告都不信。
+	// 2026-10-08 沙箱实测逼出这一档：SPEC 要求一个公司恰好有一个启用中的 devbot，
+	// 而只有一个真飞书 app 时它必然报黄 —— 于是「已接凭据的都绿了」这个事实被一颗假黄盖住。
+	//
+	// 口径走**数据**（vault 里声明 `unwired: true`），不按 app_id 的长相猜、也不写死白名单。
+	StateUnwired State = "unwired"
 )
 
 // Finding 是一个 bot 的运行态判定。
@@ -76,6 +86,9 @@ type Options struct {
 	Now      time.Time
 	Admins   []string // 出问题该交给谁（显示用）
 	Projects []string // 该有哪些 project；nil = 从 config 读
+	// Unwired 是**声明**「还没接平台凭据」的 project 名（vault 里成员的 `unwired: true`）。
+	// 声明了的不判黄也不判绿，单列灰；CLI 侧从 org 算好传进来（这个包不认识 org）。
+	Unwired []string
 }
 
 // DefaultStale / DefaultStall 是出厂阈值。
@@ -142,7 +155,18 @@ func Run(opt Options) (Report, error) {
 		byProject[p] = append(byProject[p], f)
 	}
 
+	unwired := map[string]bool{}
+	for _, p := range opt.Unwired {
+		unwired[p] = true
+	}
 	for _, p := range declared {
+		// 声明「还没接凭据」的先落灰，且**在 gateway 挂没挂之前就判** ——
+		// 没接凭据的 bot 本来就不该回话，拿它去凑红/黄都是噪声。
+		if unwired[p] {
+			rep.Bots = append(rep.Bots, Finding{p, StateUnwired, "未接平台凭据（真相源里声明 unwired）—— 不该期待它回话，不计绿也不计黄"})
+			delete(byProject, p)
+			continue
+		}
 		if rep.Gateway == "down" {
 			rep.Bots = append(rep.Bots, Finding{p, StateFail, "gateway 没在跑，这个 bot 必然回不了话"})
 			continue
@@ -247,15 +271,47 @@ func Judge(project string, files []string, now time.Time, stale, stall time.Dura
 	}
 }
 
-// AllGreen 只在「没有 fail / warn / 残留 / 网关不在跑」时为真。
+// AllGreen 是「这次的观测算不算全绿」。两条都不许松：
+//
+//   - **灰（未接凭据）不挡绿** —— 这是这一档存在的全部意义：门要能过，
+//     但结论里必须看得见「哪几个本来就没接」。所以绿的口径是
+//     「**已接凭据的都绿了**」，不是「所有 bot 都绿了」。
+//   - **空集不判绿** —— 一个绿的都没有时（全被声明成未接、或 config 里压根没有 project），
+//     「已接凭据的都绿了」是**空真**，报绿就是最纯的那种假绿：什么都没验过。
+//     这与「没消息 = 没事」是反模式是同一条纪律（2026-10-09 实测逼出：
+//     把三个 bot 全声明成 unwired，第一版 `AllGreen()` 照旧返回 true）。
 func (r Report) AllGreen() bool {
 	if r.Gateway != "up" || len(r.Extras) > 0 {
 		return false
 	}
+	green := 0
 	for _, f := range r.Bots {
-		if f.State != StateOK {
+		switch f.State {
+		case StateUnwired:
+			continue
+		case StateOK:
+			green++
+		default:
 			return false
 		}
 	}
-	return true
+	return green > 0
+}
+
+// Tally 是给回显用的一行计数：已接的里有几个绿、几个黄、几个红，另有多少个未接凭据。
+// 分开数是有意的 —— 一句「3/3 绿」会把「没接凭据」也糊进绿里。
+func (r Report) Tally() (ok, warn, fail, unwired int) {
+	for _, f := range r.Bots {
+		switch f.State {
+		case StateOK:
+			ok++
+		case StateWarn:
+			warn++
+		case StateFail:
+			fail++
+		case StateUnwired:
+			unwired++
+		}
+	}
+	return
 }

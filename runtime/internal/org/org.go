@@ -112,9 +112,13 @@ type Member struct {
 	Model       string
 	Admin       bool
 	Disabled    bool
-	Domains     []string // 所属业务域（slug，见 domains.md）；persona 第 8 段与授权作用域都用它
-	Feishu      Feishu
-	Body        string
+	// Unwired = 「这个 bot 还没接平台凭据」，是**声明**不是推断（探针第四档灰靠它）。
+	// 为什么要有：一个公司恰好要有一个启用中的 devbot（不可豁免），只接了部分腿的客户
+	// 必然有几个 bot 暂时没有真 app —— 少这一档，那几个会把运行态报告一路染黄。
+	Unwired bool
+	Domains []string // 所属业务域（slug，见 domains.md）；persona 第 8 段与授权作用域都用它
+	Feishu  Feishu
+	Body    string
 }
 
 // Routing 是 vault 顶层数据目录 → 说明，供 persona 段 3 的确定性路由表使用。
@@ -381,6 +385,9 @@ func Load(root string) (*Org, error) {
 		if m.Admin, err = d.Bool("admin"); err != nil {
 			return nil, err
 		}
+		if m.Unwired, err = d.Bool("unwired"); err != nil {
+			return nil, err
+		}
 		if m.Disabled, err = d.Bool("disabled"); err != nil {
 			return nil, err
 		}
@@ -624,7 +631,7 @@ func (o *Org) Validate(p *Policy) *Report {
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
 func (o *Org) InputsHash(h Host) string {
 	var b strings.Builder
-	b.WriteString("v5\n") // v5：company.display 进指纹（v4 是立项书副本落点，v3 是项目表，v2 是 member.domains 与域表）
+	b.WriteString("v6\n") // v6：member.unwired 进指纹（v5 是 company.display，v4 是立项书副本落点，v3 是项目表，v2 是 member.domains 与域表）
 	fmt.Fprintf(&b, "host|%s|%s|%s\n", h.VaultRoot, h.HomesRoot, h.DataDir)
 	c := o.Company
 	fmt.Fprintf(&b, "company|%s|%s|%s|%s|%s|%s|%v|%d|%s|%s|%d|%s\n",
@@ -636,8 +643,8 @@ func (o *Org) InputsHash(h Host) string {
 			r.AllowedTools, r.VaultScope, r.Skills, r.Sections["职责"], r.Sections["风格"], r.Sections["术语表"], r.Extra)
 	}
 	for _, m := range o.Members {
-		fmt.Fprintf(&b, "member|%s|%s|%s|%s|%v|%v|%v|%s|%s|%v|%v|%s\n", m.Name, m.DisplayName, m.Role, m.Model,
-			m.Admin, m.Disabled, m.Domains, m.Feishu.AppID, m.Feishu.OpenID, m.Feishu.ExtraAllowFrom, m.Feishu.AllowChat, m.Body)
+		fmt.Fprintf(&b, "member|%s|%s|%s|%s|%v|%v|%v|%v|%s|%s|%v|%v|%s\n", m.Name, m.DisplayName, m.Role, m.Model,
+			m.Admin, m.Disabled, m.Unwired, m.Domains, m.Feishu.AppID, m.Feishu.OpenID, m.Feishu.ExtraAllowFrom, m.Feishu.AllowChat, m.Body)
 	}
 	for _, r := range o.Routing {
 		fmt.Fprintf(&b, "routing|%s|%s\n", r.Dir, r.Summary)

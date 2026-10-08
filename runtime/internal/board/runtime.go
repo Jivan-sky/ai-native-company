@@ -6,6 +6,7 @@ import (
 
 	"anc/internal/org"
 	"anc/internal/probe"
+	renderpkg "anc/internal/render"
 )
 
 // RuntimeView 是 `/api/runtime` 的形状 —— 运行态观测，不是真相源投影。
@@ -50,6 +51,9 @@ func (s *Server) handleRuntime(w http.ResponseWriter, r *http.Request) {
 	handlerWhy := ""
 	if o, err := org.Load(s.Vault); err == nil {
 		opt.Admins = o.AdminLabels()
+		// 「还没接凭据」也是真相源里的**声明** —— 看板必须跟 `anc probe` 用同一支算，
+		// 否则会出现「CLI 说灰、看板说黄」两张互相打脸的报告。
+		opt.Unwired = renderpkg.UnwiredProjects(o)
 		if len(opt.Admins) == 0 {
 			handlerWhy = "真相源里 company.admins 是空的 —— 现在没人可交"
 		}
