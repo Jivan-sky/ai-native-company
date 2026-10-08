@@ -155,17 +155,60 @@ func TestStartupHintIsPlatformSpecific(t *testing.T) {
 	}
 }
 
-// 成员名改成一个拼不出合法键名的形状之后，装载必须拦 —— 而且是在**渲染之前**就拦。
+// 成员名改成一个**键名写得出、但凭据文件里还没有**的形状之后，装载必须停在体检那一步。
 //
-// 这条是「静默」变「出声」的落点：改名之前，产物里那个键回读不到，体检拿着自己
-// 漏掉一个键的清单报「✅ 齐」，现场等来的是一个没有凭据、起不来的 bot。
-// 现在红档拦在真相源那一层，命令连渲染都进不去。
-func TestApplyBlocksUnwritableSecretKeyName(t *testing.T) {
+// 2026-10-08 改：键名是全函数派生（alice-2 → ANC_FEISHU_SECRET_ALICEx00002d2），所以拦下它的
+// 不再是「写不出来」，而是「这份凭据文件里没这个键」。派生本身的判据在 render 的用例里。
+func TestApplyBlocksMissingKeyForRenamedMember(t *testing.T) {
 	vault, cfg, secrets, daemon := applyFixture(t)
-	// 改名要连着 company.md 的 admins 一起改：不跟着改会被 company.admins.unknown 拦下，
-	// 退出码同样是 1，但拦下的就不是本用例要测的那条规则了。
+	renameMemberInPlace(t, vault, "alice", "alice-2")
+	code := quiet(t, func() int {
+		return cmdApply([]string{vault, "--config", cfg, "--secrets", secrets, "--daemon", daemon})
+	})
+	if code != 1 {
+		t.Fatalf("凭据文件里没有改名后的键时退出码 = %d，想要 1", code)
+	}
+	// 键名本身是写得出的一档 —— 否则又回到「照着 FIX 补也永远补不上」那个形状
+	if !apply.LegalKey(renderpkg.FeishuSecretKey("alice-2")) {
+		t.Fatal("编码后的键名应当合法：装载侧那把尺子不收它")
+	}
+}
+
+// 中文成员名 + 凭据文件里有那个转义键 → dry-run 一路绿灯（[1/7]…[7/7] 都不拦）。
+//
+// 这是「中文名能跑通」在命令这一层的落点：真相源校验（名字当得了目录名）+ 渲染（键名写得出）
+// + 体检（凭据文件里真有这个键）三关全过。上游收不收中文 project 名 / 中文 work_dir 见
+// runtime/DESIGN.md §7.1.16 的「未验」一节 —— 这一条只到装载前的 dry-run。
+func TestApplyAcceptsChineseMemberName(t *testing.T) {
+	vault, cfg, secrets, daemon := applyFixture(t)
+	renameMemberInPlace(t, vault, "alice", "张三")
+	// 名字改了，键名跟着改：按公开的派生算法算出来，往凭据文件里补这一条（不手抄常量）
+	key := renderpkg.FeishuSecretKey("张三")
+	f, err := os.OpenFile(secrets, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fmt.Fprintf(f, "%s=值-%s\n", key, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code := quiet(t, func() int {
+		return cmdApply([]string{vault, "--config", cfg, "--secrets", secrets, "--daemon", daemon})
+	})
+	if code != 0 {
+		t.Fatalf("中文成员名的 dry-run 退出码 = %d，想要 0（键名 %s）", code, key)
+	}
+}
+
+// renameMemberInPlace 就地改成员名：persona.md 与 company.md 里的引用一起改。
+// 不跟 company.md 一起改会被 company.admins.unknown 先拦下 —— 退出码同样是 1，
+// 但拦下的就不是本用例要测的那条了。
+func renameMemberInPlace(t *testing.T, vault, from, to string) {
+	t.Helper()
 	for _, rel := range []string{
-		filepath.Join("members", "alice", "persona.md"),
+		filepath.Join("members", from, "persona.md"),
 		filepath.Join("company", "company.md"),
 	} {
 		path := filepath.Join(vault, rel)
@@ -173,19 +216,9 @@ func TestApplyBlocksUnwritableSecretKeyName(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body := strings.ReplaceAll(string(raw), "alice", "alice-2")
+		body := strings.ReplaceAll(string(raw), from, to)
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-	}
-	code := quiet(t, func() int {
-		return cmdApply([]string{vault, "--config", cfg, "--secrets", secrets, "--daemon", daemon})
-	})
-	if code != 1 {
-		t.Fatalf("成员名拼不出合法键名时退出码 = %d，想要 1", code)
-	}
-	// 那个键即便写进凭据文件也读不懂 —— 解析器与成员名规则用的是同一把尺子。
-	if apply.LegalKey("ANC_FEISHU_SECRET_ALICE-2") {
-		t.Fatal("ANC_FEISHU_SECRET_ALICE-2 被当成合法键名了：解析尺子漏了")
 	}
 }

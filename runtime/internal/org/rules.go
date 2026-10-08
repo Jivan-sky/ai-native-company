@@ -63,7 +63,7 @@ var DefaultRules = []Rule{
 
 	// —— 成员层 ——
 	{"member.name.duplicate", LevelFatal, false, "同名成员会生成同名 project，gateway 只留一个"},
-	{"member.name.format", LevelFatal, false, "成员名是成员 id：它拼出凭据键名 ANC_FEISHU_SECRET_<名大写>，还进 project 名与 homes/<名>；带 - . 空格或中文时拼出的键名不是合法环境变量名，凭据写不进 secrets.env = 这个 bot 必然起不来（同 company.id.format 的判据）。不锁死：存量 vault 可在 company.md 写 `policy: member.name.format = warn` 先跑起来，那时装卸载那一步的告警兜底"},
+	{"member.name.format", LevelFatal, false, "名字要当**目录名**与 project 名用（homes/<名>、members/<名>、<公司 id>-<名>）：含 / 或反斜杠、Windows 建不出目录的字符（: * ? 双引号 < > |）、控制字符、首尾空白、结尾 . ，或本身就是 . / .. 时，路径会跑偏或建不出来 = 这个 bot 起不来。**中文 / 空格 / - / . 一律合法** —— 凭据键名不走名字，走 render.FeishuSecretKey 的全函数派生（2026-10-08 改，见 runtime/DESIGN.md §7.1.16）。不锁死：存量 vault 可在 company.md 写 `policy: member.name.format = warn`"},
 	{"member.display_name.missing", LevelFatal, false, "persona 段 1 的「服务对象」会渲染成 —"},
 	{"member.role.missing", LevelFatal, false, "role 不存在就没有 persona 基线，渲染直接失败"},
 	{"member.model.unresolved", LevelFatal, false, "member 没写 model，role / company 也没写，无处回退"},

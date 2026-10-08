@@ -171,18 +171,43 @@ var (
 	reID     = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	reOpenID = regexp.MustCompile(`^ou_`)
 
-	// reMemberKeyBody 是成员名在凭据键名里允许出现的字符。
-	//
-	// 尺子取自「这个 bot 能不能拿到凭据」这一件具体的事，不取自「名字好不好看」：
-	// 键名是 ANC_FEISHU_SECRET_<成员名大写>，而装载侧解析凭据只认 [A-Za-z_][A-Za-z0-9_]*，
-	// 所以成员名里出现 - . 空格 或中文，键名就写不出来 —— 不报错，只是这个 bot 静默起不来。
-	reMemberKeyBody = regexp.MustCompile(`^[A-Za-z0-9_]+$`)
-	reH2            = regexp.MustCompile(`(?m)^##\s+(.+?)\s*$`)
+	reH2 = regexp.MustCompile(`(?m)^##\s+(.+?)\s*$`)
 )
 
 // ValidCompanyID 判断公司 id 合不合法。导出它是为了在生成骨架时就能拦住 ——
 // 等渲染到一半才报，人已经填了一堆东西了。
 func ValidCompanyID(s string) bool { return reID.MatchString(s) }
+
+// MemberNameProblem 判断成员名能不能当**目录名**用（homes/<名>、members/<名>）与 project 名
+// （<公司 id>-<名>）。返回 "" = 能用；否则给一句人话，直接进 member.name.format 的报错里。
+//
+// 尺子只量事实：这个名字会落成一段真实路径，三平台（Windows / Linux / macOS）都得建得出来。
+// 所以中文、空格、- 、. 一律放行 —— 「名字是不是 ASCII」不是判据，那是**凭据键名**那一侧的事，
+// 而键名的派生已经是全函数（render.FeishuSecretKey，见 runtime/DESIGN.md §7.1.16）。
+//
+// 拦的是真的会把路径撕开的那几种形状：
+func MemberNameProblem(name string) string {
+	switch {
+	case name == "":
+		return "名字是空的（拼不出路径）"
+	case name == "." || name == "..":
+		return "是 . 或 .. —— 路径会指到上一层去"
+	case strings.ContainsAny(name, `/\`):
+		return "含 / 或反斜杠 —— 会被当成两层路径，work_dir 落到别的目录"
+	case strings.ContainsAny(name, `:*?"<>|`):
+		return "含 Windows 建不出目录的字符（: * ? 双引号 < > |）"
+	case strings.TrimSpace(name) != name:
+		return "首尾有空白 —— 目录名与 project 名会带上看不见的字符"
+	case strings.HasSuffix(name, "."):
+		return "以 . 结尾 —— Windows 建目录时会把它吃掉，目录名与 project 名从此对不上"
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return "含控制字符"
+		}
+	}
+	return ""
+}
 
 // SplitRef 拆 kind:name 引用（member: / role: / domain: / project: …）；没有冒号 = 裸名。
 //
@@ -523,10 +548,10 @@ func (o *Org) Validate(p *Policy) *Report {
 			rep.Add(p.Issue("member.name.duplicate", where, "成员 id 重复"))
 		}
 		seenName[m.Name] = true
-		if !reMemberKeyBody.MatchString(strings.ToUpper(m.Name)) {
+		if problem := MemberNameProblem(m.Name); problem != "" {
 			rep.Add(p.Issue("member.name.format", where,
-				"name=%q 是成员 id（不是 display_name）：它拼出凭据键名 %s，而这个键名不是合法的环境变量名（装载侧只认 [A-Za-z_][A-Za-z0-9_]*）—— 凭据写不进 secrets.env，这个 bot 会静默起不来。改成 ASCII 字母数字（例：zhangsan），- 与 . 也不行",
-				m.Name, "ANC_FEISHU_SECRET_"+strings.ToUpper(m.Name)))
+				"name=%q %s。它会落成 work_dir 的 homes/<名>、project 名 <%s>-<名> 与 members/<名>/ —— 名字得是三平台都建得出来的一段路径。中文 / 空格 / - / . 都合法（凭据键名另走 render.FeishuSecretKey，全函数派生，中文名也写得出键）；改成一个当得了目录名的名字重跑",
+				m.Name, problem, o.Company.ID))
 		}
 		if m.DisplayName == "" {
 			rep.Add(p.Issue("member.display_name.missing", where, "缺 display_name"))

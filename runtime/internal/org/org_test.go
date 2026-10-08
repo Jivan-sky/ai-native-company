@@ -378,32 +378,62 @@ func TestRoutingSkipsLegacyPlaceholder(t *testing.T) {
 	t.Fatalf("clients 应当仍在路由表里（只是还没写说明）：%v", o.Routing)
 }
 
-// 成员名拼不出合法凭据键名时（中文 / 带 - . 空格）：红档，拦在渲染之前。
+// 判据表：成员名是**路径段**与 project 名，不是凭据键名。
 //
-// 判据同 company.id.format：这个 bot 的凭据根本写不进 secrets.env，
-// 装出来的必然是一个没有凭据、起不来的实例。与其让现场对着一份「没缺键」的
-// 体检报告排障，不如在真相源这一层就点名是哪个名字不合法。
-func TestMemberNameFormatBlocksBadNames(t *testing.T) {
-	vault := copyVault(t, "one")
-	// 改名要连着 company.md 的 admins 一起改，否则会被 company.admins.unknown 先拦下。
-	renameMember(t, vault, "alice", "张三")
-	_, err := Load(vault)
-	if err == nil {
-		t.Fatal("中文成员名应当被拦下（红档）")
+// 2026-10-08 改：名字不再要求 ASCII —— 中文、空格、- 、. 都放行，因为键名的派生改成了全函数
+// （render.FeishuSecretKey：ASCII 直通、其余按码点转义）。这条规则只拦真的当不了目录名的形状。
+func TestMemberNameProblemTable(t *testing.T) {
+	for _, name := range []string{"alice", "张三", "白 嘉伟", "alice-2", "张.三", "zhang_san", "张san"} {
+		if got := MemberNameProblem(name); got != "" {
+			t.Errorf("%q 应当合法（能当目录名），却报：%s", name, got)
+		}
 	}
-	if !strings.Contains(err.Error(), "member.name.format") {
-		t.Fatalf("报错里没点名这条规则：%v", err)
-	}
-	if !strings.Contains(err.Error(), "ANC_FEISHU_SECRET_张三") {
-		t.Fatalf("报错里没说清是哪个键名写不出来：%v", err)
+	for _, tc := range []struct{ name, want string }{
+		{"", "空的"},
+		{".", ". 或 .."},
+		{"..", ". 或 .."},
+		{"张/三", "/ 或反斜杠"},
+		{"张\\三", "/ 或反斜杠"},
+		{"a:b", "Windows"},
+		{"a?b", "Windows"},
+		{"张三.", "以 . 结尾"},
+		{" 张三", "首尾有空白"},
+		{"张三 ", "首尾有空白"},
+		{"张\t三", "控制字符"},
+	} {
+		got := MemberNameProblem(tc.name)
+		if got == "" {
+			t.Errorf("%q 应当被拦下，却放行了", tc.name)
+			continue
+		}
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("%q 的原因没说清（想看到 %q）：%s", tc.name, tc.want, got)
+		}
 	}
 }
 
-// 但它不锁死：存量 vault 里已经有中文成员名的，在 company.md 里降一级就能先跑起来。
-// 降级之后唯一还看得见的护栏是装载那一步的「键名根本写不出来」告警（见 apply 侧）。
+// 规则接在真相源校验上，红档：路径会撕开的名字拦在渲染之前。
+//
+// 首尾空白那一档在真相源里落不下来（YAML 普通标量会把它砍掉）—— 那条由判据表直接钉。
+func TestMemberNameFormatBlocksPathUnsafeNames(t *testing.T) {
+	for _, name := range []string{"张/三", "a:b", "张三."} {
+		vault := copyVault(t, "one")
+		renameMember(t, vault, "alice", name)
+		_, err := Load(vault)
+		if err == nil {
+			t.Fatalf("%q 应当被拦下（红档）", name)
+		}
+		if !strings.Contains(err.Error(), "member.name.format") {
+			t.Fatalf("%q 报错里没点名这条规则：%v", name, err)
+		}
+	}
+}
+
+// 但它不锁死：存量 vault 里已经有这种名字的，在 company.md 里降一级就能先跑起来。
+// 降级之后这条发现必须仍然可见 —— 降级是「先跑起来」，不是「看不见」。
 func TestMemberNameFormatCanBeDowngraded(t *testing.T) {
 	vault := copyVault(t, "one")
-	renameMember(t, vault, "alice", "张三")
+	renameMember(t, vault, "alice", "a:b")
 	addPolicy(t, vault, "member.name.format: warn")
 	o, err := Load(vault)
 	if err != nil {

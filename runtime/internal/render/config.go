@@ -28,8 +28,47 @@ func ProjectName(companyID, member string) string { return companyID + "-" + mem
 // FeishuSecretKey 是一个成员的 app_secret 在 secrets.env 里的键名。
 //
 // 规则只有这一处：渲染器按它写引用、体检按它要键、现场按它填凭据 —— 各算各的迟早对不上号。
-// 键名由**成员名大写**拼成，所以成员名必须能拼出合法环境变量名（见 org 规则 member.name.format）。
-func FeishuSecretKey(member string) string { return "ANC_FEISHU_SECRET_" + strings.ToUpper(member) }
+//
+// 这一步必须是**全函数**：键名要写进环境（装载侧只认 [A-Za-z_][A-Za-z0-9_]*），而成员名是人的
+// 名字 —— 中文、空格、- 、. 都合法（见 org 规则 member.name.format：它只拦「当不了目录名」的字符）。
+// 所以：纯 ASCII 字母数字下划线 → 直接大写，**存量键一个字节都不变**；出现别的字符 → 整个名字
+// 按 rune 转义（x + 定长 6 位**小写**十六进制）。
+//
+// 两段按构造不相交：直通段只产大写 [A-Z0-9_]，转义段必含小写 x。所以不同的名不会撞成同一个键；
+// 而「白 + 5」与单字 U+767D5 这类也不会撞 —— 转义段是定长的。
+//
+// 例：alice → ANC_FEISHU_SECRET_ALICE；alice-2 → ANC_FEISHU_SECRET_ALICEx00002d2。
+func FeishuSecretKey(member string) string { return "ANC_FEISHU_SECRET_" + secretKeyBody(member) }
+
+// plainKeyChars 是键名**直通段**允许的字符：ASCII 字母 / 数字 / 下划线。
+// 非 ASCII 的字母不算直通 —— 环境变量名是 ASCII 的世界。
+const plainKeyChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_"
+
+func isPlainKeyRune(r rune) bool { return r < 128 && strings.IndexRune(plainKeyChars, r) >= 0 }
+
+// secretKeyBody 是 FeishuSecretKey 去掉前缀的那一段：能直通的直通（大写），其余按 rune 转义。
+// 判据与转义规则只在 FeishuSecretKey 那一处注释里 —— 别在这儿另立一套。
+func secretKeyBody(name string) string {
+	plain := true
+	for _, r := range name {
+		if !isPlainKeyRune(r) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return strings.ToUpper(name)
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if isPlainKeyRune(r) {
+			b.WriteString(strings.ToUpper(string(r)))
+			continue
+		}
+		fmt.Fprintf(&b, "x%06x", r)
+	}
+	return b.String()
+}
 
 // Plan 是一次渲染的产物与账目。
 type Plan struct {
@@ -43,9 +82,10 @@ type Plan struct {
 	// SecretKeys 是这份产物**要求**的凭据键（顺序即 project 顺序），装载前的体检吃它。
 	//
 	// 它是账，不是回读：键名在写 app_secret 那一行当场记下。为什么不用正则回读产物文本 ——
-	// 键名由成员名拼出（ANC_FEISHU_SECRET_<成员名大写>），中文名拼出的键**回读不到**
-	// （那把正则只认 ASCII），于是体检看着产物却看不见这个键、报「✅ 齐」，
-	// 而现场等来的却是一个没有凭据、静默起不来的 bot。
+	// 2026-10-08 之前键名就是「成员名大写」，中文名拼出的键**回读不到**（那把正则只认 ASCII），
+	// 于是体检看着产物却看不见这个键、报「✅ 齐」，现场等来的却是一个没有凭据、静默起不来的 bot。
+	// 现在键名是全函数派生（见 FeishuSecretKey），对任何名字都写得出合法环境变量名 ——
+	// 回读与这份账**对任何名字都该一致**，回读只在用例里当交叉校验（不一致 = 派生漏了字符）。
 	// 键名唯一跟着成员名唯一走（member.name.duplicate 是红档），与 Projects 一一对应。
 	SecretKeys []string
 }
