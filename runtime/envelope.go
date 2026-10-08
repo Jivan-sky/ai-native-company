@@ -20,7 +20,10 @@ import (
 	"anc/internal/org"
 )
 
-const envelopeUsage = `anc envelope —— 接入面的信封：解析 + 绑真相源（只读）
+const envelopeUsage = `anc envelope —— 接入面：递进来（信封）+ 要出去（读出口）
+
+出站读出口的用法在 serve 里 —— 它挂在接入面的 MCP 服务端上，工具名 anc_read_context：
+只读、按可见范围过滤（自己的域全行 / 别人的域只给「找谁」）、每次调用留一条痕进 audit。
 
 用法：
   anc envelope check <vault 目录> <信封.json> [--json]
@@ -173,15 +176,22 @@ const envelopeServeUsage = `anc envelope serve —— 起 ANC 的接入面（MCP
 用法：
   anc envelope serve <vault 目录> [--addr 127.0.0.1:8791] [--data <data 目录>]
 
-harness（Claude Code / Codex / …）通过 MCP 调一个工具把信封递进来：
+harness（Claude Code / Codex / …）通过 MCP 调工具。桥的两半都在这一个入口上：
 
-  anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?, refs?, needs?)
+  入站（agent 递给 ANC）  anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?, refs?, needs?)
+  出站（agent 向 ANC 要）  anc_read_context(who, on_behalf_of?, domain?)
 
-服务端做的事，一件不多：
+入站服务端做的事，一件不多：
   1 读工具参数 → 拼成一份信封 JSON → **走和线上同一条 Parse**（不给工具路径单开一套校验）
   2 绑真相源（Bind）：who / on_behalf_of / scope 指的东西存不存在
   3 落运行态日志：<data>/envelope/<YYYY-MM>.<who>.jsonl（按 who 分片，append-only）
   4 把「六问六答 + 发现」原样回给 harness
+
+出站（W2 · 只读，一个字都不写回真相源）：
+  问「这块业务是什么 / 数据在哪 / 卡住找谁 / 证据在哪」，回一份 JSON。
+  可见范围 = render.VisibleDomains（与 persona 段 8 同一把尺子）：自己的域全行，
+  别人的域只给「找谁」；要别人的域**拒**，但指路。身份不许自报：解不出 = 这个人不存在。
+  每次调用留一条痕进 audit（谁 / 要什么 / 给没给 / 为什么拒）。
 
 门禁口径（与 envelope check 完全一致，因为走的是同一份规则表）：
   发现默认 warn = **照收**（落盘 + 回话）；被 company.md 的 policy 段提成 fatal 的，
@@ -209,8 +219,9 @@ func (g *envelopeIngress) now() time.Time {
 	return time.Now()
 }
 
-// srv 装配 MCP 服务端：对外**只暴露一个工具** —— 一个信封。
-// 能力面收在一个入口里，是 #44「入口唯一性」的第一步：多一个工具，就多一个要审计的入口。
+// srv 装配 MCP 服务端：**桥的两半挂在这一个入口上** —— 递进来（信封）与要出去（读出口）。
+// 两个工具都是「一次调用 = 一条痕」，所以 #44「入口唯一性」没被破：多的不是入口，
+// 是同一个入口上的第二个动作。
 func (g *envelopeIngress) srv() *mcp.Server {
 	return &mcp.Server{
 		Name: "anc-envelope", Version: version,
@@ -234,6 +245,22 @@ func (g *envelopeIngress) srv() *mcp.Server {
 				"required": []string{"who", "body"},
 			},
 			Call: g.sendEnvelope,
+		}, {
+			Name: "anc_read_context",
+			Description: "向 ANC 要上下文（**只读**）：这块业务是什么、数据在哪、卡住找谁。" +
+				"who 必须是 vault 里真实存在的成员名 —— 身份不许自报，解不出 ANC 会说没有这个人。" +
+				"domain 可选（domains.md 的 slug）：不写 = 你负责的域；写别人的域会被拒，" +
+				"但会告诉你要找谁（数据默认不通，跨域按「找谁」接头）。",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"who":          map[string]any{"type": "string", "description": "你是谁（vault 里真实存在的成员名）"},
+					"on_behalf_of": map[string]any{"type": "string", "description": "可选：你代谁（member:名字 | role:岗位 | domain:slug，或裸名字）"},
+					"domain":       map[string]any{"type": "string", "description": "可选：只问这一块业务（domains.md 的 slug）；不写 = 你负责的域"},
+				},
+				"required": []string{"who"},
+			},
+			Call: g.readContext,
 		}},
 		Log: func(format string, a ...any) { fmt.Printf("  · "+format+"\n", a...) },
 	}
@@ -396,7 +423,7 @@ func cmdEnvelopeServe(args []string) int {
 	fmt.Printf("  地址   http://%s/mcp\n", urlHost)
 	fmt.Printf("  vault  %s\n", vault)
 	fmt.Printf("  日志   %s\n", filepath.Join(dataDir, envelope.DirName))
-	fmt.Printf("  工具   anc_send_envelope\n")
+	fmt.Printf("  工具   anc_send_envelope（递进来）· anc_read_context（要出去）\n")
 	fmt.Printf("  接入   claude mcp add --transport http anc http://%s/mcp\n", urlHost)
 	fmt.Printf("  退出   Ctrl-C\n\n")
 

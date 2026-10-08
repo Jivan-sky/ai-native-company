@@ -42,7 +42,7 @@ func Bind(o *org.Org, e Envelope, p *org.Policy) []org.Issue {
 	case ob == "":
 		rep.Add(p.Issue("envelope.on_behalf_of.missing", where,
 			"没写 on_behalf_of —— 审计要靠它答出「谁在什么时候授权谁做了什么」（SPEC §6）"))
-	case !resolves(o, ob):
+	case !Resolves(o, ob):
 		rep.Add(p.Issue("envelope.on_behalf_of.unknown", where,
 			"on_behalf_of=%q 解不出人 / 岗位 / 业务域（写法：member:名字 | role:岗位 | domain:slug，或直接写名字）", ob))
 	}
@@ -72,11 +72,14 @@ func Bind(o *org.Org, e Envelope, p *org.Policy) []org.Issue {
 	return rep.Issues
 }
 
-// resolves 判 on_behalf_of 指不指向真东西。
+// Resolves 判 on_behalf_of 指不指向真东西。
 //
 // 支持 `member:x` / `role:x` / `domain:x` 前缀，也接受**裸名字** —— 裸名字按固定的
 // 顺序解（成员 → 岗位 → 业务域），顺序写死是为了同一份输入永远同一个答案，不是猜。
-func resolves(o *org.Org, s string) bool {
+//
+// 导出（W2）：出站读出口（anc_read_context）复用它判 on_behalf_of。**身份解析只有这一套** ——
+// 另开一套迟早会对不上号。
+func Resolves(o *org.Org, s string) bool {
 	kind, name := org.SplitRef(s)
 	if name == "" {
 		return false

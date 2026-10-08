@@ -220,32 +220,27 @@ func nonEmpty(parts ...string) []string {
 //   - 全公司业务域目录：只有「是什么 / 找谁」。别的域的 data 与 terms **不在这里**
 //     （SPEC §6「数据默认不通」）—— 要跨域就按「找谁」接头，走人，不走近道。
 //
+// 切分交给 VisibleDomains 一家（domains.go）—— 出站读出口用的是同一把尺子。
+// 这里只管排版，不再自己算一遍「谁看得见什么」。
+//
 // 返回空串 = 这家公司没划域，调用方不输出这一段。
 func domainSection(o *org.Org, m org.Member) string {
 	if len(o.Domains) == 0 {
 		return ""
 	}
-	mine := make(map[string]bool, len(m.Domains))
-	for _, s := range m.Domains {
-		mine[s] = true
-	}
+	mine, others := VisibleDomains(o, m)
 
 	var b strings.Builder
 	b.WriteString("你负责的业务域：\n\n| 域 | 名称 | 是什么 | 数据在哪 | 找谁 |\n|---|---|---|---|---|")
-	rows := 0
 	var notes []string
-	for _, d := range o.Domains {
-		if !mine[d.Slug] {
-			continue
-		}
-		rows++
+	for _, d := range mine {
 		fmt.Fprintf(&b, "\n| %s | %s | %s | %s | %s |",
-			d.Slug, cell(d.Name), cell(d.What), cell(d.Data), o.WhoLabel(d.Who))
+			d.Slug, cell(d.Name), cell(d.What), cell(d.Data), d.Who)
 		if s := strings.Join(nonEmpty(d.Terms, d.Sources), "；"); s != "" {
 			notes = append(notes, "- "+d.Slug+"："+cell(s))
 		}
 	}
-	if rows == 0 {
+	if len(mine) == 0 {
 		b.WriteString("\n| — | 还没给你划域（在 members/" + m.Name + "/persona.md 的 domains 里写） | — | — | — |")
 	}
 	if len(notes) > 0 {
@@ -253,15 +248,10 @@ func domainSection(o *org.Org, m org.Member) string {
 	}
 
 	b.WriteString("\n\n全公司业务域目录（跨域协作时按「找谁」接头；别的域的 data 与术语不在这里，要用就走人）：\n\n| 域 | 名称 | 是什么 | 找谁 |\n|---|---|---|---|")
-	other := 0
-	for _, d := range o.Domains {
-		if mine[d.Slug] {
-			continue
-		}
-		other++
-		fmt.Fprintf(&b, "\n| %s | %s | %s | %s |", d.Slug, cell(d.Name), cell(d.What), o.WhoLabel(d.Who))
+	for _, d := range others {
+		fmt.Fprintf(&b, "\n| %s | %s | %s | %s |", d.Slug, cell(d.Name), cell(d.What), d.Who)
 	}
-	if other == 0 {
+	if len(others) == 0 {
 		b.WriteString("\n| — | 暂无其他域 | — | — |")
 	}
 	return b.String()
@@ -277,22 +267,22 @@ func cell(s string) string {
 }
 
 // lintDomainCells 体检域表里即将注入 persona 的每一个单元格。
-// 只在「真的会进上下文」的格子上花力气：自己的域全列，别人的域只有名称 / 是什么 / 找谁。
+// 只在「真的会进上下文」的格子上花力气：自己的域全列，别人的域只有名称 / 是什么 / 找谁 ——
+// 与渲染、与出站读出口是同一个 VisibleDomains 切的（三处不会对不上号）。
 func lintDomainCells(p *org.Policy, o *org.Org, m org.Member) []org.Issue {
-	mine := make(map[string]bool, len(m.Domains))
-	for _, s := range m.Domains {
-		mine[s] = true
-	}
+	mine, others := VisibleDomains(o, m)
 	var out []org.Issue
-	for _, d := range o.Domains {
-		where := org.DomainWhere(d.Line)
-		cells := []string{d.Name, d.What, d.Who}
-		if mine[d.Slug] {
-			cells = append(cells, d.Data, d.Sources, d.Terms)
-		}
+	check := func(line int, cells ...string) {
+		where := org.DomainWhere(line)
 		for _, c := range cells {
 			out = append(out, lintLine(p, where, c)...)
 		}
+	}
+	for _, d := range mine {
+		check(d.Line, d.Name, d.What, d.Who, d.Data, d.Sources, d.Terms)
+	}
+	for _, d := range others {
+		check(d.Line, d.Name, d.What, d.Who)
 	}
 	return out
 }

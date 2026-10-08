@@ -399,14 +399,24 @@ anc envelope check <vault> <信封.json> [--json]
 anc envelope serve <vault 目录> [--addr 127.0.0.1:8791] [--data <data 目录>]
 ```
 
-harness 通过 **MCP（streamable HTTP）** 调一个工具把信封递进来：
+harness 通过 **MCP（streamable HTTP）** 调工具。**桥的两半挂在同一个入口上**：
 
 ```
-anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?, refs?, needs?)
+anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?, refs?, needs?)   # 递进来
+anc_read_context(who, on_behalf_of?, domain?)                                                      # 要出去（只读）
 ```
 
-- **一个入口、一个工具**：能力面收在一处（#44「入口唯一性」的第一步）——
-  多一个工具就多一个要审计的入口。
+`anc_read_context` 是 **W2 的出站读出口**（2026-10-09）：问「这块业务是什么 / 数据在哪 / 卡住找谁 /
+证据在哪」，回一份 **JSON**（字段就是契约）。
+
+- **可见范围 = `render.VisibleDomains`，与 persona 段 8 同一把尺子**：自己的域全行，
+  别人的域只给名称 / 是什么 / 找谁；显式要**别人的域 → 拒**，但**指路**（告诉你要找谁）。
+- **身份不许自报**：`who` 必须能在 `members/` 里解出来 —— 解不出**不是格式错，是这个人不存在**。
+- **每次调用留一条痕进 `audit/`**（谁 / 要什么 / 给没给 / 为什么拒）；**给了也记**。
+- **不泄漏本机路径**：指针一律 vault 相对（`domains.md` + 行号），回话里没有任何绝对路径。
+- **只读**：一个字都不写回真相源。
+- **一个入口**：两个工具都开在同一个服务端、都在「一次调用 = 一条痕」之内 ——
+  多的不是入口，是同一个入口上的第二个动作。
 - **无状态**：不发 `Mcp-Session-Id`、不记会话、不提供 SSE 流。信封自带全部路由所需信息，
   所以收到就能办；连接断了也不用重连 —— 下一封信自己会到。
 - **服务端补 `id` 与 `ts`**：harness 不该为「这封信叫什么」操心。
@@ -429,7 +439,12 @@ anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?
 **「回版本号」这件事是实测教出来的**：两家报的 MCP 协议版本**不一样**，服务端**原样回客户端报的那个**
 才都通 —— 写死一个版本，报另一个版本的客户端就走了。
 
+**出站读出口的本地实测（2026-10-09，本机）**：真 HTTP + 真 JSON-RPC 往返（`runtime/envelope_read_test.go`，11 条）
+—— `tools/list` 两个工具都在；`who=alice, domain=logistics`（跨域）回 `refused` 且 `audit/` 里落一条 `denied`；
+`who=nobody` 回「我们公司没有这个人」；四种请求的回话里都搜不到 vault 绝对路径与盘符。
+
 形状与口径见 `internal/envelope/`（解析与绑定）与 `internal/mcp/`（协议层）。
+可见范围那把尺子在 `internal/render/domains.go`（`VisibleDomains`）—— persona 与出站读出口共用。
 ### 验证到了哪一步（别把「一致」当成「已验证」）
 
 - `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
@@ -470,7 +485,19 @@ anc_send_envelope(who, on_behalf_of?, kind?, body, scope_domain?, scope_project?
   **真 VM 实测**：`unwired: true` 声明 → `anc probe` 退出码 **0**、`anc apply` 回读一致、
   `anc notify` 不喊、`--json` 里 `"state": "unwired"`；反向用例（三个 bot 全声明未接）**退出码 1** ——
   **空集不判绿**（细节见 `DESIGN.md` §7.1.20）。
-  **没验的**：Windows 腿的真 VM（本机只跑过单元用例与端到端用例）。
+- **出站读出口（W2，2026-10-09）**：单元 **11 条**（`runtime/envelope_read_test.go`，全部走真 HTTP + 真 JSON-RPC）
+  + 尺子 3 条（`internal/render/domains_test.go`）；**变异验证**过（删掉「跨域被拒」那行留痕 → 3 条变红；
+  把 `safeToken` 两层清洗同时去掉 → 单行断言变红）。**本机实测**：`tools/list` 两个工具都在；
+  `who=alice, domain=logistics` 跨域 → `refused` + `audit/` 落一条 `denied`；`who=nobody` →
+  「我们公司没有这个人」；四种请求的回话里**搜不到 vault 绝对路径与盘符**。
+  **真 VM 实测（2026-10-09，Ubuntu 24.04，部署上去的那个二进制）**：四问一次答出（what / data / who / 证据指针）·
+  跨域 `isError` + 指路且回话里没有别人的「数据在哪」· 无身份 → 「我们公司没有这个人」·
+  域表只有表头的存量 vault 不报错（回 `note=还没给你划域`）· `audit/` 里每条调用一行（**给了也记**）·
+  **除 `audit/` 外全树 sha256 调前调后逐字节相同**（只读是实测的，不是声称的）·
+  **Claude Code 2.1.292 真调通**（`initialize` → `tools/list` → `tools/call`，一次调用答出四件事）。
+  **没验的**：Codex（只在本机走了 JSON-RPC 往返）· 那条 harness 的 `deepseek-flash` 模型名不被
+  Claude Code 认识（会打 `[claude-code:unrecognized_model]` 警告、按 200k 算 auto-compact）—— 待拍板才动。
+  细节见 `DESIGN.md` §7.1.21。
 
 ## 装载（`anc apply`）
 
