@@ -336,6 +336,11 @@ TS 模板函数,三原型参数化:`{label, program_args, archetype: keepalive|i
 
 ### 10.1 实测结论(2026-10-07,结论来自真跑,不是推论)
 
+> **本仓库自加,非上游原文。** 上游 `HA7CH/ai-native-company` @ `410bc3b` 的快照里没有这一节 ——
+> 它是本仓库 `runtime/`（Go 单 exe）的实测回填,不是上游那份 TypeScript 实现的结论。
+> `README.md` 的「不在这里手改」同步纪律对**这一节**是有意例外：同步上游时**整节保留**,不要被上游快照覆盖。
+> 对应 `../runtime/DESIGN.md` §7.1 与 `../runtime/README.md` 的 `anc apply` 一节。
+
 **环境**:Windows 与 Linux 两腿;cc-connect **v1.3.4 / commit 27c1de8f / built 2026-06-16T07:52:29Z**,装在 `~/.anc/bin/`(不挂全局 PATH),**pin 记在 `~/.anc/host.json`**;二进制 SHA256 与上游 `checksums.txt` 核对一致 —— Windows `571fce2b...7630968`、Linux `86a8c00d...4c997`。
 **烟测现场**:`%TEMP%\anc-smoke\` —— `anc org init` 生成 vault(3 成员 + 2 角色),`anc render --apply` 生成三项目 config(alice/bob `dontAsk`、devbot `bypassPermissions`),再拿真 gateway 拉起。
 
