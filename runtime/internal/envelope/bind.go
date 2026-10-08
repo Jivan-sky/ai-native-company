@@ -77,7 +77,7 @@ func Bind(o *org.Org, e Envelope, p *org.Policy) []org.Issue {
 // 支持 `member:x` / `role:x` / `domain:x` 前缀，也接受**裸名字** —— 裸名字按固定的
 // 顺序解（成员 → 岗位 → 业务域），顺序写死是为了同一份输入永远同一个答案，不是猜。
 func resolves(o *org.Org, s string) bool {
-	kind, name := splitRef(s)
+	kind, name := org.SplitRef(s)
 	if name == "" {
 		return false
 	}
@@ -102,14 +102,6 @@ func resolves(o *org.Org, s string) bool {
 		// 认不出的前缀不是「错误」，是解不出 —— 走 same 一条 warn，文案里给了写法。
 		return false
 	}
-}
-
-// splitRef 拆 `kind:name`。没有冒号 = 裸名。
-func splitRef(s string) (kind, name string) {
-	if i := strings.IndexByte(s, ':'); i > 0 {
-		return strings.ToLower(strings.TrimSpace(s[:i])), strings.TrimSpace(s[i+1:])
-	}
-	return "", strings.TrimSpace(s)
 }
 
 func hasDomain(o *org.Org, slug string) bool {

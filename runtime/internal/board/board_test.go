@@ -1,6 +1,7 @@
 package board
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -118,5 +119,59 @@ func TestEmptySlicesAreArraysNotNull(t *testing.T) {
 	}
 	if !strings.Contains(s, `"projects": []`) {
 		t.Fatalf("空项目表没渲染成 []：\n%s", s)
+	}
+}
+
+// boardOrgWithGrant 把 fixture 拷进临时目录、落一条 grant，再加载。
+// 直接改 testdata 会把「有没有授权」烤进那份共享样本，别的用例会跟着变。
+func boardOrgWithGrant(t *testing.T, name string) *org.Org {
+	t.Helper()
+	src := filepath.Join("..", "..", "testdata", "orgs", name)
+	dst := filepath.Join(t.TempDir(), name)
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(dst, "grants", "pilot")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	text := "---\ngrant:\n  from: member:alice\n  to: role:ops\n  action: read\n" +
+		"  object: shipments\n  ttl: 30d\n  reason: 看板要看得见这条\n---\n\n正文。\n"
+	if err := os.WriteFile(filepath.Join(dir, "read-shipments.md"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o, err := org.Load(dst)
+	if err != nil {
+		t.Fatalf("加载带授权的 %s: %v", name, err)
+	}
+	return o
+}
+
+// 看板投影是**全量**的：授权表原样进来（bot 侧那个「只出与我相关的几条」是另一个视图）。
+func TestViewProjectsGrants(t *testing.T) {
+	v := Of(boardOrgWithGrant(t, "domains"), fixedNow)
+	if len(v.Grants) != 1 {
+		t.Fatalf("授权没进投影：%+v", v.Grants)
+	}
+	g := v.Grants[0]
+	if g.Slug != "read-shipments" || g.Path != "grants/pilot/read-shipments.md" ||
+		g.From != "member:alice" || g.To != "role:ops" || g.Action != "read" ||
+		g.Object != "shipments" || g.TTL != "30d" || g.Reason != "看板要看得见这条" {
+		t.Fatalf("字段没搬全：%+v", g)
+	}
+}
+
+// 字段恒在、不 omitempty：零条授权也要出一个 `[]`，前端少一个判空。
+func TestViewGrantsAlwaysArray(t *testing.T) {
+	v := Of(boardOrg(t, "domains"), fixedNow)
+	if v.Grants == nil {
+		t.Fatal("零条授权时 Grants 是 nil —— 恒在的契约要求空数组")
+	}
+	s, err := v.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s, `"grants": []`) {
+		t.Fatalf("零条授权时投影里应当是 `\"grants\": []`：\n%s", s)
 	}
 }

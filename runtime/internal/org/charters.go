@@ -20,8 +20,8 @@ type CharterCopy struct {
 
 // ChartersDir 是立项书副本的落点（vault 顶层）。
 //
-// 它是顶层目录，所以会照常出现在 persona 段 3 的路由表里（「数据来源」）——
-// 这正是我们要的：agent 得知道副本在哪，否则「卡住时翻一下立项书」就翻不到。
+// 它**不进** persona 段 3 的路由表（见 org.go 的 skipDirs）—— 那行「数据来源」回答的是
+// 「业务资料去哪查」，副本落点不是资料；而且资产页已经单独统计它，再进路由表会重复计一次。
 const ChartersDir = "charters"
 
 // ScanCharters 扫落点。

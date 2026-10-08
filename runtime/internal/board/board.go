@@ -34,6 +34,7 @@ type View struct {
 	Members   []Member  `json:"members"`
 	Domains   []Domain  `json:"domains"`
 	Projects  []Project `json:"projects"`
+	Grants    []Grant   `json:"grants"`
 	Routing   []Routing `json:"routing"`
 }
 
@@ -99,6 +100,25 @@ type Project struct {
 	Charter    string `json:"charter"`
 }
 
+// Grant 是授权表一条。**恒在、不 omitempty**：零条授权也要出一个 `[]`，前端少一个判空。
+//
+// 投影是**全量**的 —— SPEC §6 那七个字段 + slug / path 原样搬过来，不做筛选、不做脱敏。
+// 这里和信封出口（bot 侧）是**两个消费者、两个视图**：看板看「谁被允许做什么」的全貌，
+// bot 只该看到与自己相关的那几条（那个视图还没做，见 DESIGN.md §7.1.15）。
+// 两个视图不共用一份产物 —— 共用迟早会把看板的全量漏给 bot。
+type Grant struct {
+	Slug       string `json:"slug"`
+	Path       string `json:"path"`
+	From       string `json:"from"`
+	To         string `json:"to"`
+	Action     string `json:"action"`
+	Object     string `json:"object"`
+	TTL        string `json:"ttl"`
+	OnBehalfOf string `json:"on_behalf_of"`
+	Reason     string `json:"reason"`
+	Body       string `json:"body"`
+}
+
 // Of 做投影。纯函数：同样的 org + 同样的 now → 同样的字节（可快照、可 diff）。
 func Of(o *org.Org, now time.Time) *View {
 	v := &View{
@@ -115,6 +135,7 @@ func Of(o *org.Org, now time.Time) *View {
 		Members:  []Member{},
 		Domains:  []Domain{},
 		Projects: []Project{},
+		Grants:   []Grant{},
 		Routing:  []Routing{},
 	}
 	for _, key := range o.RoleKeys() {
@@ -151,6 +172,13 @@ func Of(o *org.Org, now time.Time) *View {
 			Slug: pr.Slug, Name: pr.Name, Domain: pr.Domain,
 			Owner: pr.Owner, OwnerLabel: o.WhoLabel(pr.Owner),
 			Period: pr.Period, Source: pr.Source, Charter: charter,
+		})
+	}
+	for _, g := range o.Grants {
+		v.Grants = append(v.Grants, Grant{
+			Slug: g.Slug, Path: g.Path, From: g.From, To: g.To, Action: g.Action,
+			Object: g.Object, TTL: g.TTL, OnBehalfOf: g.OnBehalfOf,
+			Reason: g.Reason, Body: g.Body,
 		})
 	}
 	return v
