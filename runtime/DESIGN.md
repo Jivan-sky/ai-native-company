@@ -1142,6 +1142,71 @@ demo 会话的 27 次行使里，11 条落在「vault 内非域」、11 条落�
 **教训**：写命令行长路径的用例时，`t.TempDir()` 会带上测试函数名，Windows 的 AF_UNIX `sun_path`
 上限 108 字节一顶爆，用例**静默变 skip**（看起来是绿的）—— 所以那两条用例改用短的 `os.MkdirTemp`
 根目录，且 `listenSock` 失败时 `t.Fatalf` 而不是 `t.Skipf`。
+### 7.1.21 桥的另一半：出站读出口（2026-10-09，W2）
+
+**要解决的问题**：桥之前只有**入站** —— agent 可以把信封递给 ANC，但**要不到**东西。
+而 North Star 第二问（「员工不必靠领导协调就能拿到 Context / 数据 / 工具」）缺的正是这一腿。
+渲染期过滤管的是**推**（开工时那份已经是过滤好的），出站读出口管的是**主动要**。
+
+**工具**：`anc_read_context(who, on_behalf_of?, domain?)` —— 挂在**同一个接入面**上
+（`anc envelope serve` 的 MCP 服务端，工具名前缀同族）。**只读**：一个字都不写回真相源。
+
+**四条复用的纪律（一件都没新造）**：
+
+1. **可见范围 = `render.VisibleDomains`**。这是本轮最重要的一条：persona 段 8、域表体检
+   （`lintDomainCells`）、出站读出口**三处共用同一把尺子** ——「各算各的迟早对不上号」是本仓库
+   反复付过学费的（§7.1.20 那条真机 bug 就是同一类）。自己的域全行，别人的域只给名称 / 是什么 / 找谁。
+2. **身份 = `envelope.Resolves`**（这一轮把它从 `resolves` 导出）。解不出**不是格式错，是这个人不存在** ——
+   envelope 包注释第 1 条的原话。所以拒话里不许出现「参数」「格式」「schema」这类词：
+   那会把人引去改参数，而问题是他不在这家公司。
+3. **留痕 = `audit.Append`**。审计包自己写着「出站动作由人 / agent **显式补记**」——
+   这里就是那条出站动作的自动落点：`Actor / Action=read / Object=要的域 / Result=ok|denied /
+   Why=拒的理由 / Tool=anc_read_context / Source=serve`。**给了也记** —— 审计不是只记拒绝。
+4. **回话是结构化 JSON，字段就是契约**。这不只是好看：它是「出站不泄漏本机路径与自由文本」的
+   **结构性**保证 —— 只回契约字段，指针一律 **vault 相对**（`domains.md` + 行号）。
+
+**三种拒，都是「没办成」而不是「工具坏了」**（`isError=true`，都留痕）：
+无身份 / 解不出（→「我们公司没有这个人」）、`on_behalf_of` 解不出、要的是**别人的域**
+（→「不在你的可见范围」+「找谁」）。跨域**拒但指路**是有意的：只拒不指路，agent 会转头去问人，
+那正是这条腿要消掉的那一步。
+
+**请求里的自由文本进痕之前先过 `safeToken`**（去控制字符、压成单行、封顶 64 字）——
+痕不是给人塞私货的地方，更不是给注入留的一条通道。
+
+**实测（真 VM，Ubuntu 24.04，2026-10-09 —— 计划格位是 10-16 → 10-22，门过在格位之前（看门不看日历）；二进制 sha256(前16)=`4cf69984d41aa4d9`）**：
+在 `~/anc-vm2/vault-w2`（从活库拷的副本 + 一张两行的 `domains.md`：`knowledge`→`10-knowledge`（manager）、
+`ops`→`20-ops`（devbot）；alice 划到 `knowledge`）上，用**部署上去的那个二进制**起接入面，再真调：
+
+| 验的 | 怎么验 | 结果 |
+|---|---|---|
+| 两个工具都在 | `tools/list` | `anc_send_envelope` + `anc_read_context` |
+| **一次调用答出四问** | `who=alice` | `what=把做过的活沉成可复用的资产` · `data=10-knowledge` · `who=经理（Alice、Bob）` · `evidence={domains.md,5}`；另附别域目录（`ops`，**没有 data**） |
+| 跨域被拒 + 指路 | `who=alice, domain=ops` | `isError=true`；`refused.ask=开发运维（Devbot）`；回话里没有 `20-ops` |
+| 拒的应答不带 `domains` 键 | 同上 | 契约形状干净（不是 `"domains":null`） |
+| 无身份 = 这个人不存在 | `who=hacker` | 「我们公司没有这个人」—— 整段没有「参数 / 格式 / schema」字样 |
+| 域表只有表头（存量 vault） | 在**活库** `~/anc-vm2/vault` 上再跑一遍 | `note=还没给你划域…`；**没有因为没划域而报错** |
+| **留痕** | 查 `vault-w2/audit/*.jsonl` | 每条调用一行：`actor / action=read / object / result=ok·denied / why / tool / source=serve`；**给了的那次也记了**；无身份的记在 `hacker` / `unknown` 账上 |
+| **只读** | 调之前之后各算一次「除 `audit/` 外全树 sha256」 | 两次**逐字节相同**（`8da76e95e6c5ba…`）—— 除了那条痕，vault 一个字节都没动 |
+| **真 agent 调得到**（W2 10-21 那格） | Claude Code **2.1.292** 带 `--mcp-config`（http）+ `--strict-mcp-config` 真调 | `initialize`(2025-11-25) → `notifications/initialized` → `tools/list`(2 个) → `tools/call anc_read_context` → 用人话答出四件事（业务名 / 一句话 / 数据目录 / 找谁），**只调了一次** |
+
+> **夹带发现（不属本轮，记下）**：那条 harness 的模型名 `deepseek-flash` 不被 Claude Code 2.1.292
+> 的模型表认识，CLI 会打一条 `[claude-code:unrecognized_model]` 警告并**按 200k 上下文算 auto-compact**
+> （与清单一里的 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 是同一件事，**待拍板才动**）。
+**用例（11 条，`runtime/envelope_read_test.go`，全部走真 HTTP + 真 JSON-RPC，不是直接调函数）**：
+`tools/list` 里两个工具都在 / 一次调用答出「是什么 · 数据在哪 · 找谁 · 证据指针」/ 只问自己那一行 /
+跨域被拒且指路且**回话里没有别人的「数据在哪」**/ 域表里没有的域（不编「找谁」）/ 解不出的身份
+（且**不许**出现「参数 / 格式 / schema」字样）/ 压根没给身份（痕记在 `unknown`）/
+`on_behalf_of` 解得开与解不开 / 四种请求**都不泄漏 vault 绝对路径与盘符** / 自由文本被压成单行。
+另有 `internal/render/domains_test.go` 3 条钉住那把尺子（自己域全行、没划域、没有域表）。
+
+**变异验证**：① 把「跨域被拒」那行 `auditRead` 删掉 → 3 条用例变红；
+② 把 `safeToken` 的两层清洗（控制字符 → 空格、`strings.Fields` 压行）**同时**去掉 →
+`ScrubsFreeTextIntoTrail` 变红（单去掉任一层不红：两层互为兜底，这本身是个好性质）。
+
+**没做（明确标出）**：可见范围来自**成员所属域**，**不是 grant** —— 跨域 grant（#32）的执行层
+还没落，所以跨域一律拒。等执行层落下，这条出口是照 grant 开口子还是永远只给「找谁」，**待拍板**（SPEC §13 Q19）。
+另：`anc probe` 之类的**运行态**观测还没接进出站读出口；看板也还没有「谁问过什么」的那一页
+（痕已经在 audit 里了，看板第八页能看到，但没有按「出站」单列的视图）。
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
