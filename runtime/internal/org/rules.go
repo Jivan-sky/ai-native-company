@@ -63,7 +63,7 @@ var DefaultRules = []Rule{
 
 	// —— 成员层 ——
 	{"member.name.duplicate", LevelFatal, false, "同名成员会生成同名 project，gateway 只留一个"},
-	{"member.name.format", LevelWarn, false, "成员名是成员 id：它拼出凭据键名 ANC_FEISHU_SECRET_<名大写>，还进 project 名与 homes/<名>；带 - . 空格或中文时拼出的键名不是合法环境变量名，凭据写不进 secrets.env，bot 静默起不来"},
+	{"member.name.format", LevelFatal, false, "成员名是成员 id：它拼出凭据键名 ANC_FEISHU_SECRET_<名大写>，还进 project 名与 homes/<名>；带 - . 空格或中文时拼出的键名不是合法环境变量名，凭据写不进 secrets.env = 这个 bot 必然起不来（同 company.id.format 的判据）。不锁死：存量 vault 可在 company.md 写 `policy: member.name.format = warn` 先跑起来，那时装卸载那一步的告警兜底"},
 	{"member.display_name.missing", LevelFatal, false, "persona 段 1 的「服务对象」会渲染成 —"},
 	{"member.role.missing", LevelFatal, false, "role 不存在就没有 persona 基线，渲染直接失败"},
 	{"member.model.unresolved", LevelFatal, false, "member 没写 model，role / company 也没写，无处回退"},
@@ -209,7 +209,7 @@ func (p *Policy) OverrideIDs() []string {
 }
 
 // Apply 把 company/company.md 里 `policy:` 段的覆盖叠加上去。
-// 段内写法：一行一条 `规则id = fatal|warn|off`。
+// 段内写法：一行一条 `规则id: fatal|warn|off`（与 README 一致；行尾可跟 # 注释）。
 func (p *Policy) Apply(d *Doc) []Issue {
 	var out []Issue
 	keys := make([]string, 0, len(d.Meta))
