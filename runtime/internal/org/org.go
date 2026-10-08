@@ -158,13 +158,16 @@ type Host struct {
 //     charters（立项书副本落点 —— 资产页已单独统计它，进路由表还会**重复计一次**）、
 //     timeline（决策与执行留存：谁记谁读，不是给人放业务资料的地方）、
 //     grants（授权表是**控制面真相源**，不是业务资料：路由表回答「去哪找业务资料」，
-//     它回答「谁被允许做什么」——SPEC §3：真相源仓库 ≠ bot 的工作区）。
+//     它回答「谁被允许做什么」——SPEC §3：真相源仓库 ≠ bot 的工作区）、
+//     audit（行使的流水 —— SPEC §6 不变量 4：**系统记下来的**，不是给人放业务资料的地方。
+//     它比 timeline 更敏感：含「谁想碰什么」，注册进路由表等于把审计面摊给 agent，见议题 #43）。
 var skipDirs = map[string]bool{
 	// 结构目录（SPEC §4.3）
 	"roles": true, "members": true, "skills": true, "company": true,
 	"templates": true, "scripts": true,
 	// 本库的落点
 	"docs": true, "_originals": true, "charters": true, "timeline": true, "grants": true,
+	"audit": true,
 }
 
 var (
