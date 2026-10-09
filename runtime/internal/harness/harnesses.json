@@ -4,6 +4,7 @@
   "families": [
     {
       "id": "claude",
+      "agent_types": ["claudecode", "claude"],
       "display": "Claude Code",
       "root_env": [
         "CLAUDE_CONFIG_DIR"
@@ -24,6 +25,7 @@
     },
     {
       "id": "codebuddy",
+      "agent_types": ["codebuddy", "workbuddy"],
       "display": "CodeBuddy / WorkBuddy CLI",
       "root_env": [],
       "root_dir": ".codebuddy",
@@ -39,6 +41,7 @@
     },
     {
       "id": "codex",
+      "agent_types": ["codex"],
       "display": "OpenAI Codex CLI",
       "root_env": [
         "CODEX_HOME"
@@ -55,6 +58,7 @@
     },
     {
       "id": "openclaw",
+      "agent_types": ["openclaw"],
       "display": "OpenClaw",
       "root_env": [],
       "root_dir": ".openclaw",
@@ -70,6 +74,7 @@
     },
     {
       "id": "hermes",
+      "agent_types": ["hermes"],
       "display": "Hermes",
       "root_env": [],
       "root_dir": "AppData/Local/hermes",
@@ -85,6 +90,7 @@
     },
     {
       "id": "dsh",
+      "agent_types": ["dsh"],
       "display": "DSH",
       "root_env": [],
       "root_dir": ".dsh",
