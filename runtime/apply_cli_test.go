@@ -222,3 +222,138 @@ func renameMemberInPlace(t *testing.T, vault, from, to string) {
 		}
 	}
 }
+
+// ---- 第 7 步的就绪判据（2026-10-10 沙箱真跑之后补的）----------------------------------------
+//
+// 实测现场：一份产物里有一个 `unwired: true` 的成员 bot（占位 app_id）。上游对它的两种表现都撞到过 ——
+// 一次是 `platform ready` 紧跟 `websocket error: app_id is invalid`（先绿后死），
+// 另一次是 `failed to create platform` 干脆不打那一行。
+// 旧判据 `want = len(plan.Projects)` 把这种 project 也算进期望值：前者报假绿（2/2），
+// 后者报假红（1/2）—— 同一个事实，两种错误读数。
+
+// readyOrgFixture 拷一份 one 组织，把 devbot 声明成 unwired（**声明**，不是拿 app_id 长相猜的），
+// 再渲染一遍：回读判据拿到的就是「谁该被等」这一个集合。
+func readyOrgFixture(t *testing.T) (*org.Org, *renderpkg.Plan) {
+	t.Helper()
+	vault := copyFixture(t, "one")
+	path := filepath.Join(vault, "members", "devbot", "persona.md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(string(raw), "\ndisabled: false\n", "\ndisabled: false\nunwired: true\n", 1)
+	if body == string(raw) {
+		t.Fatal("夹具变了：members/devbot/persona.md 里没有 `disabled: false` 那一行")
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o, err := org.Load(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	plan, err := renderpkg.Build(o, renderpkg.Options{
+		Host:    org.Host{VaultRoot: vault, HomesRoot: filepath.Join(work, "homes"), DataDir: filepath.Join(work, "data")},
+		Version: version,
+		Now:     time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o, plan
+}
+
+// 期望值里不能有声明未接线的那个 —— 否则同一个部署会一次假绿一次假红。
+func TestReadyExpectationExcludesUnwiredProjects(t *testing.T) {
+	o, plan := readyOrgFixture(t)
+	if len(plan.Projects) != 2 {
+		t.Fatalf("夹具应当渲染 2 个 project（unwired 只是不参与就绪判据，不是不渲染），实际 %v", plan.Projects)
+	}
+	expect := readyExpectation(plan, o)
+	if len(expect) != 1 || !expect["demo-alice"] {
+		t.Fatalf("期望值应当只剩接线的那个，实际 %v", expect)
+	}
+}
+
+// 没有可期待的 project 时不许打绿：空集上的「都绿了」是最纯的那种假绿。
+func TestReadyExpectationEmptyWhenAllUnwired(t *testing.T) {
+	o, plan := readyOrgFixture(t)
+	// 把接线的那个也声明成未接线，期望值就该是空的。
+	path := filepath.Join(o.Root, "members", "alice", "persona.md")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.Replace(string(raw), "\ndisabled: false\n", "\ndisabled: false\nunwired: true\n", 1)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o2, err := org.Load(o.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readyExpectation(plan, o2); len(got) != 0 {
+		t.Fatalf("全声明未接线时期望值应当是空的，实际 %v", got)
+	}
+}
+
+// countReady 数的是**期望里的**名字，不是 `platform ready` 的行数。
+func TestCountReadyCountsOnlyExpectedProjects(t *testing.T) {
+	log := writeReadyLog(t,
+		`time=1 level=INFO msg="platform ready" project=demo-devbot platform=feishu`,
+		`time=2 level=ERROR msg="feishu: websocket error" error="1000040346: app_id is invalid"`,
+		`time=3 level=INFO msg="platform ready" project=demo-alice platform=feishu`,
+	)
+	if got, _ := countReady(log, 0, map[string]bool{"demo-alice": true}); got != 1 {
+		t.Errorf("ready = %d，想要 1（不在期望里的 devbot 不该算）", got)
+	}
+	if got, _ := countReady(log, 0, map[string]bool{"demo-alice": true, "demo-devbot": true}); got != 2 {
+		t.Errorf("ready = %d，想要 2（两个都在期望里）", got)
+	}
+}
+
+// project 名 = `<公司 id>-<成员名>`，成员名可以带空格 —— 那时上游给值加引号，两种写法都要认。
+// 只认一种，带空格的名字会静默数不到，判据就退回「按行数」那套假绿。
+func TestCountReadyHandlesQuotedProjectNames(t *testing.T) {
+	log := writeReadyLog(t, `time=1 level=INFO msg="platform ready" project="demo-张 三" platform=feishu`)
+	if got, _ := countReady(log, 0, map[string]bool{"demo-张 三": true}); got != 1 {
+		t.Errorf("带空格的 project 名没认出来：ready = %d，想要 1", got)
+	}
+}
+
+// 只数**重启之后新增**的那段：上一次的绿字不许盖住这一次的没起来。
+func TestCountReadyCountsOnlyNewLines(t *testing.T) {
+	log := writeReadyLog(t, `time=1 level=INFO msg="platform ready" project=demo-alice platform=feishu`)
+	expect := map[string]bool{"demo-alice": true, "demo-bob": true}
+	if got, _ := countReady(log, 0, expect); got != 1 {
+		t.Fatalf("首段 ready = %d，想要 1", got)
+	}
+	fi, err := os.Stat(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := fi.Size()
+	f, err := os.OpenFile(log, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("time=2 level=INFO msg=\"platform ready\" project=demo-bob platform=feishu\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := countReady(log, from, expect); got != 1 {
+		t.Errorf("从偏移起 ready = %d，想要 1（只算新增那段）", got)
+	}
+}
+
+func writeReadyLog(t *testing.T, lines ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cc-connect.log")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
