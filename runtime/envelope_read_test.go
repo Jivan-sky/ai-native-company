@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -305,5 +307,135 @@ func TestReadContextScrubsFreeTextIntoTrail(t *testing.T) {
 	}
 	if len([]rune(recs[0].Object)) > 80 {
 		t.Errorf("痕里的自由文本没封顶：%q", recs[0].Object)
+	}
+}
+
+// ---------- 「工作上下文」的另两问：技能从哪来、在跟哪个项目 ----------
+
+// 技能清单来自 roles/<role> 的 skills:，正文在 skills/<name>/SKILL.md。
+// fixture 里没有 skills/ 目录 → 两条都该报 missing（报缺，不编）。
+func TestReadContextAnswersSkillsAndProjects(t *testing.T) {
+	h, _ := readHarness(t)
+	text, isErr := callRead(t, h, map[string]any{"who": "alice"})
+	if isErr {
+		t.Fatalf("干净请求不该失败：%s", text)
+	}
+	out := parseRead(t, text)
+
+	if len(out.Skills) != 2 {
+		t.Fatalf("manager 声明了两个技能，实际 %+v", out.Skills)
+	}
+	for _, s := range out.Skills {
+		if s.Where != "skills/"+s.Name+"/SKILL.md" {
+			t.Errorf("技能指针应当是 vault 相对路径，实际 %q", s.Where)
+		}
+		if strings.Contains(s.Where, `\`) {
+			t.Errorf("技能指针里出现了反斜杠：%q", s.Where)
+		}
+		if !s.Missing {
+			t.Errorf("fixture 里没有 skills/ 目录，%q 应当报 missing", s.Name)
+		}
+	}
+
+	if len(out.Projects) != 1 || out.Projects[0].Slug != "trade-q3" {
+		t.Fatalf("alice 可见的项目应当只有 trade-q3，实际 %+v", out.Projects)
+	}
+	p := out.Projects[0]
+	if !strings.Contains(p.Owner, "Alice Wang") {
+		t.Errorf("项目 owner 应当是派生出来的「岗位（人名）」，实际 %q", p.Owner)
+	}
+	if p.Period == "" || p.Source == "" {
+		t.Errorf("period / source 要原样搬（它们是指针），实际 %+v", p)
+	}
+	if p.Evidence == nil || p.Evidence.File != "projects.md" || p.Evidence.Line <= 0 {
+		t.Errorf("项目证据指针应当指回 projects.md 的某一行，实际 %+v", p.Evidence)
+	}
+
+	// 报缺：没有真相源的那几样要明说，不编。
+	joined := strings.Join(out.Gaps, "\n")
+	for _, want := range []string{"新鲜度", "技能正文还没落"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("报缺里应当有 %q，实际 %v", want, out.Gaps)
+		}
+	}
+}
+
+// 报缺的负例：正文真落了就不许再报 —— 否则那句「还没落」会变成永远亮着的假话。
+func TestReadContextSkillBodyLandsMeansNotMissing(t *testing.T) {
+	h, g := readHarness(t)
+	dir := filepath.Join(g.Vault, "skills", "now")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: now\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := callRead(t, h, map[string]any{"who": "alice"})
+	if isErr {
+		t.Fatalf("干净请求不该失败：%s", text)
+	}
+	out := parseRead(t, text)
+	for _, s := range out.Skills {
+		switch s.Name {
+		case "now":
+			if s.Missing {
+				t.Errorf("正文已经落了，不该再报 missing：%+v", s)
+			}
+		case "im-send":
+			if !s.Missing {
+				t.Errorf("im-send 的正文没落，应当报 missing：%+v", s)
+			}
+		}
+	}
+	if strings.Contains(strings.Join(out.Gaps, "\n"), "skills/now") {
+		t.Errorf("已经落了的技能不该出现在报缺里：%v", out.Gaps)
+	}
+}
+
+// 项目跟着可见范围走：别人域上的项目，**连名字都不给**（与域行同一条纪律）。
+func TestReadContextProjectsFollowVisibleScope(t *testing.T) {
+	h, _ := readHarness(t)
+	text, isErr := callRead(t, h, map[string]any{"who": "bob"})
+	if isErr {
+		t.Fatalf("干净请求不该失败：%s", text)
+	}
+	out := parseRead(t, text)
+	if len(out.Domains) != 1 || out.Domains[0].Slug != "logistics" {
+		t.Fatalf("bob 自己的域应当是 logistics，实际 %+v", out.Domains)
+	}
+	if len(out.Projects) != 0 {
+		t.Errorf("贸易域上的项目不该出现在 bob 的回话里：%+v", out.Projects)
+	}
+}
+
+// 被拒的那次不带任何上下文：项目、技能一个都不许漏出去。
+func TestReadContextRefusalLeaksNoContext(t *testing.T) {
+	h, _ := readHarness(t)
+	text, isErr := callRead(t, h, map[string]any{"who": "alice", "domain": "logistics"})
+	if !isErr {
+		t.Fatalf("跨域应当拒：%s", text)
+	}
+	out := parseRead(t, text)
+	if out.Refused == nil {
+		t.Fatalf("拒话没给：%s", text)
+	}
+	if len(out.Projects) != 0 || len(out.Skills) != 0 {
+		t.Errorf("被拒的回话里不该带上下文：projects=%+v skills=%+v", out.Projects, out.Skills)
+	}
+}
+
+// 只要单独一域时不塞通用报缺 —— 那不是他问的东西。
+func TestReadContextSingleDomainHasNoGaps(t *testing.T) {
+	h, _ := readHarness(t)
+	text, isErr := callRead(t, h, map[string]any{"who": "alice", "domain": "trade"})
+	if isErr {
+		t.Fatalf("自己的域不该被拒：%s", text)
+	}
+	out := parseRead(t, text)
+	if len(out.Gaps) != 0 {
+		t.Errorf("只要一域时不该附通用报缺：%v", out.Gaps)
+	}
+	if len(out.Projects) != 1 {
+		t.Errorf("那一域上的项目还是要给：%+v", out.Projects)
 	}
 }
