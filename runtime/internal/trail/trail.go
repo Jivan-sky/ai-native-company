@@ -138,6 +138,28 @@ type Turn struct {
 	Failures []Failure `json:"failures,omitempty"`
 }
 
+// 一次「行使」的结果。四家记录里都拿得到「成没成」，只是形状不一样 —— 读取器把它归一到这里。
+const (
+	ResultOK      = "ok"      // 跑完了
+	ResultDenied  = "denied"  // 被权限规则挡下（人没给这个动作的权，不是坏了）
+	ResultFailed  = "failed"  // 真执行失败（文件不在、路径不存……）
+	ResultUnknown = "unknown" // 没配到结果（那一轮被中断了）——**不许当成「没发生」**
+)
+
+// Act 是一次工具调用（= 一次「行使」）的**原始事实**。
+//
+// 只放记录里拿得到的东西：调了哪个工具、入参原样、成没成。**不做归类** ——
+// read / write / invoke 是「怎么读」，那是数据（见 audit 的工具表）；
+// 一份要四家读取器共用的结构，不能带任何一家的语义。
+type Act struct {
+	CallID string          `json:"call_id,omitempty"`
+	At     time.Time       `json:"at,omitempty"`
+	Tool   string          `json:"tool"`
+	Input  json.RawMessage `json:"input,omitempty"` // 入参原样：各家形状不同，这里不归一
+	Result string          `json:"result"`          // Result* 之一
+	Why    string          `json:"why,omitempty"`   // 没成功时的原话（截断），不转述
+}
+
 // Subagent 是一次子任务：主 agent 用 Agent 工具拉起的旁路会话。
 // 它的 token 记在**本会话**账上，所以要单列出来让账能对上。
 type Subagent struct {
@@ -160,6 +182,11 @@ type Session struct {
 	Dir   string `json:"dir"`   // 记录在哪个目录（给人定位）
 	Found bool   `json:"found"` // 原生记录找到了没有 —— 没找到就是**读不到**，不是 0 消耗
 
+	// Cwd 是记录里自带的工作目录（哪家写在哪一行各家不同，读取器负责填）。
+	// **认领用**：一家把分片堆在同一个目录里、或堆成年/月/日 那种分不出项目的层，
+	// 就只能靠它认出「这份分片属于哪个项目」。
+	Cwd string `json:"cwd,omitempty"`
+
 	Started time.Time `json:"started,omitempty"`
 	Ended   time.Time `json:"ended,omitempty"`
 
@@ -181,6 +208,7 @@ type Session struct {
 	Denials   []ToolCount `json:"denials,omitempty"`  // 被权限规则挡下的动作，按 kind 计
 	Failures  []Failure   `json:"failures,omitempty"` // 全段会话里没成功的动作（含子任务的）
 	Subagents []Subagent  `json:"subagents,omitempty"`
+	Acts      []Act       `json:"acts,omitempty"` // 一次次工具调用的原始事实（四家读取器都填）
 
 	// Problems 是「这份账没读全」的地方。**必须说出来** —— 静默少报等于把
 	// 「读不到」伪装成「没有」，那和假绿是同一类错误。
@@ -369,6 +397,40 @@ func ReadSessionIn(fam harness.Family, root, project, slot string, historic bool
 	return s
 }
 
+// ReadShard 读**指定的那一份分片**，不自己找目录。
+//
+// 与 ReadSessionIn 只差一件事：目录不是它推的 —— 调用方已经把手上的分片列出来了。
+// 归集就是这么用的：一家把分片堆在同一层（记录根下按 年/月/日 分层、或压根不分项目）时，
+// 「这份分片属于哪个项目」从项目名推不出来，得先把分片扫出来、再按记录里的 cwd 认领。
+//
+// **句柄不在这里定**（Session.ID 留给读取器按记录自报）—— 因为「文件名算不算句柄」各家不同：
+// codex 一份分片是一个 fork 出来的 rollout 文件，文件名唯一，而记录里的 session_id 会和
+// 母会话**重名**（fork 把前史一起带了进来）。归集的幂等键要的是前者，所以那一路自己算。
+//
+// 读不到**不报错**，而是 Found=false + Problems（和 ReadSessionIn 同一条规矩：
+// 「读不到」不能伪装成「没有」）。
+func ReadShard(fam harness.Family, path string) Session {
+	s := Session{
+		Schema: Schema,
+		Dir:    filepath.Dir(path),
+		Turns:  []Turn{},
+	}
+	if err := fam.CanRead(); err != nil {
+		s.Problems = append(s.Problems, err.Error())
+		return s
+	}
+	if _, err := os.Stat(path); err != nil {
+		s.Problems = append(s.Problems, fmt.Sprintf(
+			"原生记录找不到：%s（这是**读不到**，不是 0 消耗）", path))
+		return s
+	}
+	s.Found = true
+	if _, err := scanWith(fam.Reader, path, &s); err != nil {
+		s.Problems = append(s.Problems, "记录读不动："+err.Error())
+	}
+	return s
+}
+
 type subMeta struct {
 	AgentType   string `json:"agentType"`
 	Description string `json:"description"`
@@ -480,6 +542,8 @@ func scanClaude(path string, s *Session) (map[string]int, error) {
 		denials  = map[string]int{}
 		uses     = map[string]int{}    // tool_use id → 轮次
 		useName  = map[string]string{} // tool_use id → 工具名
+		acts     []Act                 // 一次次行使的原始事实（归集用）
+		actIdx   = map[string]int{}    // tool_use id → acts 下标
 		failures []Failure
 		ends     []time.Time // 每一轮最后一条记录的时刻（算这一轮实际干了多久）
 		badLines int
@@ -519,6 +583,26 @@ func scanClaude(path string, s *Session) (map[string]int, error) {
 
 		switch l.Type {
 		case "user":
+			// 行使的结果：按 tool_use id 配回那一次调用。
+			//
+			// 这一步**不挂在 toolUseResult 上**：判据在结果块自己身上（`is_error`，
+			// 加上同一行上的 `toolDenialKind`）—— 那块内容就是「这次调用怎么回的事」。
+			// 挂上去的话，一份没有 toolUseResult 的记录（别的工具链写的、或字段改名了）
+			// 会把每一次调用都说成「没配到结果」。
+			for _, b := range resultBlocks(l.Message.Content) {
+				res, why := ResultOK, ""
+				switch {
+				case !b.IsError:
+				case l.Denial != "":
+					res = ResultDenied
+				default:
+					res = ResultFailed
+				}
+				if b.IsError {
+					why = reasonHead(blockText(b.Content))
+				}
+				setActResult(acts, actIdx, b.ToolUseID, res, why)
+			}
 			if len(l.ToolResult) > 0 && string(l.ToolResult) != "null" {
 				// 工具结果：算这一轮的记录，也记它是不是被权限挡下来的。
 				mark(ts)
@@ -581,6 +665,9 @@ func scanClaude(path string, s *Session) (map[string]int, error) {
 				if tr.ID != "" && tr.Name != "" {
 					useName[tr.ID] = tr.Name
 				}
+				if tr.ID != "" {
+					acts = putAct(acts, actIdx, Act{CallID: tr.ID, At: ts, Tool: tr.Name, Input: tr.Input})
+				}
 			}
 			mark(ts)
 
@@ -628,6 +715,7 @@ func scanClaude(path string, s *Session) (map[string]int, error) {
 	}
 	s.Turns = append(s.Turns, turns...)
 	s.Failures = append(s.Failures, failures...)
+	s.Acts = append(s.Acts, settleActs(acts)...)
 	for name, n := range subTools {
 		s.Tools = bumpBy(s.Tools, name, n)
 	}
@@ -703,8 +791,11 @@ func contentText(raw json.RawMessage) string {
 	return strings.Join(parts, " ")
 }
 
-// toolRef 是一次工具调用的身份：名字 + 调用 id（子任务靠 id 归到轮次）。
-type toolRef struct{ Name, ID string }
+// toolRef 是一次工具调用的身份：名字 + 调用 id（子任务靠 id 归到轮次）+ 入参原样。
+type toolRef struct {
+	Name, ID string
+	Input    json.RawMessage
+}
 
 // toolUses 取这一行里的工具调用（一行只带一个 block，所以调用方要取并集）。
 // failuresIn 从一条工具结果里挑出**没成功**的那些，并说清是哪一种没成功。
@@ -718,21 +809,9 @@ type toolRef struct{ Name, ID string }
 // 工具名优先用 tool_use_id 回查主记录里的 tool_use（最准）；查不到就留空，
 // **不猜**（宁可少一个名字，也不要给一个错的名字）。
 func failuresIn(content json.RawMessage, denial string, useName map[string]string) []Failure {
-	if len(content) == 0 {
-		return nil
-	}
-	var blocks []struct {
-		Type      string          `json:"type"`
-		IsError   bool            `json:"is_error"`
-		ToolUseID string          `json:"tool_use_id"`
-		Content   json.RawMessage `json:"content"`
-	}
-	if json.Unmarshal(content, &blocks) != nil {
-		return nil
-	}
 	var out []Failure
-	for _, b := range blocks {
-		if b.Type != "tool_result" || !b.IsError {
+	for _, b := range resultBlocks(content) {
+		if !b.IsError {
 			continue
 		}
 		kind := "failed"
@@ -746,6 +825,93 @@ func failuresIn(content json.RawMessage, denial string, useName map[string]strin
 		})
 	}
 	return out
+}
+
+// resultBlock 是一条工具结果。**只认 tool_result** —— text / thinking 那些块不是
+// 「一次行使的结果」，混进来会把账说错。
+type resultBlock struct {
+	ToolUseID string
+	IsError   bool
+	Content   json.RawMessage
+}
+
+// resultBlocks 取这一行里的工具结果块。claude 家的结果就挂在这里（tool_use 与它按 id 配对）。
+func resultBlocks(content json.RawMessage) []resultBlock {
+	if len(content) == 0 {
+		return nil
+	}
+	var blocks []struct {
+		Type      string          `json:"type"`
+		IsError   bool            `json:"is_error"`
+		ToolUseID string          `json:"tool_use_id"`
+		Content   json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(content, &blocks) != nil {
+		return nil
+	}
+	var out []resultBlock
+	for _, b := range blocks {
+		if b.Type != "tool_result" {
+			continue
+		}
+		out = append(out, resultBlock{ToolUseID: b.ToolUseID, IsError: b.IsError, Content: b.Content})
+	}
+	return out
+}
+
+// putAct 记一次工具调用。同一条 id 会写多行（流式中间态里 input 还没流完），所以
+// **后到的覆盖先到的**；但已经配到结果的那一份不被覆盖回去 —— 结果行落盘之后，
+// 同一段流式内容还可能被再写一遍调用行。
+func putAct(acts []Act, idx map[string]int, a Act) []Act {
+	if a.CallID == "" {
+		// 没有 id 就没法配对（这家记录里少一个字段）：照样记下来，结果那一栏留 unknown。
+		return append(acts, a)
+	}
+	if i, ok := idx[a.CallID]; ok {
+		prev := acts[i]
+		if prev.Result != "" {
+			return acts
+		}
+		a.Result, a.Why = prev.Result, prev.Why
+		acts[i] = a
+		return acts
+	}
+	idx[a.CallID] = len(acts)
+	return append(acts, a)
+}
+
+// setActResult 给一次行使配结果（按 call id 找）。**找不到就不补** —— 结果行对不上调用行
+// 是记录不完整，不该在这里无中生有造一条行使出来。
+func setActResult(acts []Act, idx map[string]int, callID, result, why string) {
+	if callID == "" {
+		return
+	}
+	i, ok := idx[callID]
+	if !ok {
+		return
+	}
+	acts[i].Result, acts[i].Why = result, why
+}
+
+// settleActs 把还没定结果的行使落成 unknown。**不许当成「没发生」**，也不许猜一个结果出来。
+func settleActs(acts []Act) []Act {
+	for i := range acts {
+		if acts[i].Result == "" {
+			acts[i].Result = ResultUnknown
+		}
+	}
+	return acts
+}
+
+// rawJSON 把记录里以**字符串**给的入参（codex / codebuddy 都是这一种）转成 JSON 原文。
+// 空串、或不是合法 JSON → nil：下游「抽不出目标」那条路会把它报出来，
+// 好过在这里编一个空对象出来（编出来的会被当成「入参是空的」）。
+func rawJSON(s string) json.RawMessage {
+	s = strings.TrimSpace(s)
+	if s == "" || !json.Valid([]byte(s)) {
+		return nil
+	}
+	return json.RawMessage(s)
 }
 
 // blockText 把 block 的 content 取成人话：可能是字符串，也可能是 [{type,text}]。
@@ -852,9 +1018,10 @@ func toolUses(raw json.RawMessage) []toolRef {
 		return nil
 	}
 	var blocks []struct {
-		Type string `json:"type"`
-		Name string `json:"name"`
-		ID   string `json:"id"`
+		Type  string          `json:"type"`
+		Name  string          `json:"name"`
+		ID    string          `json:"id"`
+		Input json.RawMessage `json:"input"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
 		return nil
@@ -862,7 +1029,7 @@ func toolUses(raw json.RawMessage) []toolRef {
 	var out []toolRef
 	for _, b := range blocks {
 		if b.Type == "tool_use" && b.Name != "" {
-			out = append(out, toolRef{Name: b.Name, ID: b.ID})
+			out = append(out, toolRef{Name: b.Name, ID: b.ID, Input: b.Input})
 		}
 	}
 	return out

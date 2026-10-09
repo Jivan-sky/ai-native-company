@@ -35,6 +35,10 @@ type codebuddyLine struct {
 	CallID string `json:"callId"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
+	// Arguments 是**字符串**（实测：`"arguments":"{\"file_path\":\"D:\\\\probe\\\\readme.txt\"}"`）。
+	Arguments string `json:"arguments"`
+	// Cwd 每行自带（认领这份分片属于哪个项目用）。
+	Cwd    string `json:"cwd"`
 	Output struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -107,6 +111,8 @@ func scanCodeBuddy(path string, s *Session) (map[string]int, error) {
 		stepTurn = map[string]int{}
 		tools    = map[string]int{}
 		uses     = map[string]int{} // callId → 轮次
+		acts     []Act              // 一次次行使的原始事实（归集用）
+		actIdx   = map[string]int{} // callId → acts 下标
 		failures []Failure
 		badLines int
 		cur      = -1
@@ -156,6 +162,9 @@ func scanCodeBuddy(path string, s *Session) (map[string]int, error) {
 				s.Ended = ts
 			}
 		}
+		if l.Cwd != "" && s.Cwd == "" {
+			s.Cwd = l.Cwd
+		}
 
 		switch l.Type {
 		case "message":
@@ -182,10 +191,21 @@ func scanCodeBuddy(path string, s *Session) (map[string]int, error) {
 			if l.CallID != "" && cur >= 0 {
 				uses[l.CallID] = cur
 			}
+			acts = putAct(acts, actIdx, Act{
+				CallID: l.CallID, At: ts, Tool: l.Name, Input: rawJSON(l.Arguments),
+			})
 			mark(ts)
 
 		case "function_call_result":
 			account(l, ts)
+			// 行使的结果：判据是记录里现成的 status（实测 `completed`）。
+			// 结果行本身在了 = 这次调用跑完了，所以 status 空着也按 ok 记 —— 但 why 只有
+			// 真失败时才写（成功那一栏留空）。
+			res, why := ResultOK, ""
+			if l.Status != "" && l.Status != "completed" {
+				res, why = ResultFailed, reasonHead(l.Output.Text)
+			}
+			setActResult(acts, actIdx, l.CallID, res, why)
 			// 没成功的动作：status 不是 completed 的那些。**原因照抄记录原话**（截断），
 			// 不转述 —— 「文件不在」和「权限没给」是两件完全不同的事，判据层再分。
 			if l.Status != "" && l.Status != "completed" {
@@ -221,6 +241,7 @@ func scanCodeBuddy(path string, s *Session) (map[string]int, error) {
 	}
 	s.Turns = append(s.Turns, turns...)
 	s.Failures = append(s.Failures, failures...)
+	s.Acts = append(s.Acts, settleActs(acts)...)
 	for name, n := range tools {
 		s.Tools = bumpBy(s.Tools, name, n)
 	}

@@ -32,19 +32,52 @@ type codexMeta struct {
 
 // codexEvent 是 event_msg 的 payload。
 type codexEvent struct {
-	Type   string `json:"type"`
-	TurnID string `json:"turn_id"`
-	Item   struct {
-		Type    string `json:"type"` // UserMessage / CommandExecution / Reasoning / AgentMessage
-		ID      string `json:"id"`   // CommandExecution 的 id 就是那次 function_call 的 call_id
+	Type   string        `json:"type"`
+	TurnID string        `json:"turn_id"`
+	Item   codexItemDone `json:"item"`
+}
+
+// codexItemDone 是 event_msg/item_completed 里那一项。种类是 Item.Type：
+// UserMessage / CommandExecution / Reasoning / AgentMessage / McpToolCall / ImageView。
+//
+// 实测（2026-10-10，本机 84 份 rollout）：**命令与 MCP 调用都带 status**
+// （CommandExecution / McpToolCall），ImageView 不带。所以「成没成」的显式判据用 status，
+// 没有 status 的那几种退到「有没有 function_call_output」。
+type codexItemDone struct {
+	Type    string `json:"type"`
+	ID      string `json:"id"` // 就是那次 function_call 的 call_id
+	Content []struct {
+		Text string `json:"text"`
+	} `json:"content"`
+	Server           string   `json:"server"` // McpToolCall
+	Tool             string   `json:"tool"`   // McpToolCall
+	Status           string   `json:"status"` // completed / failed / …
+	Stderr           string   `json:"stderr"`
+	AggregatedOutput string   `json:"aggregated_output"`
+	Command          []string `json:"command"`
+	Result           struct {
+		IsError bool `json:"isError"`
 		Content []struct {
 			Text string `json:"text"`
 		} `json:"content"`
-		Status           string   `json:"status"` // completed / failed / …
-		Stderr           string   `json:"stderr"`
-		AggregatedOutput string   `json:"aggregated_output"`
-		Command          []string `json:"command"`
-	} `json:"item"`
+	} `json:"result"`
+}
+
+// whyOf 取这次调用「没成功」的原话。**按记录里的优先级取，不转述**：
+// 命令的 stderr → 聚合输出 → MCP / 别的工具的 result.content 文本。都没有就留空。
+func (it codexItemDone) whyOf() string {
+	for _, s := range []string{it.Stderr, it.AggregatedOutput} {
+		if strings.TrimSpace(s) != "" {
+			return s
+		}
+	}
+	var parts []string
+	for _, c := range it.Result.Content {
+		if c.Text != "" {
+			parts = append(parts, c.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // codexItem 是 response_item 的 payload。
@@ -53,7 +86,9 @@ type codexItem struct {
 	Name   string `json:"name"`
 	CallID string `json:"call_id"`
 	Role   string `json:"role"`
-	Meta   struct {
+	// Arguments 是**字符串**（不是对象）—— 实测：`"arguments":"{\"cmd\": \"ls\"}"`。
+	Arguments string `json:"arguments"`
+	Meta      struct {
 		TurnID string `json:"turn_id"`
 	} `json:"internal_chat_message_metadata_passthrough"`
 }
@@ -118,6 +153,10 @@ func scanCodex(path string, s *Session) (map[string]int, error) {
 		callTurn = map[string]int{}
 		tools    = map[string]int{}
 		uses     = map[string]int{}
+		acts     []Act                                    // 一次次行使的原始事实（归集用）
+		actIdx   = map[string]int{}                       // call_id → acts 下标
+		itemRes  = map[string]struct{ res, why string }{} // call_id → item_completed 给的显式成败
+		hasOut   = map[string]bool{}                      // call_id → 有没有 function_call_output
 		failures []Failure
 		badLines int
 		metaID   string
@@ -181,6 +220,14 @@ func scanCodex(path string, s *Session) (map[string]int, error) {
 			var m codexMeta
 			if json.Unmarshal(l.Payload, &m) == nil {
 				metaID = m.SessionID
+				if m.Cwd != "" {
+					s.Cwd = m.Cwd
+				}
+				if s.ID == "" {
+					// 调用方没有句柄（直接读一份分片）：按记录自报的 session_id 补上，
+					// 免得下面那条「session_id 对不上」误报。
+					s.ID = m.SessionID
+				}
 			}
 			observe(ts)
 
@@ -221,6 +268,15 @@ func scanCodex(path string, s *Session) (map[string]int, error) {
 						}
 					}
 				}
+				// 显式成败：**只认带了 status 的那些**（实测 CommandExecution 与 McpToolCall 有，
+				// ImageView 没有）。先记下来，扫完再配回对应的行使 —— 免得依赖「哪一行先到」。
+				if e.Item.ID != "" && e.Item.Status != "" {
+					res := ResultOK
+					if e.Item.Status != "completed" || e.Item.Result.IsError {
+						res = ResultFailed
+					}
+					itemRes[e.Item.ID] = struct{ res, why string }{res, reasonHead(e.Item.whyOf())}
+				}
 			}
 			mark(i, ts)
 			observe(ts)
@@ -243,6 +299,12 @@ func scanCodex(path string, s *Session) (map[string]int, error) {
 						uses[it.CallID] = i
 					}
 				}
+				acts = putAct(acts, actIdx, Act{
+					CallID: it.CallID, At: ts, Tool: it.Name, Input: rawJSON(it.Arguments),
+				})
+			}
+			if it.Type == "function_call_output" && it.CallID != "" {
+				hasOut[it.CallID] = true
 			}
 			mark(i, ts)
 			observe(ts)
@@ -309,6 +371,20 @@ func scanCodex(path string, s *Session) (map[string]int, error) {
 		s.Tools = bumpBy(s.Tools, name, n)
 	}
 	sortCounts(s.Tools)
+
+	// 行使的结果：① 带 status 的那项说了算（命令 / MCP 调用）；
+	// ② 没有 status 的（ImageView 这类）退到「有没有输出」——有输出 = 跑完了；
+	// ③ 两样都没有 = unknown（settleActs 落定），**不许当成没发生**。
+	for i := range acts {
+		if r, ok := itemRes[acts[i].CallID]; ok {
+			acts[i].Result, acts[i].Why = r.res, r.why
+			continue
+		}
+		if hasOut[acts[i].CallID] {
+			acts[i].Result = ResultOK
+		}
+	}
+	s.Acts = append(s.Acts, settleActs(acts)...)
 
 	if orphan.Total() > 0 || orphan.CacheRead > 0 {
 		s.Problems = append(s.Problems, fmt.Sprintf(

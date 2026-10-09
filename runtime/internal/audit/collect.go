@@ -1,16 +1,17 @@
 package audit
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"anc/internal/harness"
+	"anc/internal/trail"
 )
 
 // ToolRule 是「一个工具怎么读成一次行使」。
@@ -23,8 +24,8 @@ type ToolRule struct {
 	Target []string `json:"target"` // input 里哪几个键是「对谁」；按顺序取第一个非空的
 }
 
-// BuiltinTools 是出厂工具表。覆盖 Claude Code 原生工具；
-// 别的 harness（Codex / Hermes / OpenClaw…）加自己的条目即可 —— 加的是数据。
+// BuiltinTools 是出厂工具表。覆盖 Claude Code 原生工具，以及实测过的
+// Codex CLI / OpenClaw 工具名（2026-10-10）。别的 harness 加自己的条目即可 —— 加的是数据。
 //
 // 目标键留空的（Bash / Agent）：它们的 input 是自由文本，抽不出「对谁」。
 // 这类行使照样落流水（Object 为空），但归集器会把次数报进 Problems ——
@@ -43,6 +44,50 @@ func BuiltinTools() []ToolRule {
 		{Tool: "BashOutput", Action: ActionInvoke},
 		{Tool: "Agent", Action: ActionInvoke},
 		{Tool: "Task", Action: ActionInvoke},
+
+		// ---- Codex CLI（2026-10-10 在真记录上按出现次数排的，84 份 rollout）----
+		// 入参的键是 `cmd`（**不是** command）—— 实测。
+		{Tool: "exec_command", Action: ActionInvoke},
+		{Tool: "shell_command", Action: ActionInvoke},
+		{Tool: "write_stdin", Action: ActionInvoke},
+		{Tool: "js", Action: ActionInvoke},
+		{Tool: "view_image", Action: ActionRead, Target: []string{"path"}},
+		{Tool: "send_input", Action: ActionInvoke},
+		{Tool: "wait_agent", Action: ActionInvoke},
+		{Tool: "spawn_agent", Action: ActionInvoke},
+		{Tool: "request_user_input", Action: ActionInvoke},
+		{Tool: "voice_pill_status", Action: ActionInvoke},
+		{Tool: "open_in_codex", Action: ActionInvoke},
+		{Tool: "list_mcp_resources", Action: ActionInvoke},
+		{Tool: "list_mcp_resource_templates", Action: ActionInvoke},
+		// ANC 自己的接入口（实测入参只有 who）：向 ANC 要上下文 = 读，
+		// 递一条东西进来 = 写。对象都是「以谁的名义」。
+		//
+		// **同一个工具在各家的记录里名字不一样**：claude 是 mcp__anc__anc_xxx、
+		// openclaw 是 anc__anc_xxx、codex 是光秃秃的 anc_xxx —— 名字里带不带
+		// 命名空间前缀是那一家的事，归集只认记录里写的是什么，所以三个都登记。
+		{Tool: "anc_read_context", Action: ActionRead, Target: []string{"who"}},
+		{Tool: "anc_send_envelope", Action: ActionWrite, Target: []string{"who"}},
+		{Tool: "mcp__anc__anc_read_context", Action: ActionRead, Target: []string{"who"}},
+		{Tool: "mcp__anc__anc_send_envelope", Action: ActionWrite, Target: []string{"who"}},
+		{Tool: "anc__anc_read_context", Action: ActionRead, Target: []string{"who"}},
+		{Tool: "anc__anc_send_envelope", Action: ActionWrite, Target: []string{"who"}},
+
+		// ---- OpenClaw（同一批实测；工具名带 MCP 命名空间前缀时原样搬）----
+		{Tool: "read", Action: ActionRead, Target: []string{"path"}},
+		{Tool: "memory_get", Action: ActionRead, Target: []string{"path"}},
+		{Tool: "write", Action: ActionWrite, Target: []string{"path"}},
+		{Tool: "edit", Action: ActionWrite, Target: []string{"path"}},
+		{Tool: "web_fetch", Action: ActionRead, Target: []string{"url"}},
+		// `gateway` 也有 path 这个键，但那是它自己的配置路径、不是被行使的文件 ——
+		// 登记目标键会把它错归成「读了一个文件」，所以这里刻意不登记（那一条报「没有目标键」是对的）。
+		{Tool: "gateway", Action: ActionInvoke},
+		{Tool: "exec", Action: ActionInvoke},
+		{Tool: "process", Action: ActionInvoke},
+		{Tool: "message", Action: ActionInvoke},
+		{Tool: "sessions_history", Action: ActionInvoke},
+		{Tool: "session_status", Action: ActionInvoke},
+		{Tool: "feishu_chat", Action: ActionInvoke},
 	}
 }
 
@@ -69,9 +114,13 @@ type CollectResult struct {
 //
 // 三条口径：
 //   - **只读**：不改上游、不碰会话文件。
-//   - **幂等**：Record.ID 由（会话 id, tool_use id）拼成；重跑不会写第二条。
+//   - **幂等**：Record.ID 由（会话 id, tool call id）拼成；重跑不会写第二条。
 //     调用方传 Known（既有 id 集合）来跳过已记的。
 //   - **记不到的显式报**：目标抽不出、工具没登记、结果配不上，一律进 Problems。
+//
+// 分工是硬的：**记录长什么样**由 trail 的读取器管（一家一份格式知识），
+// **一次行使该怎么读**（read / write / invoke、对谁）由这里的工具表管（那是数据）。
+// 归集自己不解析任何一家的记录 —— 混进来的话，读法会跟着记录格式一起漂。
 //
 // 「本可以行使但没行使」**这里永远不会出现** —— 它没发生，就没有记录可归集。
 // 那一类只能靠显式补记（`anc audit add`）。这是这份流水的边界，页面要如实写。
@@ -94,31 +143,170 @@ func Collect(opt CollectOptions) CollectResult {
 	noTarget := map[string]int{}      // 工具表里没登记目标键（Bash 这类）
 	missingTarget := map[string]int{} // 登记了目标键、但记录里那个字段是空的
 
-	for _, project := range sortedKeys(opt.Projects) {
+	// note 记一问题，但**同一句话只说一次**。读取器对每一份记录都会追加同样的口径说明
+	// （「codex 的记录里没有金额」这类），一份一句会把它刷成几十行，反而看不见真正的问题。
+	// 带文件名的那种（「N 行解析不了」）本来就是一句一样，不会被吃掉。
+	seenNote := map[string]bool{}
+	// noteShard 把一份分片自己报的问题带上（去重键是**读取器的原话**）。
+	// 读取器对每一份记录都会追加同样的口径说明（「codex 的记录里没有金额」这类），
+	// 一份一句会把它刷成几十行、反而看不见真正的问题；而带文件名的那种
+	// （「N 行解析不了」）各是各的，不会被吃掉。
+	noteShard := func(path string, probs []string) {
+		for _, x := range probs {
+			if seenNote[x] {
+				continue
+			}
+			seenNote[x] = true
+			res.Problems = append(res.Problems, fmt.Sprintf("%s：%s", filepath.Base(path), x))
+		}
+	}
+	note := func(x string) {
+		if seenNote[x] {
+			return
+		}
+		seenNote[x] = true
+		res.Problems = append(res.Problems, x)
+	}
+
+	// readShard 读一份分片，把它自己报的问题一并交出来（**报不报由调用方定**：
+	// 不是我们项目的记录，连它的口径说明都不该出现在我们的归集结果里）。
+	readShard := func(path string) (trail.Session, []string) {
+		s := trail.ReadShard(opt.Family, path)
+		return s, s.Problems
+	}
+
+	// collectActs 把一份**已经读出来的**分片里的行使，按工具表分类落流水。
+	// 分片读一次就够（codex 那一家一份记录能到几十兆）—— 认领归属也用同一次读出来的 cwd。
+	collectActs := func(s trail.Session, id, project string) {
 		actor := project
 		if opt.ActorOf != nil {
 			if a := strings.TrimSpace(opt.ActorOf(project)); a != "" {
 				actor = a
 			}
 		}
-		dir, derr := opt.Family.TranscriptDir(opt.ClaudeHome, opt.Projects[project])
-		if derr != nil {
-			res.Problems = append(res.Problems, derr.Error())
-			continue
-		}
-		names, err := os.ReadDir(dir)
-		if err != nil {
-			// 记录目录不在 = 这个 bot 还没有过会话（或没跑在这台机器上）。
-			// 不报 Problem：那是「还没发生」，不是「读不到」（区别见 ReadSession 的 Found）。
-			continue
-		}
-		for _, n := range names {
-			if n.IsDir() || !strings.HasSuffix(n.Name(), ".jsonl") {
+		for _, a := range s.Acts {
+			res.Calls++
+			rule, ok := byTool[a.Tool]
+			if !ok {
+				// 没登记的工具**不静默丢掉**，但也不落流水：记下名字，扫完统一报一次。
+				unregistered[a.Tool]++
 				continue
 			}
+			r := Record{
+				ID:     id + ":" + a.CallID,
+				At:     a.At.Format(time.RFC3339),
+				Actor:  actor,
+				Action: rule.Action,
+				Object: targetOf(a.Input, rule.Target),
+				Tool:   a.Tool,
+				Source: "collect:" + opt.Family.ID,
+				Ref:    id,
+				Detail: head(inputDigest(a.Tool, a.Input), 160),
+				Why:    a.Why,
+			}
+			// 目标抽不出来分两种：工具表没登记目标键（Bash 这类）vs 登记了但记录里是空的。
+			// 两个都得报，但**原因不同** —— 混成一句话会把人送去改错的地方。
+			if r.Object == "" {
+				if len(rule.Target) == 0 {
+					noTarget[a.Tool]++
+				} else {
+					missingTarget[a.Tool]++
+				}
+			}
+			if !opt.Since.IsZero() && a.At.Before(opt.Since) {
+				continue
+			}
+			if opt.Known[r.ID] {
+				continue
+			}
+			switch a.Result {
+			case trail.ResultOK:
+				r.Result = ResultOK
+			case trail.ResultDenied:
+				r.Result = ResultDenied
+			case trail.ResultFailed:
+				r.Result = ResultFailed
+			default:
+				// 没有结果：这一轮被中断了（会话断了 / 进程被杀了）。
+				// **不许当成「没发生」**，也不许猜一个结果出来 —— 落 unknown，并在 Problems 里说清。
+				r.Result = ResultUnknown
+				r.Detail = strings.TrimSpace(r.Detail + "（没有配到结果，是这一轮被中断了）")
+				res.Problems = append(res.Problems, fmt.Sprintf(
+					"%s 的 %s 调用没有配到结果（结果落 unknown）—— 多半是那一轮被中断，不是它没发生",
+					id, a.Tool))
+			}
+			res.Records = append(res.Records, r)
+		}
+	}
+
+	// 分片从哪来，两种口径（都来自接入口径表）：
+	//  ① 声明了 shard_dir 的家：分片堆在同一层里，目录从项目名推不出来 → 全扫出来，
+	//     再按记录里的 cwd 认领到项目（codex 按 年/月/日 分层就是这样）。
+	//  ② 别的家：按项目推目录（<root>/<projects_dir>/<slug(work_dir)>）—— 目录本身就是项目。
+	shards, global, serr := opt.Family.EnumerateShards(opt.ClaudeHome)
+	if serr != nil {
+		res.Problems = append(res.Problems, serr.Error())
+		return res
+	}
+	if global {
+		// 归一化后的工作目录 → 项目：记录里的 cwd 与配置里的 work_dir 写法可能不一样
+		// （分隔符、大小写），比的是归一化之后的值。
+		byDir := map[string]string{}
+		for _, project := range sortedKeys(opt.Projects) {
+			byDir[normPath(opt.Projects[project])] = project
+		}
+		for _, path := range shards {
 			res.Shards++
-			collectShard(filepath.Join(dir, n.Name()), strings.TrimSuffix(n.Name(), ".jsonl"), actor,
-				byTool, unregistered, noTarget, missingTarget, opt, &res)
+			s, probs := readShard(path)
+			if !s.Found {
+				// 读不到就认不出归属：它可能是我们的、也可能是别人的。不静默 ——
+				// 「读不到」伪装成「没有」是这份流水最不能犯的错。
+				noteShard(path, probs)
+				continue
+			}
+			project, ok := byDir[normPath(s.Cwd)]
+			if !ok {
+				// 认不到 = 别的目录的会话（这台机器上不止我们这几个项目），跳过 ——
+				// 连它自己的口径说明都不该混进我们的归集结果。
+				// **但记录里没有 cwd 是另一回事**：那说明这份分片认不出归属，
+				// 得报出来 —— 不能悄悄当成「没有」。
+				if strings.TrimSpace(s.Cwd) == "" {
+					noteShard(path, probs)
+					note(fmt.Sprintf(
+						"%s 里没有 cwd（%s 那一家认归属就是靠它）—— 这份分片里的 %d 次行使没有归集，这是**读不到**",
+						filepath.Base(path), opt.Family.ID, len(s.Acts)))
+				}
+				continue
+			}
+			noteShard(path, probs)
+			collectActs(s, shardID(path), project)
+		}
+	} else {
+		for _, project := range sortedKeys(opt.Projects) {
+			dir, derr := opt.Family.TranscriptDir(opt.ClaudeHome, opt.Projects[project])
+			if derr != nil {
+				res.Problems = append(res.Problems, derr.Error())
+				continue
+			}
+			names, err := os.ReadDir(dir)
+			if err != nil {
+				// 记录目录不在 = 这个 bot 还没有过会话（或没跑在这台机器上）。
+				// 不报 Problem：那是「还没发生」，不是「读不到」（区别见 ReadShard 的 Found）。
+				continue
+			}
+			for _, n := range names {
+				if n.IsDir() || !strings.HasSuffix(n.Name(), ".jsonl") {
+					continue
+				}
+				res.Shards++
+				path := filepath.Join(dir, n.Name())
+				s, probs := readShard(path)
+				noteShard(path, probs)
+				if !s.Found {
+					continue
+				}
+				collectActs(s, shardID(path), project)
+			}
 		}
 	}
 	for _, tool := range sortedKeys(unregistered) {
@@ -139,154 +327,21 @@ func Collect(opt CollectOptions) CollectResult {
 	return res
 }
 
-// outcome 是一次工具调用的结果。
-type outcome struct {
-	isError bool
-	denied  bool
-	why     string
+// shardID 是分片的会话句柄：文件名去后缀（各家都是这一条，见接入口径表的 session_handle）。
+func shardID(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 }
 
-// collectShard 扫一个会话文件。
+// normPath 把路径归一成「能比」的样子：分隔符统一、去掉 ./ 这类冗余。
 //
-// 同一条 tool_use 会被写多行（流式中间态里 input 还没流完），所以**后到的覆盖先到的** ——
-// 保留最后那一份完整的 input。tool_result 只会出现一次，但同样按 id 存，不依赖顺序。
-func collectShard(path, sessionID, actor string, byTool map[string]ToolRule,
-	unregistered, noTarget, missingTarget map[string]int, opt CollectOptions, res *CollectResult) {
-
-	f, err := os.Open(path)
-	if err != nil {
-		res.Problems = append(res.Problems, "读不动会话记录 "+filepath.Base(path)+"："+firstLine(err.Error()))
-		return
+// Windows 上同一个目录的大小写可以不一样（配置里写 D:\Foo，记录里写 d:\foo），
+// 所以那一头不分大小写；别家分大小写，照原样比。
+func normPath(p string) string {
+	p = filepath.ToSlash(filepath.Clean(strings.TrimSpace(p)))
+	if runtime.GOOS == "windows" {
+		p = strings.ToLower(p)
 	}
-	defer f.Close()
-
-	uses := map[string]Record{}
-	var order []string
-	outcomes := map[string]outcome{}
-	// 没登记的工具：记 id → 名字（去重），扫完统一报一次。
-	// 不在扫的过程中计数 —— 流式中间态会让同一条调用出现多行，边扫边数会重复计。
-	unregIDs := map[string]string{}
-
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64<<10), maxLine)
-	for sc.Scan() {
-		var l struct {
-			Type      string `json:"type"`
-			Timestamp string `json:"timestamp"`
-			Denial    string `json:"toolDenialKind"`
-			Message   struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal(sc.Bytes(), &l) != nil || len(l.Message.Content) == 0 {
-			continue
-		}
-		var blocks []struct {
-			Type      string          `json:"type"`
-			ID        string          `json:"id"`
-			Name      string          `json:"name"`
-			Input     json.RawMessage `json:"input"`
-			ToolUseID string          `json:"tool_use_id"`
-			IsError   bool            `json:"is_error"`
-			Content   json.RawMessage `json:"content"`
-		}
-		if json.Unmarshal(l.Message.Content, &blocks) != nil {
-			continue
-		}
-		for _, b := range blocks {
-			switch b.Type {
-			case "tool_use":
-				if b.ID == "" {
-					continue
-				}
-				rule, ok := byTool[b.Name]
-				if !ok {
-					// 没登记的工具**不静默丢掉**，但也不落流水：记下 id（去重），扫完统一报一次。
-					unregIDs[b.ID] = b.Name
-					delete(uses, b.ID)
-					continue
-				}
-				if _, seen := uses[b.ID]; !seen {
-					order = append(order, b.ID)
-				}
-				// 后到的覆盖先到的（流式中间态里 input 还没流完，最后那份才是完整的）。
-				uses[b.ID] = Record{
-					ID:     sessionID + ":" + b.ID,
-					At:     l.Timestamp,
-					Actor:  actor,
-					Action: rule.Action,
-					Object: targetOf(b.Input, rule.Target),
-					Tool:   b.Name,
-					Source: "collect:" + opt.Family.ID,
-					Ref:    sessionID,
-					Detail: head(inputDigest(b.Name, b.Input), 160),
-				}
-			case "tool_result":
-				if b.ToolUseID == "" {
-					continue
-				}
-				outcomes[b.ToolUseID] = outcome{
-					isError: b.IsError,
-					denied:  l.Denial != "",
-					why:     reasonHead(blockText(b.Content)),
-				}
-			}
-		}
-	}
-	if err := sc.Err(); err != nil {
-		res.Problems = append(res.Problems, "会话记录 "+
-			filepath.Base(path)+" 读到一半断了（"+firstLine(err.Error())+"）—— 这一份可能少记，别当成没发生")
-	}
-
-	for _, name := range unregIDs {
-		unregistered[name]++
-	}
-	for _, id := range order {
-		r, ok := uses[id]
-		if !ok {
-			continue
-		}
-		res.Calls++
-		// 目标抽不出来分两种：工具表没登记目标键（Bash 这类）vs 登记了但记录里是空的。
-		// 两个都得报，但**原因不同** —— 混成一句话会把人送去改错的地方。
-		// 在**最终形态**上数：流式中间态的 `{}` 不算「记录不全」。
-		if r.Object == "" {
-			if len(byTool[r.Tool].Target) == 0 {
-				noTarget[r.Tool]++
-			} else {
-				missingTarget[r.Tool]++
-			}
-		}
-		if !opt.Since.IsZero() {
-			t, perr := time.Parse(time.RFC3339, r.At)
-			if perr != nil || t.Before(opt.Since) {
-				continue
-			}
-		}
-		if opt.Known[r.ID] {
-			continue
-		}
-		if o, ok := outcomes[id]; ok {
-			switch {
-			case !o.isError:
-				r.Result = ResultOK
-			case o.denied:
-				r.Result = ResultDenied
-			default:
-				r.Result = ResultFailed
-			}
-			r.Why = o.why
-		} else {
-			// 没有结果：这一轮被中断了（会话断了 / 进程被杀了）。
-			// **不许当成「没发生」**，也不许猜一个结果出来 —— 落 unknown，并在 Problems 里说清。
-			r.Result = ResultUnknown
-			r.Detail = strings.TrimSpace(r.Detail + "（没有配到结果，是这一轮被中断了）")
-			res.Problems = append(res.Problems, fmt.Sprintf(
-				"%s 的 %s 调用没有配到结果（结果落 unknown）—— 多半是那一轮被中断，不是它没发生",
-				sessionID, r.Tool))
-		}
-		res.Records = append(res.Records, r)
-	}
+	return p
 }
 
 // targetOf 从 input 里取「对谁」。键按顺序试，取第一个非空字符串。

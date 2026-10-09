@@ -78,6 +78,9 @@ type ocBlock struct {
 	Text string `json:"text"`
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Arguments 是**对象**（实测：`"arguments":{"who":"alice","kind":"report"}`）——
+	// 和 codex / codebuddy 那种「arguments 是字符串」不是同一种形状，别混。
+	Arguments json.RawMessage `json:"arguments"`
 }
 
 // usageOf 取这条 assistant 消息的账。
@@ -135,6 +138,8 @@ func scanOpenClaw(path string, s *Session) (map[string]int, error) {
 		respTurn = map[string]int{}
 		tools    = map[string]int{}
 		uses     = map[string]int{}
+		acts     []Act              // 一次次行使的原始事实（归集用）
+		actIdx   = map[string]int{} // toolCall id → acts 下标
 		failures []Failure
 		badLines int
 		cur      = -1
@@ -174,6 +179,10 @@ func scanOpenClaw(path string, s *Session) (map[string]int, error) {
 			}
 		}
 		if l.Type != "message" {
+			// type=session 那一行带 cwd（实测）—— 认领这份分片属于哪个项目就靠它。
+			if l.Cwd != "" && s.Cwd == "" {
+				s.Cwd = l.Cwd
+			}
 			observe(ts)
 			continue
 		}
@@ -233,9 +242,16 @@ func scanOpenClaw(path string, s *Session) (map[string]int, error) {
 						uses[b.ID] = cur
 					}
 				}
+				acts = putAct(acts, actIdx, Act{CallID: b.ID, At: ts, Tool: b.Name, Input: b.Arguments})
 			}
 
 		case "toolResult":
+			// 行使的结果：判据是记录里现成的 isError。
+			res, why := ResultOK, ""
+			if m.IsError {
+				res, why = ResultFailed, reasonHead(m.textOf())
+			}
+			setActResult(acts, actIdx, m.ToolCallID, res, why)
 			// 没成功的动作：isError 为真。原因照抄记录原话（截断），不转述。
 			if m.IsError {
 				i := cur
@@ -278,6 +294,7 @@ func scanOpenClaw(path string, s *Session) (map[string]int, error) {
 	}
 	s.Turns = append(s.Turns, turns...)
 	s.Failures = append(s.Failures, failures...)
+	s.Acts = append(s.Acts, settleActs(acts)...)
 	for name, n := range tools {
 		s.Tools = bumpBy(s.Tools, name, n)
 	}
