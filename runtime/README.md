@@ -443,6 +443,11 @@ anc_read_context(who, on_behalf_of?, domain?)                                   
 —— `tools/list` 两个工具都在；`who=alice, domain=logistics`（跨域）回 `refused` 且 `audit/` 里落一条 `denied`；
 `who=nobody` 回「我们公司没有这个人」；四种请求的回话里都搜不到 vault 绝对路径与盘符。
 
+**接法（不变量）已定形**（2026-10-09）：`../SPEC.md` **§4.7** —— 网关 **G1–G4** + 四条禁令、
+harness **H1–H4**、业务 agent 独立账号的五件套。判据一句话：**换一个网关、加一条 harness 腿，
+是「加一张表 + 一个适配器」，不是重写一套。**
+上面那张 harness 实测表就是 H1 / H2 的现场证据；**H3（原生记录 + 用量三口径）与 H4（工具名映射）
+的第二条腿仍未实测** —— 见 `DESIGN.md` §7 清单最后两行。
 形状与口径见 `internal/envelope/`（解析与绑定）与 `internal/mcp/`（协议层）。
 可见范围那把尺子在 `internal/render/domains.go`（`VisibleDomains`）—— persona 与出站读出口共用。
 ### 验证到了哪一步（别把「一致」当成「已验证」）

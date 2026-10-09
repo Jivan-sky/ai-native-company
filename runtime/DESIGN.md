@@ -42,7 +42,11 @@
 - **阶段 C 的装载（2026-10-07 落地）**：`anc serve` **不写** —— 装载 = 上游 daemon（见 D4）。
   一条 `anc apply`：渲染 → 校验 → `cc-connect daemon install --no-capture-secrets --force`
   → 凭据桥（把 secrets.env 读进 daemon 进程环境）→ `restart --force` → 回读。实测见 §7.1.8。
-- **D1 / D2 与 D3 的其余部分**：**仍未拍板**。
+- **D1（服务侧那半，2026-10-08 由 SPEC §6-9 拍定）**：**跑在服务侧的 bot（业务 Bot、devbot）一律独立 OS 账号**；
+  成员 Bot 跑在成员**自己的机器**上，共用人机身份 —— 所以「一人一系统账号」不是本档的口径。
+  五件套（独立账号 / HOME / 凭据 / cwd / `allowed_tools` 非空）与接法见 `../SPEC.md` **§4.7③**。
+  **D1 剩下的**只是成员 Bot 那一侧的落法。
+- **D2 与 D3 的其余部分**：**仍未拍板**（D1 见上一条）。
 - **域表（罗盘）落点**（2026-10-07 拍板）：一条业务域 = `domains.md` 里一行；
   `slug`（ASCII）/ `name`（中文）分列，`who` **填岗位**、人名渲染时从 `members/` 现算，
   `data` 是**指针**（顶层目录名）不是说明，列序按表头认、多出来的列忽略。
@@ -191,6 +195,8 @@ anc doctor                   # 环境与网络自检（已实现）
 | 登录自启（`-AtLogOn` / linger / launchd） | 注销或重启一次，不人工登录 GUI | 服务被拉起且凭据可用 —— **Linux 已实测，含硬断电，见 §7.1.11；Windows 只有登录触发器，未验**；`anc doctor` 现在会把这三条前提（Windows 是触发器 + 电源条件）自检一遍，只读 |
 | `anc trail` 在别的 harness 上 | 用 codex / hermes 各跑一轮，再 `anc trail` | 账能跟那个 harness 自己的成本记录对上（现在是 claude 专属解析） |
 | 审计的归集在别的 harness 上 | 用 codex / hermes 各跑一轮，再 `anc audit collect` | 行使能归集出来（工具表是数据，加条目即可）—— **未实测**，现在归集只认 claude 会话记录的格式 |
+
+> 上面最后两行的**接法**已定形：`../SPEC.md` **§4.7②**（H3 原生记录可读 + 用量三口径 / H4 工具名映射是数据）。**换腿 = 加一张表 + 一个 adapter，不是写第二套**；本表这两行在真跑通之前保持「未实测」。
 
 ### 7.1 已实测（2026-10-07，Windows + Linux 两腿，cc-connect v1.3.4 / commit 27c1de8f）
 
