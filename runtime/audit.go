@@ -334,7 +334,7 @@ func cmdAuditCollect(args []string) int {
 	if cfgPath == "" {
 		cfgPath = filepath.Join(filepath.Dir(abs), "gateway", "config.toml")
 	}
-	fam, home, homeWhy, ferr := resolveRecordsRoot(*harnessTable, *harnessID, *claudeHome)
+	_, fam, home, homeWhy, ferr := resolveRecordsRoot(*harnessTable, *harnessID, *claudeHome)
 	if ferr != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", ferr)
 		return 2

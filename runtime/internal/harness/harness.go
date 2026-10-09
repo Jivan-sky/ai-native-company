@@ -106,7 +106,11 @@ type Family struct {
 	SessionHandle string `json:"session_handle,omitempty"`
 	// Reader 是读取器名；空 = 这家只登记了口径、还没有读取器，代码必须拒绝读。
 	Reader string `json:"reader,omitempty"`
-	Layout Layout `json:"layout"`
+	// AgentTypes 是**别处怎么称呼这一家**（如 cc-connect 的 agent_type 写 "claudecode"）。
+	// 桥（网关的会话落盘）里只写这个字符串，读的时候要把它翻成表里的某一家 ——
+	// 翻译表也放在数据里，因为「外面怎么叫」和「我们怎么叫」是两件不同的事。
+	AgentTypes []string `json:"agent_types,omitempty"`
+	Layout     Layout   `json:"layout"`
 	// Note 给读表的人：这条口径是从哪来的、哪些还没验。
 	Note string `json:"note,omitempty"`
 }
@@ -166,6 +170,8 @@ func (t Table) validate() error {
 		return fmt.Errorf("families 是空的")
 	}
 	seen := map[string]bool{}
+	// 别名是**跨家唯一**的：同一个 agent_type 指两家 = 一段会话没法认家，只能报错。
+	aliases := map[string]string{}
 	for _, f := range t.Families {
 		if strings.TrimSpace(f.ID) == "" {
 			return fmt.Errorf("有一家的 id 是空的")
@@ -174,6 +180,17 @@ func (t Table) validate() error {
 			return fmt.Errorf("id 重复：%s", f.ID)
 		}
 		seen[f.ID] = true
+		for _, a := range f.AgentTypes {
+			key := strings.ToLower(strings.TrimSpace(a))
+			if key == "" {
+				return fmt.Errorf("%s 的 agent_types 里有一个空字符串", f.ID)
+			}
+			if owner, dup := aliases[key]; dup {
+				return fmt.Errorf("agent_type %q 同时指 %s 和 %s —— 一段会话只能有一家口径，撞了就没法认家",
+					a, owner, f.ID)
+			}
+			aliases[key] = f.ID
+		}
 		if strings.TrimSpace(f.Display) == "" {
 			return fmt.Errorf("%s 的 display 是空的", f.ID)
 		}
@@ -217,6 +234,37 @@ func (t Table) Lookup(id string) (Family, bool) {
 		}
 	}
 	return Family{}, false
+}
+
+// ForAgentType 把「别处对某一家的称呼」翻成表里的那一家。
+//
+// 桥里只写一个 agent_type 字符串（实测 cc-connect 写的是 claudecode / codex），
+// 它和表里的 id **不是一回事** —— 所以这张翻译表也在数据里。
+// 翻不出来就是翻不出来（返回 false），调用方**不许退回默认口径**：按错的口径读出来的
+// 数字比读不到更糟（读不到会被追，读错了不会）。
+func (t Table) ForAgentType(name string) (Family, bool) {
+	want := strings.ToLower(strings.TrimSpace(name))
+	if want == "" {
+		return Family{}, false
+	}
+	for _, f := range t.Families {
+		for _, a := range f.AgentTypes {
+			if strings.ToLower(strings.TrimSpace(a)) == want {
+				return f, true
+			}
+		}
+	}
+	return Family{}, false
+}
+
+// AgentTypes 列出表里认的全部别名（稳定顺序，给「认不出这个类型」的报错信息用）。
+func (t Table) AgentTypes() []string {
+	var out []string
+	for _, f := range t.Families {
+		out = append(out, f.AgentTypes...)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // IDs 列出表里所有 id（稳定顺序，给报错信息用）。

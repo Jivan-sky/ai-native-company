@@ -188,3 +188,53 @@ func TestNoRecordFamilyNeedsNoLayout(t *testing.T) {
 		t.Errorf("没有记录的家不该要求布局：%v", err)
 	}
 }
+
+// 桥（cc-connect 的会话落盘）里写的是**它自己的叫法**，不是我们表里的 id ——
+// 所以翻译表也在数据里（agent_types）。
+func TestForAgentTypeTranslatesBridgeNames(t *testing.T) {
+	tb := Default()
+	cases := map[string]string{
+		"claudecode": "claude", // 实测 cc-connect 写的就是这个
+		"CLAUDECODE": "claude", // 大小写不敏感
+		" codex ":    "codex",
+		"openclaw":   "openclaw",
+	}
+	for name, want := range cases {
+		f, ok := tb.ForAgentType(name)
+		if !ok || f.ID != want {
+			t.Errorf("%q 该翻成 %q，拿到 %q / %v", name, want, f.ID, ok)
+		}
+	}
+	// 翻不出来就是翻不出来：别人家的类型（cc-connect 支持但我们没接）与空串都不许瞎认。
+	for _, nope := range []string{"", "   ", "gemini", "claude-code"} {
+		if f, ok := tb.ForAgentType(nope); ok {
+			t.Errorf("%q 不该认得，却翻成了 %q", nope, f.ID)
+		}
+	}
+}
+
+// 同一个 agent_type 指两家 = 一段会话没法认家：必须在**读表**时就拒掉，
+// 而不是等到读记录时再看谁先命中（那会随遍历顺序变，同一个现场两次结果不同）。
+func TestValidateRejectsDuplicateAgentType(t *testing.T) {
+	fam := func(id, display, types string) string {
+		return `{"id":"` + id + `","display":"` + display + `","agent_types":` + types +
+			`,"record_format":"jsonl-plain","layout":{"dir_rule":"nonalnum-to-dash","projects_dir":"p","main_file":"<id>.jsonl"}}`
+	}
+	body := `{"schema":"anc.harnesses/v1","families":[` +
+		fam("a", "A", `["x","y"]`) + `,` + fam("b", "B", `["z","y"]`) + `]}`
+	p := filepath.Join(t.TempDir(), "h.json")
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil {
+		t.Error(`"y" 同时指 a 和 b，却过了 —— 一段会话到底按哪家读就成了没答案的问题`)
+	}
+
+	empty := `{"schema":"anc.harnesses/v1","families":[` + fam("a", "A", `["x","  "]`) + `]}`
+	if err := os.WriteFile(p, []byte(empty), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(p); err == nil {
+		t.Error("agent_types 里有个空字符串，却过了 —— 空串会把「没写类型」的槽也认走")
+	}
+}

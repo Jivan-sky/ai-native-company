@@ -87,7 +87,7 @@ func cmdTrail(args []string) int {
 	if dataPath == "" {
 		dataPath = filepath.Join(filepath.Dir(abs), "data")
 	}
-	fam, home, homeWhy, ferr := resolveRecordsRoot(*harnessTable, *harnessID, *claudeHome)
+	tb, fam, home, homeWhy, ferr := resolveRecordsRoot(*harnessTable, *harnessID, *claudeHome)
 	if ferr != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", ferr)
 		return 2
@@ -95,6 +95,19 @@ func cmdTrail(args []string) int {
 	if rerr := fam.CanRead(); rerr != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", rerr)
 		return 1
+	}
+	// 记录根**按家各算一份**：codex 在它自己的家目录、openclaw 在它自己的 ——
+	// 一个组织里不同 bot 用不同 harness 是常态，所以一次 trail 里根不止一个。
+	// 兜底那一家（--harness 指的）先按旗标算，其余按各自的环境变量 / 家目录算。
+	rootCache := map[string]familyRoot{fam.ID: {ID: fam.ID, Display: fam.Display, Root: home, Why: homeWhy}}
+	rootOf := func(f harness.Family) familyRoot {
+		if r, ok := rootCache[f.ID]; ok {
+			return r
+		}
+		root, why := f.ResolveRoot("")
+		r := familyRoot{ID: f.ID, Display: f.Display, Root: root, Why: why}
+		rootCache[f.ID] = r
+		return r
 	}
 
 	raw, err := os.ReadFile(cfgPath)
@@ -119,7 +132,7 @@ func cmdTrail(args []string) int {
 	var all []trail.Session
 	incomplete := false
 	for _, p := range projects {
-		sessions := collectSessions(fam, p, workDirs[p], dataPath, home)
+		sessions := collectSessions(tb, fam, rootOf, p, workDirs[p], dataPath)
 		for _, s := range sessions {
 			if len(s.Problems) > 0 {
 				incomplete = true
@@ -143,6 +156,12 @@ func cmdTrail(args []string) int {
 		}
 		rules, rulesWhy = loaded, *rulesFile
 	}
+	usedRoots := make([]familyRoot, 0, len(rootCache))
+	for _, r := range rootCache {
+		usedRoots = append(usedRoots, r)
+	}
+	sort.Slice(usedRoots, func(i, j int) bool { return usedRoots[i].ID < usedRoots[j].ID })
+
 	findings := make([][]judge.Finding, len(all))
 	if !*noJudge {
 		for i, s := range all {
@@ -164,17 +183,20 @@ func cmdTrail(args []string) int {
 			"judge_schema": judge.Schema,
 			"vault":        abs,
 			"data":         dataPath,
-			"claude_home":  home,
-			"claude_why":   homeWhy,
-			"rules":        rulesWhy,
-			"sessions":     items,
-			"totals":       totals(all),
+			// 兜底那一家（--harness 指的）的根保留原名（消费方可能已经在读）。
+			"claude_home": home,
+			"claude_why":  homeWhy,
+			// 这一次真正用到的每一家 + 各自的根 —— 混编的组织里不止一家。
+			"records":  rootsJSON(usedRoots),
+			"rules":    rulesWhy,
+			"sessions": items,
+			"totals":   totals(all),
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(out)
 	} else {
-		printTrail(abs, dataPath, home, homeWhy, rulesWhy, all, findings, *turnLimit, !*noJudge)
+		printTrail(abs, dataPath, usedRoots, rulesWhy, all, findings, *turnLimit, !*noJudge)
 	}
 	if incomplete {
 		return 1
@@ -182,14 +204,15 @@ func cmdTrail(args []string) int {
 	return 0
 }
 
-// resolveRecordsRoot 按接入口径表定出「哪一家 + 记录根」。
+// resolveRecordsRoot 按接入口径表定出「兜底哪一家 + 它的记录根」，并把整张表一并交出来
+// （桥里写的 agent_type 要拿这张表翻成家）。
 //
-// 表从哪来（内置 / --harnesses）和用哪一家（--harness）都在这里收口 ——
+// 表从哪来（内置 / --harnesses）和兜底用哪一家（--harness）都在这里收口 ——
 // trail 与 audit 共用同一份口径，所以「换一家」是一处的事，不是两处。
-func resolveRecordsRoot(tableFile, familyID, flagVal string) (harness.Family, string, string, error) {
+func resolveRecordsRoot(tableFile, familyID, flagVal string) (harness.Table, harness.Family, string, string, error) {
 	tb, err := harness.Load(tableFile)
 	if err != nil {
-		return harness.Family{}, "", "", err
+		return harness.Table{}, harness.Family{}, "", "", err
 	}
 	id := strings.TrimSpace(familyID)
 	if id == "" {
@@ -197,18 +220,56 @@ func resolveRecordsRoot(tableFile, familyID, flagVal string) (harness.Family, st
 	}
 	fam, ok := tb.Lookup(id)
 	if !ok {
-		return harness.Family{}, "", "", fmt.Errorf("口径表里没有 %q 这家（表里有：%s）", id, strings.Join(tb.IDs(), " / "))
+		return tb, harness.Family{}, "", "", fmt.Errorf("口径表里没有 %q 这家（表里有：%s）", id, strings.Join(tb.IDs(), " / "))
 	}
 	root, why := fam.ResolveRoot(flagVal)
 	if why != "" {
 		why = why + "；口径 " + fam.Display
 	}
-	return fam, root, why, nil
+	return tb, fam, root, why, nil
+}
+
+// familyRoot 是「一家 + 它的记录根」——一次 trail 里可能有多家（桥里写谁就是谁）。
+type familyRoot struct {
+	ID      string
+	Display string
+	Root    string
+	Why     string
+}
+
+// rootsJSON 是 / --json 里那份「这一次用到了哪些家、各自的根在哪」。
+func rootsJSON(rs []familyRoot) []map[string]any {
+	out := make([]map[string]any, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, map[string]any{"harness": r.ID, "display": r.Display, "root": r.Root, "why": r.Why})
+	}
+	return out
+}
+
+// pickFamily 决定**这一段会话**按哪一家的口径读 —— 认的是桥自己写的 agent_type，
+// 不是命令行那个旗标（一个组织里不同 bot 用不同 harness，旗标一次只能给一家）。
+//
+// 三种情形，都不猜：
+//   - 桥里写了、表里也认 → 用那一家（记录根也换成那一家自己的）；
+//   - 桥里没写（老槽、从没起来过）→ 退回旗标那一家 —— 旗标本来就是干这个的；
+//   - 桥里写了、表里不认 → 返回 why，调用方**明说读不到**。不许按别家口径硬读：
+//     按错的口径读出来的数字比读不到更糟（读不到会被追，读错了不会）。
+func pickFamily(tb harness.Table, fallback harness.Family, agentType string) (harness.Family, string) {
+	want := strings.TrimSpace(agentType)
+	if want == "" {
+		return fallback, ""
+	}
+	if f, ok := tb.ForAgentType(want); ok {
+		return f, ""
+	}
+	return harness.Family{}, fmt.Sprintf(
+		"桥里说这一段是 %q，接入口径表里没有对得上的那家（表里认的类型：%s）—— 不按别家口径硬读",
+		want, strings.Join(tb.AgentTypes(), " / "))
 }
 
 // collectSessions 把一个 project 的记录归集齐：cc-connect 说「有哪些 harness 会话」，
 // 原生记录给出「每一段干了什么」。
-func collectSessions(fam harness.Family, project, workDir, dataPath, root string) []trail.Session {
+func collectSessions(tb harness.Table, fallback harness.Family, rootOf func(harness.Family) familyRoot, project, workDir, dataPath string) []trail.Session {
 	files, _ := filepath.Glob(filepath.Join(gateway.CCConnect.SessionsDir(dataPath), project+"_*.json"))
 	sort.Strings(files)
 	var out []trail.Session
@@ -222,6 +283,20 @@ func collectSessions(fam harness.Family, project, workDir, dataPath, root string
 			continue
 		}
 		for _, b := range bridges {
+			fam, why := pickFamily(tb, fallback, b.AgentType)
+			if why != "" {
+				// 桥说的那家我们不认识：ID 照搬（人要看得出是哪一段），账明说读不到。
+				id := b.SessionID
+				if id == "" && len(b.PastIDs) > 0 {
+					id = b.PastIDs[0]
+				}
+				out = append(out, trail.Session{
+					Schema: trail.Schema, Project: project, Slot: b.Slot, ID: id,
+					AgentType: b.AgentType, Turns: []trail.Turn{}, Problems: []string{why},
+				})
+				continue
+			}
+			root := rootOf(fam).Root
 			if b.SessionID != "" {
 				s := trail.ReadSessionIn(fam, root, project, b.Slot, false, workDir, b.SessionID, b.AgentType)
 				out = append(out, s)
@@ -243,14 +318,22 @@ func totals(all []trail.Session) trail.Usage {
 	return u
 }
 
-func printTrail(vault, data, home, homeWhy, rulesWhy string, all []trail.Session, findings [][]judge.Finding, turnLimit int, withJudge bool) {
+func printTrail(vault, data string, roots []familyRoot, rulesWhy string, all []trail.Session, findings [][]judge.Finding, turnLimit int, withJudge bool) {
 	fmt.Println("anc trail —— 只读聚合：谁问了什么、agent 干了什么、花了多少")
 	fmt.Printf("  vault    %s\n", vault)
 	fmt.Printf("  data     %s\n", data)
-	if home == "" {
-		fmt.Printf("  记录     ⚠️  %s\n", homeWhy)
-	} else {
-		fmt.Printf("  记录     %s（%s）\n", home, homeWhy)
+	// 用到的每一家都列出来（混编的组织里不止一家）—— 一行一个根，
+	// 因为「哪段会话是从哪读的」正是这份账可不可信的前提。
+	for i, r := range roots {
+		label := "  记录    "
+		if i > 0 {
+			label = "          "
+		}
+		if r.Root == "" {
+			fmt.Printf("%s⚠️  %s（口径 %s）\n", label, r.Why, r.Display)
+			continue
+		}
+		fmt.Printf("%s%s（口径 %s）\n", label, r.Root, r.Display)
 	}
 	if withJudge {
 		fmt.Printf("  判据     %s —— 判据是数据，换一份不用重编译（--rules）\n", rulesWhy)
