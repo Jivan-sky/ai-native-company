@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -281,8 +282,10 @@ func cmdApply(args []string) int {
 		fmt.Printf("  （dry-run 没重启，也就没得回读）\n")
 		return 0
 	}
-	want := len(plan.Projects)
-	ready, tail := waitReady(logPath, from, want, *wait)
+	// 期望值只取**接了平台凭据**的 project（见 readyExpectation）：声明未接线的那些不该被等。
+	expect := readyExpectation(plan, o)
+	want := len(expect)
+	ready, tail := waitReady(logPath, from, expect, *wait)
 	if d := diagnose(tail); d != "" {
 		fmt.Printf("  %s\n", d)
 	}
@@ -301,7 +304,12 @@ func cmdApply(args []string) int {
 		fmt.Fprintf(os.Stderr, "FIX: 确认第 5 步那个文件的托管区还在，再看日志最后几行说了什么。\n")
 		return 1
 	}
-	fmt.Printf("  🟢 platform ready %d/%d\n", ready, want)
+	if want == 0 {
+		// 一个可期待的都没有：这时「到齐了」是空真 —— 空集上的全绿是最纯的那种假绿（同探针那条口径）。
+		fmt.Printf("  ⚪ 这份产物里没有接了平台凭据的 project（都是声明未接线）—— 没有可期待的就绪，别把这当绿\n")
+	} else {
+		fmt.Printf("  🟢 platform ready %d/%d\n", ready, want)
+	}
 	// 探针只回显，不参与退出码：刚装完、还没人来过话的机器本来就该是黄档，
 	// 把它算成失败等于让「刚装好」永远报错。
 	rep, err := probe.Run(probeOpts)
@@ -604,11 +612,42 @@ func runDaemon(exe string, args []string) error {
 	return cmd.Run()
 }
 
+// readyExpectation 是「这次重启**该**起来的那几个 project」—— 回读只拿它们当期望值。
+//
+// 真相源里声明了还没接线（`unwired`，含业务 agent 没写 `app_id`）的那些**不算期望**：
+// 上游对它们的两种表现都实测过（2026-10-10，一次真 apply 里两种都撞到）——
+//
+//	要么 `platform ready` 紧跟着 `websocket error: app_id is invalid`（先绿后死）；
+//	要么 `failed to create platform` 干脆不打 `platform ready`。
+//
+// 把这两种放进期望值，同一份部署会一次假绿、一次假红 —— 两次都不是证据。
+// 与灰档共用 render.UnwiredProjects 这一支算：各算各的，就会出现「探针说灰、apply 回读说绿」。
+func readyExpectation(plan *renderpkg.Plan, o *org.Org) map[string]bool {
+	unwired := map[string]bool{}
+	for _, n := range renderpkg.UnwiredProjects(o) {
+		unwired[n] = true
+	}
+	expect := map[string]bool{}
+	for _, n := range plan.Projects {
+		if !unwired[n] {
+			expect[n] = true
+		}
+	}
+	return expect
+}
+
+// rePlatformReady 从一行上游日志里取出 `platform ready` 那个 project 名（logfmt）。
+//
+// 值带空格时上游会给它加引号（project 名 = `<公司 id>-<成员名>`，而成员名可以带空格），
+// 所以两种写法都要认 —— 只认一种，带空格的名字就会静默数不到，回读又变回「按行数」。
+var rePlatformReady = regexp.MustCompile(`msg="platform ready" project=(?:"([^"]*)"|(\S+))`)
+
 // waitReady 盯着日志等 platform ready 到齐（每隔 0.5s 看一次新增的那段）。
-func waitReady(logPath string, from int64, want int, timeout time.Duration) (int, string) {
+func waitReady(logPath string, from int64, expect map[string]bool, timeout time.Duration) (int, string) {
+	want := len(expect)
 	deadline := time.Now().Add(timeout)
 	for {
-		ready, tail := countReady(logPath, from)
+		ready, tail := countReady(logPath, from, expect)
 		if ready >= want || !time.Now().Before(deadline) {
 			return ready, tail
 		}
@@ -616,9 +655,17 @@ func waitReady(logPath string, from int64, want int, timeout time.Duration) (int
 	}
 }
 
-// countReady 只数**重启之后新增**的那段日志：旧的成功记录不算数，
-// 否则「这次没起来」会被上一次的绿字盖住。
-func countReady(logPath string, from int64) (int, string) {
+// countReady 数的是**期望里的**那几个 project 里，日志报了几个 platform ready。
+//
+// 两件事一起管：
+//
+//	只数**重启之后新增**的那段 —— 旧的成功记录不算数，否则「这次没起来」会被上一次的绿字盖住；
+//	只数**期望里的**那些名字 —— 见 readyExpectation，不是按 `platform ready` 的行数数。
+//
+// 注意这一行本身的分量：它只说明那个 project 的适配器**初始化完了**，不说明它真连上了
+// （实测：同一条日志里先 `platform ready`、后 `websocket error`）。所以它是**必要不充分**的读数，
+// 别把它当连通性证明 —— 真要判「这一秒能不能回话」，按拍板由人来判（同 probe 的口径）。
+func countReady(logPath string, from int64, expect map[string]bool) (int, string) {
 	f, err := os.Open(logPath)
 	if err != nil {
 		return 0, ""
@@ -639,7 +686,17 @@ func countReady(logPath string, from int64) (int, string) {
 		return 0, ""
 	}
 	tail := string(b)
-	return strings.Count(tail, `msg="platform ready"`), tail
+	seen := map[string]bool{}
+	for _, m := range rePlatformReady.FindAllStringSubmatch(tail, -1) {
+		name := m[1]
+		if name == "" {
+			name = m[2]
+		}
+		if expect[name] {
+			seen[name] = true
+		}
+	}
+	return len(seen), tail
 }
 
 // diagnose 把上游日志里那两类「引擎绿但起不来」的指纹翻成人话。
