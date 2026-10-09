@@ -185,8 +185,8 @@ anc doctor                   # 环境与网络自检（已实现）
 
 | 要验的 | 怎么验 | 通过判据 |
 |---|---|---|
-| 官方 CLI 的非交互入口与流式输出 | 在某个 bot 账号下跑一次 headless 问答 | 能拿到流式事件与结束码；能中途取消并留下记录 |
-| 每账号凭据隔离 | 两个账号各自登录同一 CLI | A 账号的凭据不能被 B 账号读取或复用 |
+| 官方 CLI 的非交互入口与流式输出 | 在某个 bot 账号下跑一次 headless 问答 | 能拿到流式事件与结束码；能中途取消并留下记录 —— **部分实测（§7.1.29）**：某 bot 账号 headless 出字、rc=0；流式事件与中途取消仍未验 |
+| 每账号凭据隔离 | 两个账号各自登录同一 CLI | A 账号的凭据不能被 B 账号读取或复用 —— **部分实测（§7.1.29）**：两个 OS 账号各一份 `secrets.env`（0600）、互读家目录 `Permission denied`；凭据走进程环境注入，没走 GUI 登录态 |
 | 无人值守启动（含钥匙串能否解锁） | 按 §0-D2 拍板的档位重启机器，不人工登录 GUI | 服务被拉起，且凭据可用（能回话） |
 | `bootstrap` 的动作清单 | `--dry-run` 逐条核对后再真跑 | 实际动作与清单完全一致，没有清单外的系统改动 |
 | 会话回收与订阅额度 | 并发 N 个会话，观察额度、内存与回收 | 不触发上游限流；空闲进程被回收 |
@@ -1599,8 +1599,41 @@ slug 重复 / 表缺席不报错 / 有文件无表 / **空 tools 拦下**（连�
 **用例**：`internal/org/agents_test.go` 13 条（新增 role 两种情形 + 与成员同名相撞）+ `internal/render/agents_test.go`
 6 条（项目块逐字段 / 收件人按岗位取 / 没配 cwd 跳过 / role 取不到跳过 / 没接线进灰档 / `WorkDirs` 对得上 / 键名钉字面量）。`gofmt` / `go vet` 干净，**15 包全绿**。
 
-**仍未测（别说成验过）**：业务 agent 在**独立 OS 账号**里真回话 —— 沙箱上五项前置已实测，但同一个
-飞书 app 同一时刻只允许一条长连接（现在被 anc 的实例占着），要真回话得停它串行验或另建一个 app。
+**仍未测（别说成验过）**：业务 agent 在**独立 OS 账号**里的**真回话** —— 装载面这一轮已实测（§7.1.29），
+剩下的是入站那一问一答；同一个飞书 app 同一时刻只允许一条长连接，要验得串行（停掉占着连接的那个实例）。
+
+### 7.1.29 业务 agent 在独立 OS 账号里装载（2026-10-10，沙箱 Linux 真跑）
+
+§7.1.28 的「仍未测」这一轮补上装载那半：**换一台机器、换一个 OS 账号，非 root 跑通**，真回话只差一条入站消息。
+
+**做法**：同一份公司真相源，业务 agent 落在**它自己的 OS 账号**下（与成员 bot 不共用账号），
+`anc apply <vault> --agent-home <slug>=<它的 cwd> --apply`。它装**用户级** systemd 单元，
+凭据桥照旧写 drop-in。
+
+**实测（这台机器上逐条看过；`/proc/<pid>/environ` 与产物文本是判据）**
+
+| 项 | 判据 | 结果 |
+|---|---|---|
+| 不需要提权 | 以业务 agent 自己的账号跑 `anc apply` | 单元装进它自己的用户级 systemd，`active (running)`，进程 uid = 该账号 |
+| 凭据桥跟人走 | `/proc/<pid>/environ` | 全部 `ANTHROPIC_*` + 该 project 的 `ANC_FEISHU_SECRET_<slug>` 都在 |
+| harness 在那个账号下可用 | 该账号下跑一次 headless 问答 | 出字、rc=0 —— 模型与 base 全来自 `secrets.env`，没依赖任何 GUI 登录态 |
+| 平台连上 | 上游日志 | `feishu: bot identified open_id=…` + `platform ready`，且**没有** `app_id is invalid` |
+| 产物只含它该有的 | `config.toml` | 只有一个业务 agent 的 project（+ 公司那个 devbot）；成员 bot 一条都不在里面 |
+| 业务 agent 不发 `admin_from` | 同上 | 全份产物里只有 devbot 那条有 `admin_from` |
+| 账号隔离 | 两边互读家目录 | 双向 `Permission denied`（家目录默认 700，不需要额外配置） |
+
+**两条实测教训（都是这次踩出来的）**
+
+1. **「隔离一个业务 agent」不能靠「把这个公司的成员全停用」**：`company.devbot.count` 是红档
+   （SPEC §1：一个公司恰好一个启用中的 devbot）。正确做法是**只停用会和它抢同一个 app_id 的那些**，
+   devbot 留着 —— 它本来就该是 `unwired` 灰档，不参与回话。
+2. **上游说 `platform ready`，不代表这个 bot 能用。** 占位 / 无效 `app_id` 的 project 会先打
+   `platform ready`、紧跟一条 `websocket error: app_id is invalid`（同一个进程里先绿后死）。
+   所以「某 bot 到底能不能用」的判据只有真相源（`unwired` + 探针那四档），**不许拿上游那一行当证据**。
+
+**登记（待拍，不动代码）**：apply 第 7 步回读的就绪判据 `want` 把 `unwired` 的 project 也算进去
+（`runtime/apply.go`），本轮实测到**同一份部署既会假绿也会假红** —— 已写成议题草稿，按纪律
+「改测试文件前先问」先登记不落。
 
 ## 8. 与 SPEC 的映射
 
