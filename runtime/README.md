@@ -494,7 +494,7 @@ harness **H1–H4**、业务 agent 独立账号的五件套。判据一句话：
   **真 VM 实测**：`unwired: true` 声明 → `anc probe` 退出码 **0**、`anc apply` 回读一致、
   `anc notify` 不喊、`--json` 里 `"state": "unwired"`；反向用例（三个 bot 全声明未接）**退出码 1** ——
   **空集不判绿**（细节见 `DESIGN.md` §7.1.20）。
-- **出站读出口（W2，2026-10-09）**：单元 **11 条**（`runtime/envelope_read_test.go`，全部走真 HTTP + 真 JSON-RPC）
+- **出站读出口（W2，2026-10-09）**：单元 **10 条**（`runtime/envelope_read_test.go`，全部走真 HTTP + 真 JSON-RPC）
   + 尺子 3 条（`internal/render/domains_test.go`）；**变异验证**过（删掉「跨域被拒」那行留痕 → 3 条变红；
   把 `safeToken` 两层清洗同时去掉 → 单行断言变红）。**本机实测**：`tools/list` 两个工具都在；
   `who=alice, domain=logistics` 跨域 → `refused` + `audit/` 落一条 `denied`；`who=nobody` →
@@ -507,6 +507,13 @@ harness **H1–H4**、业务 agent 独立账号的五件套。判据一句话：
   **没验的**：Codex（只在本机走了 JSON-RPC 往返）· 那条 harness 的 `deepseek-flash` 模型名不被
   Claude Code 认识（会打 `[claude-code:unrecognized_model]` 警告、按 200k 算 auto-compact）—— 待拍板才动。
   细节见 `DESIGN.md` §7.1.21。
+- **工作上下文并进同一次调用（W3，2026-10-09）**：`anc_read_context` 在原来的四问上多答两样 ——
+  `skills[]`（技能清单 + 正文在不在，逐条 `missing`）与 `projects[]`（在跟哪个项目，按可见范围过滤），
+  外加 `gaps[]` **报缺**（没登记 skills / 声明了但正文没落 / 可见域上没项目 / 新鲜度与版本**没有真相源**）。
+  **同一把尺子**（`render.VisibleDomains`）、`period` / `source` 原样搬、指针 vault 相对、只读。
+  单元 **5 条**（`runtime/envelope_read_test.go` 10 → 15 条）· `gofmt` 空 · `go vet` rc=0 · 十四包全绿。
+  **没做的**：新鲜度 / 版本 / 跨 agent 共享上下文 / 蒸馏产物 —— 只出现在 `gaps` 里，不假装有。
+  细节见 `DESIGN.md` §7.1.23。
 
 ## 装载（`anc apply`）
 

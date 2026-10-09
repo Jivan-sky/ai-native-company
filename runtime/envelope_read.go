@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -31,14 +32,17 @@ import (
 
 // readContextOut 是 anc_read_context 回给 harness 的那一份。
 type readContextOut struct {
-	Who        string          `json:"who,omitempty"`          // 解出来的身份（成员名）
-	OnBehalfOf string          `json:"on_behalf_of,omitempty"` // 署名（原样回，便于人核对）
-	Scope      string          `json:"scope,omitempty"`        // 实际答的域；空 = 你负责的全部
-	Domains    []readDomainOut `json:"domains,omitempty"`      // 你负责的域：全行（拒的时候不出现）
-	Directory  []readBriefOut  `json:"directory,omitempty"`    // 别域目录：只有名称 / 是什么 / 找谁
-	Note       string          `json:"note,omitempty"`         // 只在「还没给你划域」时出现
-	Refused    *readRefusalOut `json:"refused,omitempty"`      // 拒：不给数据，给理由（能指路就指路）
-	At         string          `json:"at"`                     // 回答时刻（RFC3339）
+	Who        string           `json:"who,omitempty"`          // 解出来的身份（成员名）
+	OnBehalfOf string           `json:"on_behalf_of,omitempty"` // 署名（原样回，便于人核对）
+	Scope      string           `json:"scope,omitempty"`        // 实际答的域；空 = 你负责的全部
+	Domains    []readDomainOut  `json:"domains,omitempty"`      // 你负责的域：全行（拒的时候不出现）
+	Directory  []readBriefOut   `json:"directory,omitempty"`    // 别域目录：只有名称 / 是什么 / 找谁
+	Skills     []readSkillOut   `json:"skills,omitempty"`       // 岗位声明的技能（正文在不在，逐条标）
+	Projects   []readProjectOut `json:"projects,omitempty"`     // 挂在你可见域上的项目
+	Gaps       []string         `json:"gaps,omitempty"`         // 这份上下文答不了什么（报缺，不编）
+	Note       string           `json:"note,omitempty"`         // 只在「还没给你划域」时出现
+	Refused    *readRefusalOut  `json:"refused,omitempty"`      // 拒：不给数据，给理由（能指路就指路）
+	At         string           `json:"at"`                     // 回答时刻（RFC3339）
 }
 
 // readDomainOut 是「自己的域」那一行的全貌：域是什么 / 数据在哪 / 找谁 / 证据指针。
@@ -66,6 +70,25 @@ type readBriefOut struct {
 type readEvidence struct {
 	File string `json:"file"`
 	Line int    `json:"line"`
+}
+
+// readSkillOut 是「技能从哪来」：清单在 roles/<role> 的 skills:，
+// 正文在 skills/<name>/SKILL.md。**声明了但正文不在 = missing** —— 报缺，不编。
+type readSkillOut struct {
+	Name    string `json:"name"`
+	Where   string `json:"where"`             // vault 相对指针；本机绝对路径一个字都不出现
+	Missing bool   `json:"missing,omitempty"` // true = 清单里声明了，正文还没落
+}
+
+// readProjectOut 是「在跟哪个项目」：projects.md 的一行。
+// period / source **原样搬** —— 它们是指针（真源在别处），ANC 不解析、也不规定格式。
+type readProjectOut struct {
+	Slug     string        `json:"slug"`
+	Name     string        `json:"name"`
+	Owner    string        `json:"owner,omitempty"`
+	Period   string        `json:"period,omitempty"`
+	Source   string        `json:"source,omitempty"`
+	Evidence *readEvidence `json:"evidence"`
 }
 
 type readRefusalOut struct {
@@ -147,6 +170,15 @@ func (g *envelopeIngress) readContext(args map[string]any) (string, bool) {
 		}
 	}
 
+	// 「工作上下文」的另两问：技能从哪来、在跟哪个项目。
+	// 都走已经算好的 chosen（可见范围）—— 项目按域过滤，域不在范围里就不出现。
+	out.Skills = skillsOf(o, m, g.Vault)
+	out.Projects = projectRows(o, chosen)
+	// 报缺只在要「全部」时给：要单独一域的人不该被一段通用说明淹掉。
+	if ask == "" {
+		out.Gaps = contextGaps(out)
+	}
+
 	// 给了也要留痕 —— 审计不是只记拒绝。
 	g.auditRead(m.Name, ask, audit.ResultOK, "", now)
 	return mustJSON(out), false
@@ -178,6 +210,72 @@ func domainRows(rows []renderpkg.DomainRow) []readDomainOut {
 		})
 	}
 	return out
+}
+
+// skillsOf 把这个成员**岗位**声明的技能摊出来，并逐条去看正文在不在。
+// 只有清单、没有正文 = missing：报缺，不编（同 persona 的诚实条款）。
+func skillsOf(o *org.Org, m org.Member, vault string) []readSkillOut {
+	role, ok := o.Roles[m.Role]
+	if !ok {
+		return nil
+	}
+	out := make([]readSkillOut, 0, len(role.Skills))
+	for _, name := range role.Skills {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		where := "skills/" + name + "/SKILL.md" // 指针一律正斜杠：vault 里的形状，不是本机路径
+		_, err := os.Stat(filepath.Join(vault, "skills", name, "SKILL.md"))
+		out = append(out, readSkillOut{Name: name, Where: where, Missing: err != nil})
+	}
+	return out
+}
+
+// projectRows 把**挂在这些域上**的项目摊出来。域不在可见范围里 = 不出现（与域行同一条纪律：
+// 别人的域连项目名都不给，只给「找谁」）。owner 走与域行同一个 WhoLabel（岗位 → 人名）。
+func projectRows(o *org.Org, chosen []renderpkg.DomainRow) []readProjectOut {
+	inScope := make(map[string]bool, len(chosen))
+	for _, d := range chosen {
+		inScope[d.Slug] = true
+	}
+	var out []readProjectOut
+	for _, p := range o.Projects {
+		if !inScope[p.Domain] {
+			continue
+		}
+		owner := o.WhoLabel(p.Owner)
+		if owner == "—" {
+			owner = ""
+		}
+		out = append(out, readProjectOut{
+			Slug: p.Slug, Name: p.Name, Owner: owner,
+			Period: p.Period, Source: p.Source,
+			Evidence: &readEvidence{File: org.ProjectsFile, Line: p.Line},
+		})
+	}
+	return out
+}
+
+// contextGaps 明说「这份上下文答不了什么」。**只列没有真相源的那几样** ——
+// 不编、也不假装完整：读的人据此知道该去问谁，而不是以为这就是全部。
+func contextGaps(out readContextOut) []string {
+	var g []string
+	if len(out.Skills) == 0 {
+		g = append(g, "技能：这个岗位在 roles/<role> 里没声明 skills（不是「没有技能」，是「没登记」）")
+	}
+	for _, s := range out.Skills {
+		if s.Missing {
+			g = append(g, "技能正文还没落："+s.Where)
+		}
+	}
+	if len(out.Projects) == 0 {
+		g = append(g, "项目：你可见的域上还没挂项目（projects.md 里没有，或还没建这张表）")
+	}
+	g = append(g,
+		"新鲜度：某块上下文最近一次从外部渠道更新是什么时候 —— 没有这个真相源，答不了",
+		"版本：改一处上下文，谁的工作上下文跟着变了 —— 只有 persona 指纹那一半",
+	)
+	return g
 }
 
 func briefRows(rows []renderpkg.DomainBrief) []readBriefOut {
