@@ -1234,7 +1234,48 @@ demo 会话的 27 次行使里，11 条落在「vault 内非域」、11 条落�
 还没落，所以跨域一律拒。等执行层落下，这条出口是照 grant 开口子还是永远只给「找谁」，**待拍板**（SPEC §13 Q19）。
 另：`anc probe` 之类的**运行态**观测还没接进出站读出口；看板也还没有「谁问过什么」的那一页
 （痕已经在 audit 里了，看板第八页能看到，但没有按「出站」单列的视图）。
-## 8. 与 SPEC 的映射
+### 7.1.22 网关抽象第一刀：形态收成一张表（2026-10-09，W3 第二格）
+
+SPEC §4.7 ① 说「换一个网关是加一张表 + 一个适配器」，但 2026-10-09 之前
+**代码里没有那张表** —— 渲染器直接生成 cc-connect 形态，`apply` / `probe` / `trail` / `notify`
+各自把 `cc-connect` 这个名字、这套路径、这几个枚举写在自己那一份里。这一刀就是把它们收到一处。
+
+**落点**：`internal/gateway`（零第三方依赖，只 import `path/filepath`）。
+
+**形状为什么是「表」不是「接口方法集」**：接口方法集要为两个实现服务，一个实现抽出来的
+是**猜测**（这正是 SPEC §13 Q21 原本的顾虑）。而 §4.7 早就把「换网关」定义成
+「加一张表 + 一个适配器」—— 所以表才是那个不变量。表里只装**形态**（怎么装、日志落哪、
+会话落哪、认哪些枚举），不装行为（跑命令、读文件留在调用方）；这样表可以整份被测试比。
+
+**它装了哪四条（= §4.7 ① 的四条不变量）**：
+
+| 不变量 | 表里的字段 | 原来写死在哪 |
+|---|---|---|
+| G1 声明式全量配置 | `ConfigFile` / `DisplayModes` / `DefaultDisplay` / `RelaySection` | `render` 的产物名、`org` 的 `[display].mode` 清单 |
+| G2 凭据只从进程环境解析 | `SecretKeyPrefix` | 凭据桥的键名空间 |
+| G3 装 / 重启 / 日志落点 | `BinNames` / `BinSubdir` / `HomeDirName` / `DaemonManifestName` / `LogSubdir` / `LogFileName` / `ServiceName` / `InstallCmd` / `RestartCmd` | `apply.go` 的 8 处路径与两条子命令、`startup.go` 的计划任务名 |
+| G4 会话落盘可读 | `SocketRel` / `SessionsRel` | `probe.go` 的 socket 与 sessions 两处、`trail.go` 的 sessions、`notify.go` 的 socket |
+
+**消费方改造（六个，行为零变化）**：`apply.go`（10 处）/ `internal/probe`（2 处）/
+`trail.go`（1 处）/ `notify.go`（1 处）/ `startup.go`（1 处）/ `internal/org`（呈现档清单与判据）。
+
+**判据不是「看着对」，是钉子**：
+- `internal/gateway/gateway_test.go`（6 条）：表里**没有空字段**（漏一个调用方就会退回自己拼一份 ——
+  那正是这次要消灭的）/ 出厂默认档必须在合法清单里 / 六条落点路径拼对 / 候选二进制的平台顺序 /
+  `{config}` 占位被替换且**返回的不是表里那片切片**（调用方改不到真相源）/ 枚举判据。
+- `internal/org/display_test.go` 增 1 条：`org.DisplayModes` 必须逐项等于 `gateway.CCConnect.DisplayModes`，
+  且 `DisplayQuiet == DefaultDisplay` —— 两边**不许各写一份**，漂了先红。
+
+**实测**：`gofmt` 空 · `go vet` rc=0 · `go test -count=1 ./...` **十四包全绿**（新增 `internal/gateway`）。
+**这一刀的性质**：纯搬运 + 钉子，**没有改任何行为**，也没加任何门禁 —— 表里没有「开关」，只有落点。
+
+**没做的（第二刀，现在就写清免得变成隐形债）**：
+- **G1 的产物正文没抽**：`config.toml` 的每个段怎么写（`[[projects]]` / `[relay]` / `[display]`）
+  仍在 `internal/render/config.go` 的 `Build` 里。也就是说「形态表」有了，**「适配器」还没有** ——
+  第二个网关要在 `render` 里加分支，而不是加一个 provider。这一步要动渲染产物、风险高，单开一刀。
+- **没有配置面**：不存在「选哪家网关」的配置项或开关（那本身就是门禁 + 新配置面，
+  没到真接第二家之前不加）。现在表里只有一行 `CCConnect`，由代码直接引用。
+- **两家的 harness 腿仍各写一份**（§4.7 ② 的 H3 第二条腿未实测，见 §7 清单）。## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
 |---|---|

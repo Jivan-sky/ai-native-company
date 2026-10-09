@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"unicode/utf16"
+
+	"anc/internal/gateway"
 )
 
 // ---------- 断电兜底：断电 / 重启之后，这东西会不会自己回来 ----------
@@ -21,7 +23,8 @@ import (
 // Windows 看触发器里有没有「开机就起」那一条，再看两条电源设置。
 // 口径与三层实测见 runtime/DESIGN.md §7.1.11。
 
-const startupTaskName = "cc-connect"
+// 计划任务名取自网关形态表（SPEC §4.7 G3）—— 不再写死一家。
+var startupTaskName = gateway.CCConnect.ServiceName
 
 // taskFacts 是计划任务定义里与「起得来吗」有关的那几样。
 type taskFacts struct {

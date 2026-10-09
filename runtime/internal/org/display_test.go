@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"anc/internal/gateway"
 )
 
 // setCompanyKey 往 company.md 的 frontmatter 末尾插一个键（测试用）。
@@ -70,5 +72,26 @@ func TestDisplayEntersInputsHash(t *testing.T) {
 	full.Company.Display = DisplayFull
 	if quiet.InputsHash(host) == full.InputsHash(host) {
 		t.Fatal("display 没进指纹：改档位不会触发重渲染")
+	}
+}
+
+// 取值的**唯一真相**在网关形态表里（SPEC §4.7 G1：「上游认哪些枚举」是网关的形态）。
+// org 这边只是它的消费方 —— 这条钉住两边不许各写一份，写歪了这里先红。
+func TestDisplayModesComeFromGatewaySpec(t *testing.T) {
+	if len(DisplayModes) != len(gateway.CCConnect.DisplayModes) {
+		t.Fatalf("清单长度不同：org=%v gateway=%v", DisplayModes, gateway.CCConnect.DisplayModes)
+	}
+	for i, m := range gateway.CCConnect.DisplayModes {
+		if DisplayModes[i] != m {
+			t.Fatalf("第 %d 项不同：org=%q gateway=%q", i, DisplayModes[i], m)
+		}
+	}
+	for _, m := range DisplayModes {
+		if !gateway.CCConnect.ValidDisplayMode(m) {
+			t.Errorf("org 认 %q，网关表不认 —— 两边漂了", m)
+		}
+	}
+	if DisplayQuiet != gateway.CCConnect.DefaultDisplay {
+		t.Errorf("出厂默认漂了：org=%q gateway=%q", DisplayQuiet, gateway.CCConnect.DefaultDisplay)
 	}
 }

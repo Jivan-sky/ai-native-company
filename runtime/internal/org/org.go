@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"anc/internal/gateway"
 )
 
 // Company 是 company/company.md 的机器可读部分。
@@ -37,20 +39,13 @@ const (
 )
 
 // DisplayModes 是给报错文案用的合法值清单（顺序 = 从静到吵）。
-var DisplayModes = []string{DisplayQuiet, DisplayCompact, DisplayFull}
+// 它**不是**自己写的第二份 —— 取值口径来自网关形态表（SPEC §4.7 G1：
+// 「上游认哪些枚举」是网关的形态，不是 org 的 schema），有测试钉住两边一致。
+var DisplayModes = append([]string(nil), gateway.CCConnect.DisplayModes...)
 
 // ValidDisplayMode 判一个值认不认识。空串算合法 —— 它是「没写」，不是「写错」。
-func ValidDisplayMode(s string) bool {
-	if s == "" {
-		return true
-	}
-	for _, m := range DisplayModes {
-		if s == m {
-			return true
-		}
-	}
-	return false
-}
+// 判据只有一份：网关形态表里那个清单。
+func ValidDisplayMode(s string) bool { return gateway.CCConnect.ValidDisplayMode(s) }
 
 // DisplayMode 是生效的呈现档：没写就是出厂默认。
 func (c Company) DisplayMode() string {

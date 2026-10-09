@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/gateway"
 	"anc/internal/notify"
 	"anc/internal/org"
 	"anc/internal/probe"
@@ -131,7 +132,7 @@ func cmdNotify(args []string) int {
 				row.Errors = append(row.Errors, "没有可推的 bot —— 喊不出去（"+strings.Join(unresolved, "；")+"）")
 			}
 			for _, t := range targets {
-				if err := notify.Push(filepath.Join(dataPath, "run", "api.sock"), t, text); err != nil {
+				if err := notify.Push(gateway.CCConnect.SocketPath(dataPath), t, text); err != nil {
 					row.Errors = append(row.Errors, t+"："+err.Error())
 				}
 			}

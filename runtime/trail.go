@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/gateway"
 	"anc/internal/judge"
 	renderpkg "anc/internal/render"
 	"anc/internal/trail"
@@ -189,7 +190,7 @@ func resolveClaudeHome(flagVal string) (string, string) {
 // collectSessions 把一个 project 的记录归集齐：cc-connect 说「有哪些 harness 会话」，
 // 原生记录给出「每一段干了什么」。
 func collectSessions(project, workDir, dataPath, claudeHome string) []trail.Session {
-	files, _ := filepath.Glob(filepath.Join(dataPath, "sessions", project+"_*.json"))
+	files, _ := filepath.Glob(filepath.Join(gateway.CCConnect.SessionsDir(dataPath), project+"_*.json"))
 	sort.Strings(files)
 	var out []trail.Session
 	for _, f := range files {
