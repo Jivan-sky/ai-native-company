@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"anc/internal/apply"
+	"anc/internal/gateway"
 	"anc/internal/org"
 	"anc/internal/probe"
 	renderpkg "anc/internal/render"
@@ -230,7 +231,7 @@ func cmdApply(args []string) int {
 	// Linux 腿注入的是**我们自己**那份 drop-in，上游不碰它，所以那边不需要这一眼。
 	var preLoader apply.Loader
 	if runtime.GOOS == "windows" {
-		if b, err := os.ReadFile(filepath.Join(ddir, "cc-connect-daemon.ps1")); err == nil {
+		if b, err := os.ReadFile(filepath.Join(ddir, gateway.CCConnect.LoaderScriptName())); err == nil {
 			preLoader = apply.InspectLoader(string(b))
 		}
 	}
@@ -239,7 +240,7 @@ func cmdApply(args []string) int {
 		fmt.Fprintf(os.Stderr, "\n错误: %v\n", err)
 		return 1
 	}
-	installArgs := []string{"daemon", "install", "--config", cfgPath, "--no-capture-secrets", "--force"}
+	installArgs := gateway.CCConnect.InstallArgs(cfgPath)
 	fmt.Printf("  执行       %s %s\n", daemonExe, strings.Join(installArgs, " "))
 	if *doApply {
 		if err := runDaemon(daemonExe, installArgs); err != nil {
@@ -262,7 +263,7 @@ func cmdApply(args []string) int {
 		fmt.Printf("  跳过       --no-restart（改动留到下次重启生效 —— 现在这份 daemon 还是旧的）\n")
 		return 0
 	}
-	restartArgs := []string{"daemon", "restart", "--force"}
+	restartArgs := gateway.CCConnect.RestartArgs()
 	fmt.Printf("  执行       %s %s\n", daemonExe, strings.Join(restartArgs, " "))
 	if *doApply {
 		if err := runDaemon(daemonExe, restartArgs); err != nil {
@@ -334,7 +335,7 @@ func bridgeWindows(secretsPath, ver string, doApply bool, pre apply.Loader) int 
 		fmt.Fprintf(os.Stderr, "  🔴 %v\n", err)
 		return 1
 	}
-	loaderPath := filepath.Join(ddir, "cc-connect-daemon.ps1")
+	loaderPath := filepath.Join(ddir, gateway.CCConnect.LoaderScriptName())
 	block := apply.LoaderBlock(secretsPath, ver)
 	fmt.Printf("  目标       %s\n", loaderPath)
 	if !doApply {
@@ -489,8 +490,9 @@ func systemdUnits() ([]systemdUnit, error) {
 	if err != nil {
 		return nil, err
 	}
-	user := systemdUnit{Path: filepath.Join(home, ".config", "systemd", "user", "cc-connect.service"), User: true}
-	sys := systemdUnit{Path: "/etc/systemd/system/cc-connect.service"}
+	unit := gateway.CCConnect.ServiceUnitName()
+	user := systemdUnit{Path: filepath.Join(home, ".config", "systemd", "user", unit), User: true}
+	sys := systemdUnit{Path: filepath.Join("/etc/systemd/system", unit)}
 	if os.Geteuid() == 0 {
 		return []systemdUnit{sys, user}, nil
 	}
@@ -545,11 +547,9 @@ func resolveDaemonExe(flagPath string) (string, error) {
 		cands = append(cands, flagPath)
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		cands = append(cands,
-			filepath.Join(home, ".anc", "bin", "cc-connect.exe"),
-			filepath.Join(home, ".anc", "bin", "cc-connect"))
+		cands = append(cands, gateway.CCConnect.BinCandidates(home)...)
 	}
-	for _, name := range []string{"cc-connect.exe", "cc-connect"} {
+	for _, name := range gateway.CCConnect.BinNames {
 		if p, err := exec.LookPath(name); err == nil {
 			cands = append(cands, p)
 		}
@@ -575,13 +575,13 @@ func daemonDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".cc-connect"), nil
+	return gateway.CCConnect.HomeDir(home), nil
 }
 
 // daemonLogFile 从上游自己写的 daemon.json 里读日志落点 —— 不猜路径。
 func daemonLogFile(dir string) string {
-	def := filepath.Join(dir, "logs", "cc-connect.log")
-	b, err := os.ReadFile(filepath.Join(dir, "daemon.json"))
+	def := filepath.Join(dir, gateway.CCConnect.LogSubdir, gateway.CCConnect.LogFileName)
+	b, err := os.ReadFile(filepath.Join(dir, gateway.CCConnect.DaemonManifestName))
 	if err != nil {
 		return def
 	}

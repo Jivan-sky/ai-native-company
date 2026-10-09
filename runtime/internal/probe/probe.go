@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/gateway"
 	renderpkg "anc/internal/render"
 )
 
@@ -141,14 +142,14 @@ func Run(opt Options) (Report, error) {
 		declared = renderpkg.ProjectsIn(string(raw))
 	}
 
-	if why := DialUnix(filepath.Join(opt.DataDir, "run", "api.sock")); why == "" {
+	if why := DialUnix(gateway.CCConnect.SocketPath(opt.DataDir)); why == "" {
 		rep.Gateway = "up"
 	} else {
 		rep.Gateway = "down"
 		rep.GatewayWhy = why
 	}
 
-	files, _ := filepath.Glob(filepath.Join(opt.DataDir, "sessions", "*.json"))
+	files, _ := filepath.Glob(filepath.Join(gateway.CCConnect.SessionsDir(opt.DataDir), "*.json"))
 	byProject := map[string][]string{}
 	for _, f := range files {
 		p := ProjectOfSessionFile(filepath.Base(f))
