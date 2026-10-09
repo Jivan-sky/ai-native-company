@@ -476,13 +476,45 @@ claude cost-state（harness 自己的账本）          in 146005  out 16486  cr
 主记录 / 子任务记录叫什么）已经从代码里搬进 `internal/harness` 的 `harnesses.json`：
 
 - `--harness <id>` 选哪一家，`--harnesses <文件>` **整份替换**那张表（同 `--rules` 的做法）；
-- 加一家 = 加一行数据；`reader` 为空的家（如 codebuddy / WorkBuddy CLI）**只登记了口径、读不了**，
-  代码会明说「只登记了口径，没有读取器」并以退出码 1 退出 —— 不装作 0 消耗；
-- 仍绑死在代码上的只剩**解析语义**（claude 的 jsonl 行形状），所以下面那条「未覆盖」
-  只是从「格式 + 布局」缩小到「格式」。
+- 加一家 = 加一行数据；`reader` 为空的家**只登记了口径、读不了**，代码会明说
+  「只登记了口径，没有读取器」并以退出码 1 退出 —— 不装作 0 消耗；
+- 仍绑在代码上的只剩**解析语义**：一家一个读取器（`claude-jsonl` / `codebuddy-jsonl`），
+  读取器名写在表里。名字不认识**报错**，不退回默认读法 —— 按错的口径读出来会把别家的记录
+  「读成一堆数字」，那比读不到更糟。
 
-**未覆盖**：**只认 claude 的 jsonl 格式** —— 换 harness（codex / hermes / openclaw…）要另写 adapter，
-这条路是绑死在存储格式上的（同 §7.1.4 的代价）。**判断层没做**：「决定是什么」「失败根因」不在此列，
+**第二条腿：CodeBuddy / WorkBuddy CLI 读取器（2026-10-09）**。落盘位置与文件名跟 claude 同形
+（`projects/<cwd 转义>/<会话 id>.jsonl`），但**行的语义不一样**，所以是另一个读取器。四条差异，
+全部来自沙箱真跑（用户提问 → `Read` 工具调用 → 工具结果 → 收尾回答，四种记录都见到了）：
+
+1. **用量按步挂**（`providerData.usage`），没有 claude 那种 `cost-state` 累计快照；同一步的
+   `function_call` 与 `function_call_result` 带**同一份**用量 → 按 `providerData.messageId` 去重取最大值。
+   这和 claude 是同一类坑（按行相加账翻倍），但触发方式不同，所以去重键也不同。
+2. **工具调用是独立的行**（`type: function_call` / `function_call_result`），不是 assistant 消息里的
+   `tool_use` block；`function_call_result.status != completed` 才算「没成功」。
+3. **时间戳是毫秒 epoch 数字**，不是 RFC3339 字符串；这家还会写十几种非消息行
+   （`file-history-snapshot` / `summary` / `turn-metrics`…），一律跳过 —— 跳过不是丢账，它们本就不是账。
+4. **记录里没有成本字段** → 成本记 0，并在 `problems` 里明说是**读不到**、不是花了 0 元。
+
+**项目目录的转义规则也不一样**（这条不实测就一定会「读不到」）：claude 是「每个非字母数字 → `-`」，
+CodeBuddy 是「**路径分隔符连续的一段 → 一个 `-`**，点 / 空格 / 中文原样保留，盘符小写」
+（`D:\ANC沙箱\Probe_X` → `d-ANC沙箱-Probe_X`；四个路径实测）。所以规则也进了表（`dir_rule`）。
+
+**证据链要交代清楚**：沙箱里没有腾讯账号（`codebuddy` 未登录时只回一句「Authentication required」），
+所以把 CLI 指向一个**本地桩端点**（`models.json` 里一张 `custom-local:` 自定义模型 + 一个 OpenAI
+兼容的本地 SSE 桩）来产出记录。**模型那一跳不是真的**（桩按固定文本回话），
+**记录的形状是真的** —— 上面四条差异全部来自这些真记录，不是照文档猜的。
+
+**实测**：`gofmt` / `go build` / `go vet` / `go test ./...` 15 包全绿（新增 5 条用例：4 条解析 +
+1 条目录规则；另修 1 条会因「表里那家已有读取器」而**静默跳过**的旧用例 —— 覆盖悄悄归零是假绿的一种）；
+沙箱活体（真 cc-connect 会话
+文件 + 真记录）跑出 1 轮、`in 100 / out 18`（= 40+60 / 12+6，按步去重对得上）、`Read ×1`、耗时 600ms，
+两条 problems 如实报出、退出码 1；**同一现场用错的口径**（`--harness claude`）跑 → 目录名算成 `D--ANC--`、
+明说「原生记录找不到」，一个数字都不报。
+
+**未覆盖**：只认**已经验过的两种**记录形态（claude 的 jsonl、CodeBuddy 的 jsonl）——
+codex / hermes / openclaw / dsh 还没读取器，表里 `reader` 为空的一律明说读不了；
+CodeBuddy 的**子任务记录**（`Agent` 工具拉起的旁路会话）落不落盘、落在哪，未验，
+所以表里没声明子任务布局（→ 当作没有，而不是编一个目录出来）。**判断层没做**：「决定是什么」「失败根因」不在此列，
 `trail` 只出事实，不替 agent 编理由。
 
 ### 7.1.7 留痕的判断层：`anc trail` 的判据（2026-10-07）

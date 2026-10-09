@@ -79,13 +79,13 @@ func TestSubagentPaths(t *testing.T) {
 }
 
 func TestCanReadSaysWhyWhenNoReader(t *testing.T) {
-	tb := Default()
-	f, ok := tb.Lookup("codebuddy")
-	if !ok {
-		t.Skip("表里没有 codebuddy")
-	}
-	if f.Reader != "" {
-		t.Skip("codebuddy 已经有读取器了，这条测试该换个样本")
+	// 用**现场造的一家**，不挂在内置表上：表是数据，随时会变 —— 挂在表上的用例会在
+	// 「那家也有读取器了」的那一刻静默跳过，覆盖悄悄归零（假绿的一种）。
+	f := Family{
+		ID:           "codebuddy",
+		Display:      "CodeBuddy / WorkBuddy CLI",
+		RecordFormat: "jsonl-plain",
+		Note:         "只登记了口径的样本",
 	}
 	err := f.CanRead()
 	if err == nil {
@@ -111,6 +111,27 @@ func TestSlugRule(t *testing.T) {
 	}
 	if _, err := Slug("不存在的规则", "x"); err == nil {
 		t.Error("不认识的规则却不报错")
+	}
+}
+
+// 路径分隔符连续的一段 → 一个 '-'；点 / 空格 / 中文原样保留；盘符小写。
+// 四个样本都是 2026-10-09 在沙箱里真跑出来的目录名（见 RulePathsepRunsToDash 的注释）——
+// 它和 claude 那条不是同一条，混用会把目录名算错，而算错的后果是「读不到」。
+func TestSlugRulePathsepRunsToDash(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{`d:\ANC沙箱`, "d-ANC沙箱"},
+		{`d:\Agetn_Context\codex_work`, "d-Agetn_Context-codex_work"},
+		{`D:\ANC沙箱\Probe_X`, "d-ANC沙箱-Probe_X"},
+		{`D:\ANC沙箱\probe.d\a b`, "d-ANC沙箱-probe.d-a b"},
+	}
+	for _, c := range cases {
+		got, err := Slug(RulePathsepRunsToDash, c.in)
+		if err != nil {
+			t.Fatalf("Slug(%q): %v", c.in, err)
+		}
+		if got != c.want {
+			t.Errorf("Slug(%q) = %q，想要 %q", c.in, got, c.want)
+		}
 	}
 }
 

@@ -28,8 +28,22 @@ const Schema = "anc.harnesses/v1"
 
 // D irRule* 是「项目目录怎么起名」的已知规则。规则名进数据，规则实现只此一份。
 const (
-	// RuleNonalnumDash：每个非字母数字字符 → '-'（实测：claude 与 codebuddy 都是这一条）。
+	// RuleNonalnumDash：每个非字母数字字符 → '-'（实测：claude 是这一条）。
 	RuleNonalnumDash = "nonalnum-to-dash"
+
+	// RulePathsepRunsToDash：路径分隔符（`\` `:` `/`）**连续的一段** → 一个 '-'，
+	// 其余字符原样保留（点、空格、中文都不动），盘符小写。
+	//
+	// 2026-10-09 在沙箱里实测四个路径得出的（CodeBuddy / WorkBuddy CLI）：
+	//
+	//	d:\ANC沙箱            -> d-ANC沙箱
+	//	d:\Agetn_Context\codex_work -> d-Agetn_Context-codex_work
+	//	D:\ANC沙箱\Probe_X   -> d-ANC沙箱-Probe_X
+	//	D:\ANC沙箱\probe.d\a b -> d-ANC沙箱-probe.d-a b
+	//
+	// 它和 claude 那条**不是同一条**（claude 会把 `_` `.` 空格都换成 '-'）——
+	// 混用会把目录名算错，而算错的后果是「读不到」，会被误当成「没有」。
+	RulePathsepRunsToDash = "pathsep-runs-to-dash-lower-drive"
 )
 
 //go:embed harnesses.json
@@ -244,6 +258,28 @@ func ruleFunc(rule string) (func(string) string, error) {
 				default:
 					b.WriteByte('-')
 				}
+			}
+			return b.String()
+		}, nil
+	case RulePathsepRunsToDash:
+		return func(s string) string {
+			var b strings.Builder
+			b.Grow(len(s))
+			prevDash := false
+			for i, r := range s {
+				if r == '\\' || r == '/' || r == ':' {
+					if !prevDash {
+						b.WriteByte('-')
+						prevDash = true
+					}
+					continue
+				}
+				prevDash = false
+				if i == 0 && r >= 'A' && r <= 'Z' {
+					b.WriteRune(r + ('a' - 'A'))
+					continue
+				}
+				b.WriteRune(r)
 			}
 			return b.String()
 		}, nil

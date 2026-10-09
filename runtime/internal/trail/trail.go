@@ -300,7 +300,7 @@ func ReadSessionIn(fam harness.Family, root, project, slot string, historic bool
 		return s
 	}
 	s.Found = true
-	uses, err := scan(main, &s)
+	uses, err := scanWith(fam.Reader, main, &s)
 	if err != nil {
 		s.Problems = append(s.Problems, "主记录读不动："+err.Error())
 		return s
@@ -320,7 +320,7 @@ func ReadSessionIn(fam harness.Family, root, project, slot string, historic bool
 	sort.Strings(subs)
 	for _, f := range subs {
 		var sub Session
-		if _, err := scan(f, &sub); err != nil {
+		if _, err := scanWith(fam.Reader, f, &sub); err != nil {
 			s.Problems = append(s.Problems, "子 agent 记录读不动（"+filepath.Base(f)+"）："+err.Error())
 			continue
 		}
@@ -421,12 +421,39 @@ func (l claudeLine) usageOf() Usage {
 	return Usage{In: u.In, Out: u.Out, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}
 }
 
-// scan 读一份 jsonl，按 message.id 合并后折进 s。
+// readerFunc 是一家的记录读取器：把一份记录折进 s，返回工具调用 id → 轮次下标。
+type readerFunc func(path string, s *Session) (map[string]int, error)
+
+// readers 是读取器注册表：口径表里的 reader 名字 → 实现。
+//
+// 加一家 harness，只有「读的语义」真的不一样时才加一行；布局不一样（目录名、文件名、
+// 子任务在哪）只改数据，不改这里 —— 那正是口径搬进表的意义。
+var readers = map[string]readerFunc{
+	"claude-jsonl":  scanClaude,
+	ReaderCodeBuddy: scanCodeBuddy,
+}
+
+// scanWith 按口径表里的 reader 名字分派。
+//
+// 名字不认识**必须报错**：静默退回默认那一家的读法，就会把别家的记录按错的口径读出来 ——
+// 那比读不到更糟（读不到会说读不到，读错会说成一堆数字）。
+func scanWith(reader string, path string, s *Session) (map[string]int, error) {
+	fn, ok := readers[reader]
+	if !ok {
+		return nil, fmt.Errorf("读取器 %q 不认识（这个名字来自接入口径表）", reader)
+	}
+	return fn(path, s)
+}
+
+// scan 读一份 claude 记录。保留这个名字，是因为现有的对拍用例直接叫它。
+func scan(path string, s *Session) (map[string]int, error) { return scanClaude(path, s) }
+
+// scanClaude 读一份 jsonl，按 message.id 合并后折进 s。
 //
 // 合并是因为**同一条消息会写多行**：一行一个 content block，流式中间态还会把 output 写成 0。
 // 按行累加会把账翻倍（实测：172549 vs 85726 —— 正好一倍）。
-// scan 返回 tool_use id → 第几轮的下标：子任务的 meta 靠这个 id 归到它所属的那一轮。
-func scan(path string, s *Session) (map[string]int, error) {
+// scanClaude 返回 tool_use id → 第几轮的下标：子任务的 meta 靠这个 id 归到它所属的那一轮。
+func scanClaude(path string, s *Session) (map[string]int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err

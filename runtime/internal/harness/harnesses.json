@@ -27,13 +27,13 @@
       "root_dir": ".codebuddy",
       "record_format": "jsonl-plain",
       "session_handle": "file-stem",
-      "reader": "",
+      "reader": "codebuddy-jsonl",
       "layout": {
-        "dir_rule": "nonalnum-to-dash",
+        "dir_rule": "pathsep-runs-to-dash-lower-drive",
         "projects_dir": "projects",
         "main_file": "<id>.jsonl"
       },
-      "note": "布局是 2026-10-09 在沙箱里真跑出来的：<记录根>/projects/<cwd 压缩名>/<会话 id>.jsonl，每行自带 sessionId / cwd / _meta.traceparent。**读取器未实现** —— 只见过 user 那一行的字段，assistant 那一行没验。另：办公端 WorkBuddy 的文档写的是 ~/.workbuddy/mcp.json，跟这里的 .codebuddy 是不是同一个记录根，未验。"
+      "note": "读取器 = codebuddy-jsonl。形态是 2026-10-09 在沙箱里真跑出来的（用户提问 → Read 工具调用 → 工具结果 → 收尾回答）：<记录根>/projects/<cwd 压缩名>/<会话 id>.jsonl，每行自带 sessionId / cwd。行语义与 claude 不同：用量按步挂 providerData.usage、工具调用是独立行（function_call / function_call_result）、时间戳是毫秒 epoch、记录里没有成本字段。未验：办公端 WorkBuddy 的 ~/.workbuddy 与这里的 .codebuddy 是不是同一个记录根；子任务记录（Agent 工具）落不落盘。"
     }
   ]
 }
