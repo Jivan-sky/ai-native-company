@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
-// Slug 是实测出来的目录名规则（见 package 注释）。这三个样本都是盘上真存在的目录。
+// Slug 是实测出来的目录名规则（见 package 注释）。这三个样本按盘上真目录的形状构造（本机路径已脱敏）。
 func TestSlug(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{`D:\Agetn_Context\codex_work\anc-demo\homes/alice`, "D--Agetn-Context-codex-work-anc-demo-homes-alice"},
+		{`D:\work\anc-demo\homes/alice`, "D--work-anc-demo-homes-alice"},
 		{`C:\Users\dev`, "C--Users-dev"},
 		{"/Users/dev/anc/homes/alice", "-Users-dev-anc-homes-alice"},
 	}

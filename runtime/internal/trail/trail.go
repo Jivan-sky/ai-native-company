@@ -48,8 +48,8 @@ const promptHead = 80
 
 // Slug 是 harness 给项目目录起名的规则。实测（2026-10-07）：
 //
-//	D:\Agetn_Context\codex_work\anc-demo\homes/alice
-//	→ D--Agetn-Context-codex-work-anc-demo-homes-alice
+//	D:\work\anc-demo\homes/alice
+//	→ D--work-anc-demo-homes-alice
 //
 // 即**每个非字母数字字符 → '-'**（`:` `\` `_` `/` `.` 一律如此）。
 // 这个映射是有损的、反推不回来，所以只做正向：从配置里的 work_dir 算出该去哪个目录找记录。

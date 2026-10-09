@@ -102,11 +102,11 @@ func TestCanReadSaysWhyWhenNoReader(t *testing.T) {
 }
 
 func TestSlugRule(t *testing.T) {
-	got, err := Slug(RuleNonalnumDash, `D:\Agetn_Context\c\a`)
+	got, err := Slug(RuleNonalnumDash, `D:\My_Tools\c\a`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "D--Agetn-Context-c-a" {
+	if got != "D--My-Tools-c-a" {
 		t.Errorf("Slug = %q", got)
 	}
 	if _, err := Slug("不存在的规则", "x"); err == nil {
@@ -115,12 +115,12 @@ func TestSlugRule(t *testing.T) {
 }
 
 // 路径分隔符连续的一段 → 一个 '-'；点 / 空格 / 中文原样保留；盘符小写。
-// 四个样本都是 2026-10-09 在沙箱里真跑出来的目录名（见 RulePathsepRunsToDash 的注释）——
+// 四个样本按 2026-10-09 沙箱实测的目录名形状构造（本机路径已脱敏；见 RulePathsepRunsToDash 注释）——
 // 它和 claude 那条不是同一条，混用会把目录名算错，而算错的后果是「读不到」。
 func TestSlugRulePathsepRunsToDash(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{`d:\ANC沙箱`, "d-ANC沙箱"},
-		{`d:\Agetn_Context\codex_work`, "d-Agetn_Context-codex_work"},
+		{`d:\My_Tools\proj_dir\work_ab`, "d-My_Tools-proj_dir-work_ab"},
 		{`D:\ANC沙箱\Probe_X`, "d-ANC沙箱-Probe_X"},
 		{`D:\ANC沙箱\probe.d\a b`, "d-ANC沙箱-probe.d-a b"},
 	}

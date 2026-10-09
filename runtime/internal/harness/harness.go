@@ -38,7 +38,7 @@ const (
 	// 2026-10-09 在沙箱里实测四个路径得出的（CodeBuddy / WorkBuddy CLI）：
 	//
 	//	d:\ANC沙箱            -> d-ANC沙箱
-	//	d:\Agetn_Context\codex_work -> d-Agetn_Context-codex_work
+	//	d:\My_Tools\proj_dir\work_ab -> d-My_Tools-proj_dir-work_ab
 	//	D:\ANC沙箱\Probe_X   -> d-ANC沙箱-Probe_X
 	//	D:\ANC沙箱\probe.d\a b -> d-ANC沙箱-probe.d-a b
 	//
@@ -58,9 +58,9 @@ const (
 	//
 	// 实测（2026-10-09，DSH 的 sessions 目录名 7 例）：
 	//
-	//	C:\Users\sjw\deepseek-harness -> --C-Users-sjw-deepseek-harness--
+	//	C:\Users\dev\deepseek-harness -> --C-Users-dev-deepseek-harness--
 	//	D:\AI-BPO                     -> --D-AI-BPO--
-	//	D:\codex_work                 -> --D-codex_work--
+	//	D:\my_project                  -> --D-my_project--
 	//
 	// 注意 `_` 与 `-` **原样保留**（不是全换成 '-'）——它和 claude 那条不是同一条规则。
 	RuleDashWrappedSlug = "dash-wrapped-slug"
