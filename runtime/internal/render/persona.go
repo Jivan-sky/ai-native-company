@@ -57,16 +57,54 @@ type Result struct {
 // base 层（段 3/4/6/7）逐字固定；role 层给 职责 / 风格 / 术语表；member 层整块作末段。
 // 公司有 domains.md 时追加段 8「业务域」——没有这张表的 vault，产物逐字与从前一样。
 func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, error) {
+	return personaFor(o, role, identity{
+		Intro: fmt.Sprintf("你是 **%s** 的 %s 助理，服务对象是 %s，在 %s 里通过 bot 交互。",
+			o.Company.Name, orDash(role.Title), orDash(m.DisplayName), o.Company.Platform),
+		Layer:   "members/" + m.Name + "/persona.md",
+		Body:    m.Body,
+		Domains: m.Domains,
+		Where:   "members/" + m.Name + "/persona.md 的 domains",
+	}, host)
+}
+
+// AgentPersona 是**业务 agent** 的 persona：与成员 bot 共用同一套七段三层（SPEC §4.7 ③
+// 「差别不在权限机制」），只有两处不同 ——
+//
+//   - 身份那句说的是**岗位**与它负责的域，不是「服务对象是某个人」（§2.3：成员 bot 代人，
+//     业务 agent 代岗位）；
+//   - **没有「人写的 persona」这一段**：FDE 设计的东西住在它的 cwd 里（H1 的 persona 挂载），
+//     ANC 不替它写第二份 —— 写了就有两份真相，谁先改谁生效，必然漂移。
+func AgentPersona(o *org.Org, role org.Role, a org.Agent, host org.Host) (Result, error) {
+	return personaFor(o, role, identity{
+		Intro: fmt.Sprintf("你是 **%s** 的 %s（业务 agent，替这个岗位跑流程），负责的业务域是 %s，在 %s 里通过 bot 交互。",
+			o.Company.Name, orDash(role.Title), orDash(a.Name), o.Company.Platform),
+		Layer:   org.AgentsFile,
+		Domains: []string{a.Domain},
+		Where:   org.AgentsFile + " 的 domain",
+	}, host)
+}
+
+// identity 是「这份 persona 是给谁的」。喂给 personaFor 的只有这一层差别 ——
+// 段 3/4/6/7（公共纪律）、路由表、域表、体检与拼装的写法**一个字都不分叉**。
+type identity struct {
+	Intro   string   // 段 1 身份那一句（人 / 岗位，各自怎么写由调用方定）
+	Layer   string   // 体检报错时用的层名：让人一眼知道该去改哪个文件
+	Body    string   // 人写的 persona 全文（成员有这一层；业务 agent 为空）
+	Domains []string // 看得见哪些域 —— 与出站读出口共用同一把尺子
+	Where   string   // 「还没划域」时提示去哪写
+}
+
+func personaFor(o *org.Org, role org.Role, id identity, host org.Host) (Result, error) {
 	pol := o.Policy
 	var issues []org.Issue
 
 	// 先体检各来源层（带层名与行号），再拼装 —— 避免注入的路径干扰绝对路径检查。
 	issues = append(issues, lintLayer(pol, "roles/"+role.Role+"/persona.md",
 		strings.Join(roleLayerText(role), "\n"))...)
-	issues = append(issues, lintLayer(pol, "members/"+m.Name+"/persona.md", m.Body)...)
+	issues = append(issues, lintLayer(pol, id.Layer, id.Body)...)
 	// 域表里的字也要进 persona，所以同一套体检必须覆盖它：
 	// 三引号破 TOML 那次生产事故，不因为字来自表格就豁免。
-	issues = append(issues, lintDomainCells(pol, o, m)...)
+	issues = append(issues, lintDomainCells(pol, o, id.Domains)...)
 
 	// 路由表：role.vault_scope 命中的行置顶并标「你的主力」。
 	main, other := splitRouting(o.Routing, role.VaultScope)
@@ -79,8 +117,7 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 	}
 
 	segs := []struct{ name, text string }{
-		{"1 身份", fmt.Sprintf("你是 **%s** 的 %s 助理，服务对象是 %s，在 %s 里通过 bot 交互。",
-			o.Company.Name, orDash(role.Title), orDash(m.DisplayName), o.Company.Platform)},
+		{"1 身份", id.Intro},
 		{"2 职责边界", orDash(joinNonEmpty(append([]string{role.Sections["职责"]}, extraTexts(role)...)...))},
 		{"3 数据来源", fmt.Sprintf(baseDataSources, host.VaultRoot, strings.Join(rows, "\n"))},
 		{"4 诚实条款", baseHonesty},
@@ -89,7 +126,7 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 		{"7 动态事实引用", baseDynamicFacts},
 	}
 	// 段 8 只在公司划了域时出现；没划域的公司，persona 一个字节都不变。
-	if seg := domainSection(o, m); seg != "" {
+	if seg := domainSection(o, id.Domains, id.Where); seg != "" {
 		segs = append(segs, struct{ name, text string }{"8 业务域", seg})
 	}
 
@@ -100,8 +137,8 @@ func Persona(o *org.Org, role org.Role, m org.Member, host org.Host) (Result, er
 		}
 		fmt.Fprintf(&b, "## %s\n\n%s", s.name, s.text)
 	}
-	if m.Body != "" {
-		fmt.Fprintf(&b, "\n\n## 服务对象\n\n%s", m.Body)
+	if id.Body != "" {
+		fmt.Fprintf(&b, "\n\n## 服务对象\n\n%s", id.Body)
 	}
 	text := b.String()
 
@@ -216,6 +253,7 @@ func nonEmpty(parts ...string) []string {
 
 // domainSection 渲染段 8「业务域」。两张表，各有各的边界：
 //
+// 入参是**域列表**而不是「谁」：成员 bot 代人、业务 agent 代岗位，两类主体在这里没有区别。
 //   - 自己负责的域：全列（是什么 / 数据在哪 / 找谁），另附口径与原件来源 —— 这一域的事得干得了；
 //   - 全公司业务域目录：只有「是什么 / 找谁」。别的域的 data 与 terms **不在这里**
 //     （SPEC §6「数据默认不通」）—— 要跨域就按「找谁」接头，走人，不走近道。
@@ -224,11 +262,11 @@ func nonEmpty(parts ...string) []string {
 // 这里只管排版，不再自己算一遍「谁看得见什么」。
 //
 // 返回空串 = 这家公司没划域，调用方不输出这一段。
-func domainSection(o *org.Org, m org.Member) string {
+func domainSection(o *org.Org, domains []string, where string) string {
 	if len(o.Domains) == 0 {
 		return ""
 	}
-	mine, others := VisibleDomains(o, m)
+	mine, others := visibleDomains(o, domains)
 
 	var b strings.Builder
 	b.WriteString("你负责的业务域：\n\n| 域 | 名称 | 是什么 | 数据在哪 | 找谁 |\n|---|---|---|---|---|")
@@ -241,7 +279,7 @@ func domainSection(o *org.Org, m org.Member) string {
 		}
 	}
 	if len(mine) == 0 {
-		b.WriteString("\n| — | 还没给你划域（在 members/" + m.Name + "/persona.md 的 domains 里写） | — | — | — |")
+		b.WriteString("\n| — | 还没给你划域（在 " + where + " 里写） | — | — | — |")
 	}
 	if len(notes) > 0 {
 		b.WriteString("\n\n口径与原件来源：\n\n" + strings.Join(notes, "\n"))
@@ -269,8 +307,8 @@ func cell(s string) string {
 // lintDomainCells 体检域表里即将注入 persona 的每一个单元格。
 // 只在「真的会进上下文」的格子上花力气：自己的域全列，别人的域只有名称 / 是什么 / 找谁 ——
 // 与渲染、与出站读出口是同一个 VisibleDomains 切的（三处不会对不上号）。
-func lintDomainCells(p *org.Policy, o *org.Org, m org.Member) []org.Issue {
-	mine, others := VisibleDomains(o, m)
+func lintDomainCells(p *org.Policy, o *org.Org, domains []string) []org.Issue {
+	mine, others := visibleDomains(o, domains)
 	var out []org.Issue
 	check := func(line int, cells ...string) {
 		where := org.DomainWhere(line)

@@ -657,7 +657,7 @@ func (o *Org) Validate(p *Policy) *Report {
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
 func (o *Org) InputsHash(h Host) string {
 	var b strings.Builder
-	b.WriteString("v7\n") // v7：业务 agent 表（agents.md）+ 本机 agent 目录进指纹（v6 是 member.unwired）
+	b.WriteString("v8\n") // v8：业务 agent 表加 role / app_id(Q23 已拍)（v7 是 agents.md 与 host-agent-home 进场）
 	fmt.Fprintf(&b, "host|%s|%s|%s\n", h.VaultRoot, h.HomesRoot, h.DataDir)
 	for _, slug := range sortedMapKeys(h.AgentHomes) {
 		fmt.Fprintf(&b, "host-agent-home|%s|%s\n", slug, h.AgentHomes[slug])
@@ -687,7 +687,8 @@ func (o *Org) InputsHash(h Host) string {
 	}
 	for _, c := range o.Charters {
 		for _, a := range o.Agents {
-			fmt.Fprintf(&b, "agent|%s|%s|%s|%s|%s|%s\n", a.Slug, a.Name, a.Domain, a.Harness, a.Tools, a.Model)
+			fmt.Fprintf(&b, "agent|%s|%s|%s|%s|%s|%s|%s|%s\n",
+				a.Slug, a.Name, a.Domain, a.Harness, a.Tools, a.Model, a.Role, a.AppID)
 		}
 		fmt.Fprintf(&b, "charter|%s\n", c.Slug)
 	}

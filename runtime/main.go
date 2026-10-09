@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -343,6 +344,49 @@ func render(s string, vars map[string]string) string {
 // 而驻场时人很自然会写 `anc init ./climax --client 某车队`（目录在前）。
 // 所以先把位置参数摘出来，让 flag 排在前后都能认。
 // boolFlags 列出「不带值」的开关，其余 `-x` 一律吃掉下一个参数当值。
+// kvFlag 是可重复的 `--agent-home <slug>=<目录>`：**本机事实**，记「这台机器上这个业务 agent 的 cwd」。
+//
+// 为什么用旗标、不写进 org 真相源：路径是本机事实，进了 git 就会在跨机同步时只对一台机器成立
+// （SPEC §4.5：git = org 真相，`~/.anc` = 部署参数）。为什么可重复、不另开一种文件格式：
+// 部署参数现在本来就是旗标这一族（--vault / --homes / --data），加一种文件格式等于多一样要解释的东西。
+type kvFlag struct{ m map[string]string }
+
+func (f *kvFlag) String() string {
+	if f == nil || len(f.m) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(f.m))
+	for k := range f.m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+f.m[k])
+	}
+	return strings.Join(parts, ",")
+}
+
+func (f *kvFlag) Set(v string) error {
+	i := strings.Index(v, "=")
+	if i <= 0 || strings.TrimSpace(v[i+1:]) == "" {
+		return fmt.Errorf("要写成 <slug>=<目录>：%q", v)
+	}
+	k := strings.TrimSpace(v[:i])
+	if !reSlugLike.MatchString(k) {
+		return fmt.Errorf("左边要是 ASCII 小写标识（%s）：%q", reSlugLike, k)
+	}
+	if f.m == nil {
+		f.m = map[string]string{}
+	}
+	f.m[k] = strings.TrimSpace(v[i+1:])
+	return nil
+}
+
+// reSlugLike 与 org 层的 slug 形状对齐（`[a-z][a-z0-9-]*`）—— 这里是给人当场纠错的，
+// 真正的判据仍在 org 规则表里，两处不共用一支代码但共用同一个形状。
+var reSlugLike = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
 func splitArgs(args []string, boolFlags map[string]bool) (flags []string, positional []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]

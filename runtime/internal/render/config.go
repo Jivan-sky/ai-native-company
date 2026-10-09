@@ -25,14 +25,27 @@ type Options struct {
 // 出现「看板叫 alice、日志叫 demo-alice」这种对不上号的现场。
 func ProjectName(companyID, member string) string { return companyID + "-" + member }
 
+// DefaultHarness 是「这个 project 没写 harness 时用哪条腿」。
+//
+// 成员 bot 现在也走它 —— 那条 `type = "claudecode"` 原来写死在 Build 里，
+// 现在只有这一处默认值（§4.7 H2/H3：换腿 = 加一张表，不是再加一处写死）。
+const DefaultHarness = "claudecode"
+
 // AgentProjectName 是这个**业务 agent** 在 gateway 配置里的 project 名。
 //
 // 与成员 bot 共用同一条派生规则（`<公司 id>-<slug>`），不另立一套 —— SPEC §4.7 ③
 // 「一个业务 agent 就是一个 project」；两套拼法迟早出现「看板叫 bizbot、日志叫 sandbox-bizbot」。
 func AgentProjectName(companyID, slug string) string { return ProjectName(companyID, slug) }
 
-// UnwiredProjects 是「**声明**了还没接平台凭据」的 project 名（真相源里成员上的 unwired: true）。
+// AgentSecretKey 是一个**业务 agent** 的 app_secret 在 secrets.env 里的键名。
 //
+// 与成员共用同一支派生（secretKeyBody）：一整块牌子只做一次，两边不会漂移。
+// 例：`order-bot` → `ANC_FEISHU_SECRET_ORDERx00002dBOT`（'-' 不在直通字符里，就地转义成定长 6 位小写十六进制）。
+func AgentSecretKey(slug string) string { return "ANC_FEISHU_SECRET_" + secretKeyBody(slug) }
+
+// UnwiredProjects 是「**声明**了还没接平台凭据」的 project 名。
+//
+// 两处来源同一条口径：成员上的 `unwired: true`；业务 agent 没写 `app_id`。
 // 只算**启用中的**：停用的成员本来就不进 config，多报一个只是噪声。
 // 四个消费方（anc probe / anc apply 的回读 / 看板运行态 / 告警）必须用同一个函数算 ——
 // 各算各的，就会出现「探针说灰、apply 回读说黄」这种自相矛盾的报告（2026-10-08 实测踩到）。
@@ -42,6 +55,58 @@ func UnwiredProjects(o *org.Org) []string {
 		if m.Unwired {
 			out = append(out, ProjectName(o.Company.ID, m.Name))
 		}
+	}
+	for _, a := range sortedAgents(o.Agents) {
+		if strings.TrimSpace(a.AppID) == "" {
+			out = append(out, AgentProjectName(o.Company.ID, a.Slug))
+		}
+	}
+	return out
+}
+
+// sortedAgents 按 slug 排 —— 输出顺序确定，diff 才稳（同 members 那一条纪律）。
+func sortedAgents(list []org.Agent) []org.Agent {
+	out := append([]org.Agent(nil), list...)
+	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out
+}
+
+// agentModel 是业务 agent 的模型：自己写了用自己那份，没写走 company 默认。
+func agentModel(o *org.Org, a org.Agent) string {
+	if m := strings.TrimSpace(a.Model); m != "" {
+		return m
+	}
+	return o.Company.Defaults.Model
+}
+
+// agentAllowFrom 是「谁可以和这个业务 agent 说话」：这块业务 `who` 岗位下的成员 + 公司 admins。
+//
+// 为什么不是「只留 admins 就够」：业务 agent 代的是**岗位**（§2.3），替它办这块业务的人正是
+// who 那一岗 —— 只留 admins，等于把它真正的使用者关在门外（10-27 要跑一条真流程，当场就会撞上）。
+// 名单从 members/ 现算，与 persona / 看板是同一份派生：**不在这里另存一份名单**。
+//
+// **绝不渲染 "*"**（同 allowFrom）：一个自己都认不出收件人的 bot，宁可不渲染 ——
+// 但这条不是门禁，是渲染期的填不出来：它只让这一个 agent 这一台机器上先没有，
+// 且如实报缺（plan.Warns），不拦整份产物。
+func agentAllowFrom(o *org.Org, a org.Agent) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	if d, ok := o.Domain(a.Domain); ok {
+		for _, m := range o.Enabled() {
+			if m.Role == d.Who {
+				add(m.Feishu.OpenID)
+			}
+		}
+	}
+	for _, s := range adminOpenIDs(o) {
+		add(s)
 	}
 	return out
 }
@@ -161,7 +226,7 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		// 空闲重置：**0 = 关掉**（2026-10-07 拍板）—— 换新会话由人显式发 /new，不靠计时器猜。
 		fmt.Fprintf(&b, "reset_on_idle_mins = %d\n", o.Company.Defaults.ResetOnIdleMins)
 
-		b.WriteString("\n[projects.agent]\ntype = \"claudecode\"\n")
+		fmt.Fprintf(&b, "\n[projects.agent]\ntype = %s\n", tomlString(DefaultHarness))
 
 		b.WriteString("\n[projects.agent.options]\n")
 		workDir := WorkDir(m, opt.Host)
@@ -192,6 +257,83 @@ func Build(o *org.Org, opt Options) (*Plan, error) {
 		if len(m.Feishu.AllowChat) > 0 {
 			fmt.Fprintf(&b, "allow_chat = %s\n", tomlString(strings.Join(m.Feishu.AllowChat, ",")))
 		}
+	}
+
+	// 业务 agent：一个 agent 一个 project（SPEC §4.7 ③），与成员 bot 共用同一套机制。
+	// 三处**刻意**的差别，写在各自该写的地方：
+	//   1. 没有「人写的 persona」那一段 —— FDE 的东西住在它的 cwd 里（见 AgentPersona）；
+	//   2. 收件人不是「一个人」，而是这块业务 who 岗位下的成员 + admins（见 agentAllowFrom）；
+	//   3. 不发 admin_from —— 业务 agent 不是给人下命令用的，少一个入口就少一类事故。
+	//
+	// 三种「这一台机器上先不渲染它」都**如实报缺**（plan.Warns），不猜、不静默跳过：
+	// role 取不到、本机 cwd 没配、解不出收件人。
+	for _, a := range sortedAgents(o.Agents) {
+		role, ok := o.Roles[a.Role]
+		if !ok {
+			p.Warns = append(p.Warns, fmt.Sprintf(
+				"业务 agent %s 的 role=%q 在 roles/ 里找不到 —— 这一台机器上不渲染它（persona 取不到职责那一段）",
+				a.Slug, a.Role))
+			continue
+		}
+		// 本机事实（这台机器上它落在哪）**不许猜**：拿 HomesRoot 拼一个看着像的路径，
+		// 会在别人家目录里建夹子（同 org.Host.AgentHome 的注释）。
+		workDir, ok := opt.Host.AgentHome(a.Slug)
+		if !ok {
+			p.Warns = append(p.Warns, fmt.Sprintf(
+				"业务 agent %s 在本机没有 cwd —— 这一台机器上不渲染它（配 --agent-home %s=<目录> 才落）", a.Slug, a.Slug))
+			continue
+		}
+		allow := agentAllowFrom(o, a)
+		if len(allow) == 0 {
+			p.Warns = append(p.Warns, fmt.Sprintf(
+				"业务 agent %s 解不出收件人（域 %q 的 who 岗位下没有启用中的成员，公司 admins 也没有 open_id）—— 这一台机器上不渲染它",
+				a.Slug, a.Domain))
+			continue
+		}
+		pr, err := AgentPersona(o, role, a, opt.Host)
+		if err != nil {
+			return nil, err
+		}
+		p.Issues = append(p.Issues, pr.Issues...)
+
+		name := AgentProjectName(o.Company.ID, a.Slug)
+		p.Projects = append(p.Projects, name)
+		p.PersonaHash[name] = sha256hex(pr.Text)
+
+		b.WriteString("\n[[projects]]\n")
+		fmt.Fprintf(&b, "name = %s\n", tomlString(name))
+		fmt.Fprintf(&b, "reset_on_idle_mins = %d\n", o.Company.Defaults.ResetOnIdleMins)
+
+		harness := strings.TrimSpace(a.Harness)
+		if harness == "" {
+			harness = DefaultHarness
+		}
+		fmt.Fprintf(&b, "\n[projects.agent]\ntype = %s\n", tomlString(harness))
+
+		b.WriteString("\n[projects.agent.options]\n")
+		fmt.Fprintf(&b, "work_dir = %s\n", tomlString(workDir))
+		if mode := role.Mode; mode != "" {
+			fmt.Fprintf(&b, "mode = %s\n", tomlString(mode))
+		}
+		if model := agentModel(o, a); model != "" {
+			fmt.Fprintf(&b, "model = %s\n", tomlString(model))
+		}
+		// 空的那条在 org 层就是红档（agent.tools.empty）；真被降档放行时，与成员同一条写法：
+		// 不写这个键。写一个 `[]` 出去等于替上游猜「空数组 = 全开还是全禁」—— 那次猜错的代价是现场。
+		if tools := o.AgentTools(a); len(tools) > 0 {
+			fmt.Fprintf(&b, "allowed_tools = [%s]\n", tomlStringList(tools))
+		}
+		b.WriteString("append_system_prompt = '''\n")
+		b.WriteString(pr.Text)
+		b.WriteString("\n'''\n")
+
+		b.WriteString("\n[[projects.platforms]]\ntype = \"feishu\"\n")
+		b.WriteString("\n[projects.platforms.options]\n")
+		fmt.Fprintf(&b, "app_id = %s\n", tomlString(a.AppID))
+		key := AgentSecretKey(a.Slug)
+		p.SecretKeys = append(p.SecretKeys, key)
+		fmt.Fprintf(&b, "app_secret = %s\n", tomlString("${"+key+"}"))
+		fmt.Fprintf(&b, "allow_from = %s\n", tomlString(strings.Join(allow, ",")))
 	}
 
 	p.Text = b.String()

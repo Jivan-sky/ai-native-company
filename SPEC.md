@@ -450,6 +450,10 @@ ANC 这一侧哪几条是不变量、哪几条由对方适配。判据一句话�
   （§6 默认值 5；只有 devbot 例外）。
 - **一个业务 agent 就是一个 project**（`render.ProjectName` 一处派生）；它可以在 `[projects.agent]` 上选
   **另一条腿** —— 这正是 H2 / H3 的消费方。
+- **它的 cwd 是「本机事实」，不进 git**：`--agent-home <slug>=<目录>`（可重复）。没配 = 这一台机器上
+  **不渲染它**，如实报缺（plan.Warns）—— 不猜一个目录，也不静默跳过。
+- **它和谁说话**：这块业务 `who` 岗位下的成员 + 公司 admins（从 `members/` 现算，与 persona / 看板
+  同一份派生）；**解不出一个人就不渲染它**（宁可这一台机器上先没有，也不写一个按上游默认谁都能敲的 bot）。
 - **数据视野与成员 bot 共用一把尺子**（`render.VisibleDomains`，§4.6 与 `runtime/DESIGN.md` §7.1.21）；
   不与任何个人额度、个人凭据混用。
 - **与个人 agent 之间：跨域默认不通**（§6 默认值 12）；要通只有一条路 —— grant（§6 授权模型）。
@@ -461,7 +465,7 @@ ANC 这一侧哪几条是不变量、哪几条由对方适配。判据一句话�
 |---|---|
 | G1–G4 | 在 cc-connect 上**已落并实测**（`runtime/DESIGN.md` §7.1.6 / §7.1.8 / §7.1.10）。**形态层已抽**（2026-10-09 第一刀）：`internal/gateway` 把「装 / 重启 / 日志落点 / 会话落点 / 凭据键名空间 / 认哪些枚举」收成**一张表**（`gateway.CCConnect`），apply / probe / trail / notify / startup / org 六个消费方改成从表里取 —— 换一家网关 = 加一行表，不改调用点。**仍未抽**：G1 的**产物正文**（`config.toml` 各段怎么写）还在 `internal/render`；两家的 harness 腿仍各写一份 |
 | H1 / H2 / H4 | 已落（H4 的表已按「加条目」的形状写）；**H3 第二条腿未实测** —— `trail` 与 `audit collect` 现在只认 claude 的落点与格式（`runtime/DESIGN.md` §7 清单） |
-| ③ 业务 agent 独立账号 | **表已落 / 渲染未接** —— `agents.md` 的落点 + 7 条规则 + 11 条用例已落（`runtime/DESIGN.md` §7.1.27）；**渲染还没为它产 `[[projects]]`** —— 表结构（persona 从哪来）与平台凭据（`app_id` / 键名）两处没拍，见 §13 Q23。沙箱里还没有一个独立账号的业务 bot 跑完一条流程 |
+| ③ 业务 agent 独立账号 | **渲染已接 / 沙箱真回话未测** —— `agents.md` 落点（加 `role` / `app_id` 两列，§13 Q23 已拍：表里加列，persona 复用 `roles/<role>/` 那套）+ `render.Build` 为每个 agent 产一个 `[[projects]]`（cwd 走 `--agent-home`）+ 10 条规则 + 19 条用例（`runtime/DESIGN.md` §7.1.27 / §7.1.28）。沙箱侧：独立账号五项前置已实测；**真回话没测** —— 同一个飞书 app 同一时刻只允许一条长连接 |
 
 **⑤ 本节新增的待拍** → §13 Q20 / Q21 / Q23。
 
@@ -856,4 +860,4 @@ CLI / 对话式 bot / 看板是**同一个变更管道的三个前端**，管道
 | Q20 | **第二条 harness 腿先接谁**（Codex / Hermes / OpenClaw / 别的） | 待拍。可选判据来自 §4.7-H2/H3/H4：无头执行 + 结束码、原生记录落点稳定可读、工具名可映射。**注意**：已有一条腿不等于第三条也要走同一条 —— 接法是 §4.7 那四条，不是某一家的参数 |
 | Q21 | **网关抽象现在抽，还是等第二个实现**：§4.2 说「定义薄的 `GatewayProvider` 抽象」，但当前只有一个实现（cc-connect） | ✅ **已定 2026-10-09：现在抽，第一刀已落**（`internal/gateway` 形态表 + 六个消费方改造，`runtime/DESIGN.md` §7.1.22）。形状刻意选**一张表**而不是一套接口方法 —— 因为 §4.7 把「换网关」定义成「加一张表 + 一个适配器」。**仍待第二刀**：G1 的产物正文（`config.toml` 的段）还没收到 provider 名下 |
 | Q22 | **MCP 协议版本跟随策略**：我们该钉哪个协议版本 | ✅ **口径已定 2026-10-09**：**原样回客户端报的那个版本**（不写死）—— 依据是实测：CC 2.1.291 报 `2025-11-25`、Codex 0.160.1 报 `2025-06-18`，写死任一个另一家就走。我们只实现**官方三版共同子集**（initialize / notifications / tools/list / tools/call，无状态），**有意不支持**批量请求与 SSE。规范来源：官方 spec 的 schema 先用 TypeScript 定义再导出 JSON Schema；官方有 10 个 SDK（含 go），我们**不引**、继续手写，代价（体积 / 依赖）与收益（零第三方依赖）见 `runtime/DESIGN.md` §7.1.14。**仍待观察**：新协议版本发布时是否要跟（现在没有自动跟随机制，也没有版本兼容矩阵） |
-| Q23 | **业务 agent 的 persona 与平台凭据落在哪**：§4.7 ③ 说「一个业务 agent 就是一个 project」、「差别不在权限机制」，但 `agents.md` 现在只有 **slug / name / domain / harness / tools / model** 六列。渲染一个 project 至少还要两样 —— **persona**（成员走 `roles/<role>/persona.md` + 成员 persona + 域表；业务 agent 表里**没有 role 列**）与**平台绑定**（`[[projects.platforms]]` 要 `app_id` + 一个 `app_secret` 键名；业务 agent 的 app 是客户端自己建的，`open_id` / `allow_from` 对它没意义）。两条候选：(a) 表里加列 —— `role` + `app_id`，secret 键名按同一套全函数派生（`FeishuSecretKey` 那支）；(b) 一个业务 agent 一个目录（`agents/<slug>/agent.md` 带 frontmatter），与 `members/<name>/persona.md` 同形。**这是真相源的表结构，不该由实现顺手定** —— 定了才好接渲染（`runtime/DESIGN.md` §7.1.27 的「仍未落」） |
+| Q23 | ✅ **已定 2026-10-10：(a) 表里加列** —— `agents.md` 增 `role`（persona 复用 `roles/<role>/` 那套，业务 agent **没有**「人写的 persona」那一段）与 `app_id`（平台绑定；`app_secret` 不进 git，键名走 `AgentSecretKey`，与成员共用同一支派生）。原文（留档）→ **业务 agent 的 persona 与平台凭据落在哪**：§4.7 ③ 说「一个业务 agent 就是一个 project」、「差别不在权限机制」，但 `agents.md` 现在只有 **slug / name / domain / harness / tools / model** 六列。渲染一个 project 至少还要两样 —— **persona**（成员走 `roles/<role>/persona.md` + 成员 persona + 域表；业务 agent 表里**没有 role 列**）与**平台绑定**（`[[projects.platforms]]` 要 `app_id` + 一个 `app_secret` 键名；业务 agent 的 app 是客户端自己建的，`open_id` / `allow_from` 对它没意义）。两条候选：(a) 表里加列 —— `role` + `app_id`，secret 键名按同一套全函数派生（`FeishuSecretKey` 那支）；(b) 一个业务 agent 一个目录（`agents/<slug>/agent.md` 带 frontmatter），与 `members/<name>/persona.md` 同形。**这是真相源的表结构，不该由实现顺手定** —— 定了才好接渲染（`runtime/DESIGN.md` §7.1.27 的「仍未落」） |

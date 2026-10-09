@@ -122,6 +122,9 @@ var DefaultRules = []Rule{
 	{"agent.name.missing", LevelWarn, false, "缺显示名，看板上只剩机器标识"},
 	{"agent.domain.missing", LevelWarn, false, "没挂域 —— 数据视野那把尺子（VisibleDomains）以域为单位，没域等于没视野"},
 	{"agent.domain.unknown", LevelWarn, false, "挂的域不在 domains.md 里 —— 多半是拼错；这个 agent 分不到任何数据"},
+	{"agent.role.missing", LevelWarn, false, "没写 role —— 业务 agent 代的是岗位，persona 的职责 / 风格 / 术语表来自 roles/<role>/；没它这一层空着"},
+	{"agent.role.unknown", LevelWarn, false, "role 不在 roles/ 里 —— 多半是拼错"},
+	{"agent.slug.collides_member", LevelWarn, false, "slug 与某个成员同名 —— project 名（<公司 id>-<slug>）会撞成同一个，配置里只留得下一个"},
 	{"agent.tools.empty", LevelFatal, false, "SPEC §4.7 ③ 红线：业务 agent 的 allowed_tools 必须非空（只有 devbot 例外）。实测：dontAsk 下未预授权的工具一律自动拒绝 —— 空白名单的 bot 连得上却干不了活，现场还全是绿的；不锁死：可在 company.md 写 `policy: agent.tools.empty = warn`"},
 
 	// —— 立项书副本（接入链的**落点**）——

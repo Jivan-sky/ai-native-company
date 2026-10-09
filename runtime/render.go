@@ -24,6 +24,7 @@ const renderUsage = `anc render / anc org check —— org 真相源 → gateway
   --config <文件>    输出的 config.toml（默认 <vault>/../gateway/config.toml）
   --homes <目录>     每 bot 的家目录根（默认 <vault>/../homes）
   --data <目录>      gateway 的 data_dir（默认 <homes>/../data）
+  --agent-home <slug>=<目录>   业务 agent 在本机的 cwd（可重复）—— **本机事实**，不进 git
   --apply            真落盘（时间戳备份 + 原子写）
   --check            与现有配置比对，有漂移就退出码 1
   --adopt            接管一份没有 anc 指纹的现有配置（否则拒绝覆盖）
@@ -45,6 +46,8 @@ func cmdRender(args []string) int {
 	check := fs.Bool("check", false, "比对现有配置")
 	adopt := fs.Bool("adopt", false, "接管没有指纹的现有配置")
 	allowScale := fs.Bool("allow-scale", false, "允许新增/删除 project")
+	agentHome := &kvFlag{}
+	fs.Var(agentHome, "agent-home", "业务 agent 的本机 cwd：<slug>=<目录>（可重复）")
 	vault := fs.String("vault", "", "vault 目录（也可用位置参数）")
 	// Go 的 flag 包遇到第一个位置参数就停止解析，所以先按「哪些是布尔开关」把位置参数摘出来。
 	flagArgs, posArgs := splitArgs(args, map[string]bool{"apply": true, "check": true, "adopt": true, "allow-scale": true})
@@ -83,7 +86,7 @@ func cmdRender(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		return 1
 	}
-	host := org.Host{VaultRoot: abs, HomesRoot: homesPath, DataDir: dataPath}
+	host := org.Host{VaultRoot: abs, HomesRoot: homesPath, DataDir: dataPath, AgentHomes: agentHome.m}
 	plan, err := renderpkg.Build(o, renderpkg.Options{Host: host, Version: version, Now: time.Now()})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)

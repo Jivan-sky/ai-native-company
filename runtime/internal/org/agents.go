@@ -23,7 +23,13 @@ type Agent struct {
 	Harness string // 跑哪条腿：harness 表里的 agent type（claudecode / codex / …）；空 = 默认那家
 	Tools   string // allowed_tools（逗号分隔）—— **非空是红线**，见 agent.tools.empty
 	Model   string // 可选；空 = 走 company 默认
-	Line    int    // 在 agents.md 里的行号（报错定位用）
+	Role    string // 代哪个**岗位**（roles/ 的 slug）。persona 的职责 / 风格 / 术语表从这一层来 ——
+	// SPEC §2.3：成员 bot 代人，业务 agent 代岗位，两者共用同一套 persona 机制（Q23 已拍：表里加列，
+	// 不另开 agents/<slug>/ 目录；等哪天一个 agent 的上下文一套 persona.md 装不下，再升到目录形态）
+	AppID string // 平台绑定：这个业务 agent 自己的 app_id。它**不是**秘密，进 git；
+	// app_secret 不进 git —— 键名按 AgentSecretKey 派生，明文住 secrets.env（同成员 bot 的做法）。
+	// 留空 = 还没接线：这个 project 照渲染（与成员的 unwired 同档），由探针报**灰**，不假装绿。
+	Line int // 在 agents.md 里的行号（报错定位用）
 }
 
 // AgentsFile 是业务 agent 表的唯一落点（与 domains.md / projects.md 同级）。
@@ -33,6 +39,7 @@ const AgentsFile = "agents.md"
 var knownAgentColumns = map[string]bool{
 	"slug": true, "name": true, "domain": true,
 	"harness": true, "tools": true, "model": true,
+	"role": true, "app_id": true,
 }
 
 // LoadAgents 读 agents.md。文件不存在 = 这家公司还没有业务 agent（向后兼容，不报错）。
@@ -68,6 +75,7 @@ func LoadAgents(root string, p *Policy) ([]Agent, []Issue, error) {
 		get := rowReader(cols, cells)
 		a.Slug, a.Name, a.Domain = get("slug"), get("name"), get("domain")
 		a.Harness, a.Tools, a.Model = get("harness"), get("tools"), get("model")
+		a.Role, a.AppID = get("role"), get("app_id")
 		where := agentWhere(a.Line)
 
 		if a.Slug == "" {
@@ -91,6 +99,11 @@ func LoadAgents(root string, p *Policy) ([]Agent, []Issue, error) {
 		if a.Domain == "" {
 			issues = append(issues, p.Issue("agent.domain.missing", where,
 				"业务 agent %q 没写 domain —— 数据视野那把尺子（VisibleDomains）以域为单位，没域等于没视野", a.Slug))
+		}
+		if a.Role == "" {
+			issues = append(issues, p.Issue("agent.role.missing", where,
+				"业务 agent %q 没写 role —— 它代哪个岗位？persona 的职责 / 风格 / 术语表是从 roles/<role>/ 那一层取的，"+
+					"没它这一段就空着（SPEC §2.3：成员 bot 代人，业务 agent 代岗位）", a.Slug))
 		}
 		if SplitList(a.Tools) == nil {
 			issues = append(issues, p.Issue("agent.tools.empty", where,
@@ -132,8 +145,8 @@ func (o *Org) Agent(slug string) (Agent, bool) {
 	return Agent{}, false
 }
 
-// validateAgents 做跨表校验：domain 指向的域存不存在。
-// 只发现事实，档次由规则表定（实现里不许硬编码档次）。
+// validateAgents 做跨表校验：domain 指向的域存不存在、role 指向的岗位存不存在、
+// project 名会不会和某个成员 bot 撞。只发现事实，档次由规则表定（实现里不许硬编码档次）。
 func (o *Org) validateAgents(p *Policy, rep *Report) {
 	seen := map[string]bool{}
 	for _, d := range o.Domains {
@@ -144,6 +157,20 @@ func (o *Org) validateAgents(p *Policy, rep *Report) {
 			rep.Add(p.Issue("agent.domain.unknown", agentWhere(a.Line),
 				"domain=%q 不在 %s 里（现有：%s）—— 这块业务不存在，它的数据视野指不到地方",
 				a.Domain, DomainsFile, o.domainSlugs()))
+		}
+		if a.Role != "" {
+			if _, ok := o.Roles[a.Role]; !ok {
+				rep.Add(p.Issue("agent.role.unknown", agentWhere(a.Line),
+					"role=%q 不在 roles/ 里（现有：%s）—— 多半是拼错；这个 agent 的 persona 取不到职责那一段",
+					a.Role, o.roleSlugs()))
+			}
+		}
+		// project 名是 <公司 id>-<slug>，成员 bot 也是 <公司 id>-<成员名> —— 两边同名 = 同一份配置里
+		// 两个 project 抢一个名字，上游只会留一个，而「留下的那个是谁」取决于顺序。
+		// 这不是学术问题：members/ 里本来就有 ASCII 名（devbot）。
+		if _, ok := o.Member(a.Slug); ok {
+			rep.Add(p.Issue("agent.slug.collides_member", agentWhere(a.Line),
+				"slug=%q 与 members/ 里的成员同名 —— 两边的 project 名会撞成同一个，配置里只留得下一个", a.Slug))
 		}
 	}
 }
