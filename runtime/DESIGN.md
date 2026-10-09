@@ -440,7 +440,7 @@ probe 的立身之本（只读命令被随手跑），所以判据仍是同一�
 | 源 | 位置 | 它回答什么 |
 |---|---|---|
 | cc-connect 会话落盘 | `<data>/sessions/<project>_<hash>.json` | 哪个 bot 的哪个会话槽对应哪个 harness 会话 id —— **两份记录之间唯一的桥** |
-| harness 原生记录 | `<claude-home>/projects/<slug(work_dir)>/<id>.jsonl` ＋ `<id>/subagents/*.jsonl` | 逐轮的 token / 工具 / 被拒 / 耗时 / 成本 |
+| harness 原生记录 | `<记录根>/projects/<slug(work_dir)>/<id>.jsonl` ＋ `<id>/subagents/*.jsonl`（**这套布局来自接入口径表**，见下） | 逐轮的 token / 工具 / 被拒 / 耗时 / 成本 |
 
 **三条口径是实测出来的，不是看着像**（把聚合结果与 claude 自己的 `cost-state` 对拍，**逐字段相等**）：
 
@@ -471,6 +471,15 @@ claude cost-state（harness 自己的账本）          in 146005  out 16486  cr
 **实测**：`gofmt` / `go vet` / `go test ./...` 全绿（trail 包 12 条 + render 2 条）；活体在沙箱跑出
 3 段会话、6 轮时间线、子任务归属与逐轮耗时（不含空闲）；负例（临时现场 work_dir 指向不存在的地方）
 → 3 段全报「归集不上」、Exit 1、合计注明「3 段读不到」；`--json` 结构与字段核对过。
+
+**接入口径是数据，不是代码**（2026-10-09）：上面那套布局（记录根从哪个环境变量来、项目目录怎么起名、
+主记录 / 子任务记录叫什么）已经从代码里搬进 `internal/harness` 的 `harnesses.json`：
+
+- `--harness <id>` 选哪一家，`--harnesses <文件>` **整份替换**那张表（同 `--rules` 的做法）；
+- 加一家 = 加一行数据；`reader` 为空的家（如 codebuddy / WorkBuddy CLI）**只登记了口径、读不了**，
+  代码会明说「只登记了口径，没有读取器」并以退出码 1 退出 —— 不装作 0 消耗；
+- 仍绑死在代码上的只剩**解析语义**（claude 的 jsonl 行形状），所以下面那条「未覆盖」
+  只是从「格式 + 布局」缩小到「格式」。
 
 **未覆盖**：**只认 claude 的 jsonl 格式** —— 换 harness（codex / hermes / openclaw…）要另写 adapter，
 这条路是绑死在存储格式上的（同 §7.1.4 的代价）。**判断层没做**：「决定是什么」「失败根因」不在此列，

@@ -32,6 +32,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"anc/internal/harness"
 )
 
 // Schema 是 JSON 出口的版本。
@@ -51,19 +53,19 @@ const promptHead = 80
 //
 // 即**每个非字母数字字符 → '-'**（`:` `\` `_` `/` `.` 一律如此）。
 // 这个映射是有损的、反推不回来，所以只做正向：从配置里的 work_dir 算出该去哪个目录找记录。
+// 规则本身搬进了接入口径表（internal/harness 的 dir_rule）—— 上游反推和下游找记录
+// 必须是同一条规则，而「是不是同一条」靠共用一份数据保证，不靠两处抄得一样。
 func Slug(workDir string) string {
-	var b strings.Builder
-	b.Grow(len(workDir))
-	for _, r := range workDir {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
+	s, err := SlugFor(harness.RuleNonalnumDash, workDir)
+	if err != nil {
+		// 这条规则是编译期常量，走不到这里；真走到了宁可炸，也不要静默编一个目录名。
+		panic("Slug 的规则不认识了: " + err.Error())
 	}
-	return b.String()
+	return s
 }
+
+// SlugFor 按口径表里的规则名起名（表里换了规则，这里跟着换）。
+func SlugFor(rule, workDir string) (string, error) { return harness.Slug(rule, workDir) }
 
 // Usage 是 token 账。四个字段跟着 harness 的口径走，不做换算、不做猜测。
 type Usage struct {
@@ -244,15 +246,34 @@ func Bridges(project, path string) ([]Bridge, error) {
 	return out, nil
 }
 
-// TranscriptDir 是某段会话的原生记录落在哪：<claudeHome>/projects/<slug(workDir)>。
-func TranscriptDir(claudeHome, workDir string) string {
-	return filepath.Join(claudeHome, "projects", Slug(workDir))
+// TranscriptDir 是某段会话的原生记录落在哪，按**默认那一家**的口径算。
+// 布局不写在这里：它来自接入口径表（internal/harness 的 layout）。
+func TranscriptDir(root, workDir string) string {
+	dir, err := TranscriptDirIn(harness.DefaultFamily(), root, workDir)
+	if err != nil {
+		// 默认那家的规则是编译期常量，走不到这里。
+		panic("TranscriptDir: " + err.Error())
+	}
+	return dir
 }
 
-// ReadSession 读一段会话的原生记录。读不到**不报错**，而是把 Session.Found 置 false
-// 并在 Problems 里写明原因 —— 调用方要能把「读不到」和「没有」分开讲。
-func ReadSession(project, slot string, historic bool, claudeHome, workDir, id, agentType string) Session {
-	dir := TranscriptDir(claudeHome, workDir)
+// TranscriptDirIn 按指定那一家的布局算记录目录。
+func TranscriptDirIn(fam harness.Family, root, workDir string) (string, error) {
+	return fam.TranscriptDir(root, workDir)
+}
+
+// ReadSession 读一段会话的原生记录（按默认那一家）。读不到**不报错**，而是把 Session.Found
+// 置 false 并在 Problems 里写明原因 —— 调用方要能把「读不到」和「没有」分开讲。
+func ReadSession(project, slot string, historic bool, root, workDir, id, agentType string) Session {
+	return ReadSessionIn(harness.DefaultFamily(), root, project, slot, historic, workDir, id, agentType)
+}
+
+// ReadSessionIn 按指定那一家的口径读。三件事都在这里定，且都来自表：
+// 记录目录怎么算（layout）、主记录叫什么、子任务记录在哪。
+//
+// **读不了的家在这里就被挡下**：表里 reader 为空 = 只登记了口径、还没有读取器 ——
+// 明说读不到，不装作 0 消耗（静默少报和假绿是同一类错误）。
+func ReadSessionIn(fam harness.Family, root, project, slot string, historic bool, workDir, id, agentType string) Session {
 	s := Session{
 		Schema:    Schema,
 		Project:   project,
@@ -260,10 +281,19 @@ func ReadSession(project, slot string, historic bool, claudeHome, workDir, id, a
 		ID:        id,
 		AgentType: agentType,
 		Historic:  historic,
-		Dir:       dir,
 		Turns:     []Turn{},
 	}
-	main := filepath.Join(dir, id+".jsonl")
+	if err := fam.CanRead(); err != nil {
+		s.Problems = append(s.Problems, err.Error())
+		return s
+	}
+	dir, derr := fam.TranscriptDir(root, workDir)
+	if derr != nil {
+		s.Problems = append(s.Problems, derr.Error())
+		return s
+	}
+	s.Dir = dir
+	main := fam.MainPath(dir, id)
 	if _, err := os.Stat(main); err != nil {
 		s.Problems = append(s.Problems, fmt.Sprintf(
 			"原生记录找不到：%s（这是**读不到**，不是 0 消耗）", main))
@@ -276,9 +306,16 @@ func ReadSession(project, slot string, historic bool, claudeHome, workDir, id, a
 		return s
 	}
 	// 子 agent：同一段会话的旁路记录，token 也算在这个 bot 头上。
-	subs, err := filepath.Glob(filepath.Join(dir, id, "subagents", "*.jsonl"))
-	if err != nil {
-		s.Problems = append(s.Problems, "子 agent 记录列不出来："+err.Error())
+	// 这一家有没有子任务记录、放在哪，也来自口径表 —— 表里没声明就当作没有，
+	// 不编一个目录出来（编出来的话，读不到会被说成「没有」）。
+	subGlob, metaSuffix := fam.SubagentPaths(dir, id)
+	var subs []string
+	if subGlob != "" {
+		listed, gerr := filepath.Glob(subGlob)
+		if gerr != nil {
+			s.Problems = append(s.Problems, "子 agent 记录列不出来："+gerr.Error())
+		}
+		subs = listed
 	}
 	sort.Strings(subs)
 	for _, f := range subs {
@@ -292,7 +329,8 @@ func ReadSession(project, slot string, historic bool, claudeHome, workDir, id, a
 		// 拉起它的那一轮（这样「哪一轮花了多少」才解释得了总账）。
 		s.Usage = s.Usage.Add(sub.Usage)
 		parent := -1
-		if m, ok := readMeta(strings.TrimSuffix(f, ".jsonl") + ".meta.json"); ok {
+		// metaSuffix 也来自表；它为空时上面的 subs 必为空，这个循环不会进来。
+		if m, ok := readMeta(strings.TrimSuffix(f, ".jsonl") + metaSuffix); ok {
 			sa.Agent, sa.Desc = m.AgentType, m.Description
 			if i, ok := uses[m.ToolUseID]; ok && i >= 0 && i < len(s.Turns) {
 				s.Turns[i].Usage = s.Turns[i].Usage.Add(sub.Usage)

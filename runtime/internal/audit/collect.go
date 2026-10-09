@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"anc/internal/harness"
 )
 
 // ToolRule 是「一个工具怎么读成一次行使」。
@@ -47,6 +49,7 @@ func BuiltinTools() []ToolRule {
 // CollectOptions 是一次归集的输入。
 type CollectOptions struct {
 	ClaudeHome string                      // harness 的项目记录根（`<ClaudeHome>/projects/<slug>/`）
+	Family     harness.Family              // 口径（零值 = 内置默认那家）；记录布局从表里来
 	Projects   map[string]string           // project 名 → work_dir（`render.WorkDirs` 给的）
 	ActorOf    func(project string) string // project → 行使者名；nil = 用 project 名
 	Tools      []ToolRule                  // 空 = BuiltinTools()
@@ -74,6 +77,11 @@ type CollectResult struct {
 // 那一类只能靠显式补记（`anc audit add`）。这是这份流水的边界，页面要如实写。
 func Collect(opt CollectOptions) CollectResult {
 	var res CollectResult
+	if opt.Family.ID == "" {
+		// 没给口径 = 用内置默认那家。零值 Family 一路走下去会让 Source 变成空字符串，
+		// 那种半截状态比直接报错更难查 —— 所以在这里就落定。
+		opt.Family = harness.DefaultFamily()
+	}
 	rules := opt.Tools
 	if len(rules) == 0 {
 		rules = BuiltinTools()
@@ -93,7 +101,11 @@ func Collect(opt CollectOptions) CollectResult {
 				actor = a
 			}
 		}
-		dir := filepath.Join(opt.ClaudeHome, "projects", slugDir(opt.Projects[project]))
+		dir, derr := opt.Family.TranscriptDir(opt.ClaudeHome, opt.Projects[project])
+		if derr != nil {
+			res.Problems = append(res.Problems, derr.Error())
+			continue
+		}
 		names, err := os.ReadDir(dir)
 		if err != nil {
 			// 记录目录不在 = 这个 bot 还没有过会话（或没跑在这台机器上）。
@@ -205,7 +217,7 @@ func collectShard(path, sessionID, actor string, byTool map[string]ToolRule,
 					Action: rule.Action,
 					Object: targetOf(b.Input, rule.Target),
 					Tool:   b.Name,
-					Source: "collect:claude",
+					Source: "collect:" + opt.Family.ID,
 					Ref:    sessionID,
 					Detail: head(inputDigest(b.Name, b.Input), 160),
 				}
@@ -349,17 +361,12 @@ func blockText(raw json.RawMessage) string {
 //
 // 这个映射是有损的、反推不回来，所以只做正向：从 work_dir 算出该去哪个目录找记录。
 func slugDir(workDir string) string {
-	var b strings.Builder
-	b.Grow(len(workDir))
-	for _, r := range workDir {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('-')
-		}
+	s, err := harness.Slug(harness.RuleNonalnumDash, workDir)
+	if err != nil {
+		// 规则是编译期常量，走不到这里；真走到了宁可炸，也不要静默编一个目录名。
+		panic("slugDir: " + err.Error())
 	}
-	return b.String()
+	return s
 }
 
 // head 按 **rune** 截断：按字节切会把一个中文字切成两半，拼出乱码。

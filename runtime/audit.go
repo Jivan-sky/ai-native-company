@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"anc/internal/audit"
+	"anc/internal/harness"
 	"anc/internal/org"
 	renderpkg "anc/internal/render"
 )
@@ -46,7 +47,9 @@ add 选项（--who → 用 --actor）：
 
 collect 选项：
   --config <文件>     gateway config（默认 <vault>/../gateway/config.toml）
-  --claude-home <目录> harness 记录根（默认 $CLAUDE_CONFIG_DIR，其次 <用户目录>/.claude）
+  --harness <id>       按哪一家的口径归集（默认 claude）
+  --harnesses <文件>    接入口径表（整份替换内置那份）
+  --claude-home <目录>  直接指定记录根（不改口径）
   --since <RFC3339>   只要这个时刻之后的
   --write             真落盘（不加就是 dry-run，只打印会写几条）
   --json              机器读的出口
@@ -308,7 +311,9 @@ func cmdAuditAdd(args []string) int {
 func cmdAuditCollect(args []string) int {
 	fs := flag.NewFlagSet("audit collect", flag.ContinueOnError)
 	cfg := fs.String("config", "", "gateway config")
-	claudeHome := fs.String("claude-home", "", "harness 记录根")
+	harnessID := fs.String("harness", harness.DefaultID, "按哪一家的口径归集")
+	harnessTable := fs.String("harnesses", "", "接入口径表（整份替换内置那份）")
+	claudeHome := fs.String("claude-home", "", "直接指定记录根（不改口径）")
 	since := fs.String("since", "", "只要这个时刻之后的")
 	write := fs.Bool("write", false, "真落盘")
 	asJSON := fs.Bool("json", false, "JSON 出口")
@@ -329,7 +334,15 @@ func cmdAuditCollect(args []string) int {
 	if cfgPath == "" {
 		cfgPath = filepath.Join(filepath.Dir(abs), "gateway", "config.toml")
 	}
-	home, homeWhy := resolveClaudeHome(*claudeHome)
+	fam, home, homeWhy, ferr := resolveRecordsRoot(*harnessTable, *harnessID, *claudeHome)
+	if ferr != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", ferr)
+		return 2
+	}
+	if rerr := fam.CanRead(); rerr != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", rerr)
+		return 1
+	}
 
 	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -374,6 +387,7 @@ func cmdAuditCollect(args []string) int {
 
 	res := audit.Collect(audit.CollectOptions{
 		ClaudeHome: home,
+		Family:     fam,
 		Projects:   workDirs,
 		ActorOf:    actorOf,
 		Known:      known,
