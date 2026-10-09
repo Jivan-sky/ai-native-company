@@ -450,7 +450,11 @@ harness **H1–H4**、业务 agent 独立账号的五件套。判据一句话：
 的第二条腿仍未实测** —— 见 `DESIGN.md` §7 清单最后两行。
 形状与口径见 `internal/envelope/`（解析与绑定）与 `internal/mcp/`（协议层）。
 可见范围那把尺子在 `internal/render/domains.go`（`VisibleDomains`）—— persona 与出站读出口共用。
-### 验证到了哪一步（别把「一致」当成「已验证」）
+**协议层补了「合规对拍」（2026-10-09）**：手写的 MCP 不靠「两家客户端通了」这一条孤证 ——
+`internal/mcp/conformance_test.go`（7 条）钉协议形状，`mcp_conformance_test.go`（1 条，真 HTTP）
+钉真工具面。它当场抓到一个真缺陷：缺 `arguments` 时工具收到 `nil` map（一写 `args[...]` 就 panic），
+已修并**变异验证**过。批量请求 `-32700`、不提供 SSE 是**有意不支持**，一并钉住防止被当 bug 修掉。
+细节见 `DESIGN.md` §7.1.14。### 验证到了哪一步（别把「一致」当成「已验证」）
 
 - `--check` 比的是「现在这份 == anc 上一轮生成的」。它能抓人的手改、能抓 org 的变化，
   **抓不到渲染器自己的 bug**，也**不代表 gateway 已经吃下这份配置**。

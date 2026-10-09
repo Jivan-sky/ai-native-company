@@ -136,10 +136,12 @@ func (s *Server) handleCall(w http.ResponseWriter, req rpcRequest) {
 		if t.Name != p.Name {
 			continue
 		}
-		text, isErr := t.Call(p.Arguments)
+		// 空 map 要在调用之前补：工具里只要写一次 args[...]，nil map 就会 panic
+		// （合规对拍用例 TestConformanceMissingArgumentsReachToolAsEmptyMap 钉住这条）。
 		if p.Arguments == nil {
 			p.Arguments = map[string]any{}
 		}
+		text, isErr := t.Call(p.Arguments)
 		s.logf("mcp: tools/call %s（%d 个参数）→ isError=%v", p.Name, len(p.Arguments), isErr)
 		writeRPC(w, rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
 			"content": []map[string]any{{"type": "text", "text": text}},

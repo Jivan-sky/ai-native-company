@@ -824,13 +824,34 @@ Codex 走 `-c mcp_servers.anc.url=...`。两个都是「用完就走」。
 （不写日志、回 `isError=true`）。依据是 `fatal` 在这库里的定义就是「阻止落盘」（`org/rules.go`）。
 `TestIngressFatalRejectsAndDoesNotLog` 锁住这条，也锁住「拒收的信不落盘」。
 
-**实测覆盖**：`gofmt` / `go vet` / `go test -count=1 ./...` **十二包全绿**
-（`internal/mcp` 8 条、`internal/envelope` 22 条、CLI 侧 8 条）。
+**实测覆盖**：`gofmt` / `go vet` / `go test -count=1 ./...` **十三包全绿**
+（`internal/mcp` 8 条 + 合规对拍 7 条、包外对拍 1 条、`internal/envelope` 22 条、CLI 侧 8 条）。
 
 **仍未落**：入口的抽象边界（收 / 发 / 会话归属 / usage / 拒答 五件事，现在只落了「收」）、
 能力降级阶梯（MCP 已是主路；插件 / skills / CLI 未接）、入口唯一性**只做到「一个入口一个工具」**，
 还**没有**做「一机一网关 = 一份日志 / 计量 / 审计」的强制。信封仍未冻结。
-### 7.1.15 授权表：`grants/`（2026-10-08，单元 12 条 + 沙箱真跑）
+
+**合规对拍（2026-10-09，W3 第一格）**：MCP 是**手写的**（`internal/mcp` 零第三方依赖，
+`go.mod` 只有 `module anc` + `go 1.24`），没引官方 SDK。为了让这份手写实现**能被信任**，
+补了两份「照规范写用例」的对拍，而不是引一个 SDK 进来把体积和依赖一起背走：
+
+| 文件 | 钉住什么 | 条数 |
+|---|---|---|
+| `internal/mcp/conformance_test.go` | 协议**形状**（用假工具）：initialize 三字段齐全 · `id` 原样回 · `tools/list` 的 `inputSchema` 是 JSON Schema 对象 · `tools/call` 的 `content[]` + `isError` · 缺 `arguments` 要传给工具**空 map** · 批量请求回 `-32700` · 响应 `Content-Type` 是 `application/json` | 7 |
+| `mcp_conformance_test.go`（包外，走真 HTTP） | **真工具面**：恰两个工具且顺序固定（`anc_send_envelope` / `anc_read_context`）· description 非空 · `inputSchema.type=object` · 每个参数有 `type` + `description` · `required` 必须指向真实存在的参数 | 1 |
+
+**对拍当场抓到一个真缺陷**：`handleCall` 原来是「先 `t.Call(args)`、后补空 map」——
+缺 `arguments` 时工具收到 `nil` map，工具里只要写一次 `args[...]` 就是 **nil map panic**。
+空 map 现在补在**调用之前**；`TestConformanceMissingArgumentsReachToolAsEmptyMap` 钉住这条，
+**变异验证**过（把顺序改回去 → 该用例立刻变红，改回来 → 绿）。
+
+**两条是有意不支持的，钉住防止被当 bug 修掉**：① 批量请求（JSON-RPC batch）一律 `-32700`；
+② 不提供 SSE 流（GET / DELETE 405）。依据是这两条都不在「官方 spec 三版共同子集」里，
+两条腿的真客户端（CC 2.1.292 / Codex 0.160.1）也都没用到。
+
+**明确没做的**：没跑官方 conformance 跑分（没有这个工具）、没对拍 OAuth / resources /
+prompts / sampling / 进度通知 —— 我们只实现「无状态 + 工具调用」这个子集。
+**版本跟随策略见 `../SPEC.md` §13 Q22。**### 7.1.15 授权表：`grants/`（2026-10-08，单元 12 条 + 沙箱真跑）
 
 SPEC §6 的授权模型（谁 / 什么动作 / 什么客体 / 期限 / 署名）落到 `grants/`。
 **到这一刻为止只有落点与结构校验** —— 执行层（怎么行使、到点怎么失效）一行代码都没有。
