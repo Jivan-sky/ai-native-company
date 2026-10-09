@@ -52,9 +52,11 @@
       "reader": "codex-jsonl",
       "layout": {
         "search_dir": "sessions",
-        "search_glob": "rollout-*-<id>.jsonl"
+        "search_glob": "rollout-*-<id>.jsonl",
+        "shard_dir": "sessions",
+        "shard_glob": "rollout-*.jsonl"
       },
-      "note": "读取器 = codex-jsonl。形态是 2026-10-09 在本机真记录上**逐字段对拍**出来的（一个 fork 出来的会话，5 轮 / 541 行）。记录根下按 年/月/日 分层 —— 工作目录推不出目录，所以走「按 id 递归找」而不是 slug 规则。四条口径：① 一轮的账 = 该轮各次调用 usage 求和，实测与末条 turn_token_usage 逐字段相等；② thread_token_usage 是**线程累计**，fork 出来的会话把前史一起带进来（本样本 6.4 亿 vs 本段 1.04 千万），不能当本会话的账；③ 提问在 event_msg/item_completed 的 UserMessage 里，不在 response_item 的 message/user 里（后者是环境上下文那种合成注入）；这一段整段可能挂着环境上下文（`<in-app-browser-context …>` + `## My request:` + 真人那句），显示时取 `## My request:` 后面那句、只剥行首已知的几个块（表里没有的记号不猜、原样留着）；④ 失败判据在 CommandExecution.status，不在 function_call_output 上。记录里**没有金额字段**。未验：子任务记录落不落盘、root_env 的 CODEX_HOME 是否真被这家认、Windows 之外的记录根。"
+      "note": "读取器 = codex-jsonl。形态是 2026-10-09 在本机真记录上**逐字段对拍**出来的（一个 fork 出来的会话，5 轮 / 541 行）。记录根下按 年/月/日 分层 —— 工作目录推不出目录，所以走「按 id 递归找」而不是 slug 规则。四条口径：① 一轮的账 = 该轮各次调用 usage 求和，实测与末条 turn_token_usage 逐字段相等；② thread_token_usage 是**线程累计**，fork 出来的会话把前史一起带进来（本样本 6.4 亿 vs 本段 1.04 千万），不能当本会话的账；③ 提问在 event_msg/item_completed 的 UserMessage 里，不在 response_item 的 message/user 里（后者是环境上下文那种合成注入）；这一段整段可能挂着环境上下文（`<in-app-browser-context …>` + `## My request:` + 真人那句），显示时取 `## My request:` 后面那句、只剥行首已知的几个块（表里没有的记号不猜、原样留着）；④ 失败判据在 CommandExecution.status，不在 function_call_output 上。记录里**没有金额字段**。归集口径（2026-10-10 实测 84 份 rollout）：分片全在 sessions/ 下按 年/月/日 分层、文件名一律 rollout-*.jsonl，所以 shard_dir+shard_glob 全量枚举，再按 session_meta.cwd 认领到项目 —— 工作目录推不出目录来。行使（function_call + function_call_output）：工具入参在 **arguments 字符串**里（不是对象）；成败的显式判据在 event_msg/item_completed 上（CommandExecution.status 与 McpToolCall.status，实测 521 个命令里 41 个 failed），ImageView 那种没有 status 的退到「有没有 function_call_output」。未验：子任务记录落不落盘、root_env 的 CODEX_HOME 是否真被这家认、Windows 之外的记录根。"
     },
     {
       "id": "openclaw",

@@ -84,6 +84,17 @@ type Layout struct {
 	// SubagentMetaSuffix 是子任务记录旁边的元数据后缀（claude 是 .meta.json）。
 	SubagentMetaSuffix string `json:"subagent_meta_suffix,omitempty"`
 
+	// ShardDir 是「全量枚举分片」的起点（相对记录根，**递归**）。与 ShardGlob 成对出现。
+	//
+	// 设了它 = 这家把分片堆在同一层里，从项目名推不出目录：codex 按 年/月/日 分层，
+	// openclaw 压根不分项目（一个 agent 一个目录）。归集这时候只能先把分片全扫出来，
+	// 再按记录里自带的工作目录（trail.Session.Cwd）认领到项目。
+	// 空 = 按项目推目录（<root>/<projects_dir>/<slug(work_dir)>）。
+	ShardDir string `json:"shard_dir,omitempty"`
+	// ShardGlob 是上面那棵树里的分片文件名模式。**里面没有 `<id>`** ——
+	// 它列的是全部分片，不是「某一段会话的主记录」。
+	ShardGlob string `json:"shard_glob,omitempty"`
+
 	// SearchDir 是「按 id 递归找」的起点（相对记录根）。
 	// 设了它，主记录就不再由 dir_rule 推出来 —— 目录**从会话本身算不出来**的家用这一条
 	// （codex 按 年/月/日 分层，工作目录推不出日期）。
@@ -199,6 +210,13 @@ func (t Table) validate() error {
 		}
 		if f.RecordFormat == "none" {
 			continue // 没有记录的家：布局本就不该有
+		}
+		// 分片怎么枚举：成对出现。这一条与「主记录怎么定位」是两件事 ——
+		// 同一个家可以既按 id 找主记录（trail 用），又全量枚举分片（归集用）。
+		if strings.TrimSpace(f.Layout.ShardDir) != "" || strings.TrimSpace(f.Layout.ShardGlob) != "" {
+			if strings.TrimSpace(f.Layout.ShardDir) == "" || strings.TrimSpace(f.Layout.ShardGlob) == "" {
+				return fmt.Errorf("%s 的 layout：shard_dir 与 shard_glob 必须成对出现", f.ID)
+			}
 		}
 		// 主记录怎么定位：**两种口径，二选一**（trail 走的 Family.ResolveMain 与这里一一对应）。
 		//  - 推目录：dir_rule（+ projects_dir）—— 目录能从工作目录算出来（claude / codebuddy）
@@ -417,6 +435,34 @@ func (f Family) TranscriptDir(root, workDir string) (string, error) {
 		return "", fmt.Errorf("%s：%w", f.ID, err)
 	}
 	return filepath.Join(root, filepath.FromSlash(f.Layout.ProjectsDir), slug), nil
+}
+
+// EnumerateShards 把这家的**全部分片**列出来（递归），不管它属于哪个项目。
+//
+// 只有声明了 shard_dir 的家用得上：分片的位置从项目名推不出来时（记录根下按时间分层、
+// 或压根不分项目），归集只能先把它们全扫出来，再按记录里的 cwd 认领到项目。
+//
+// ok=false = 这家按项目推目录（调用方走 TranscriptDir，不列全量）。
+// 目录不在**不报错**：那是「这一家还没跑过会话」，不是「读不到」。
+func (f Family) EnumerateShards(root string) (shards []string, ok bool, err error) {
+	if strings.TrimSpace(f.Layout.ShardDir) == "" || strings.TrimSpace(f.Layout.ShardGlob) == "" {
+		return nil, false, nil
+	}
+	base := filepath.Join(root, filepath.FromSlash(f.Layout.ShardDir))
+	_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return nil // 读不动的那一层跳过：整棵树报错会让人以为这一家全都读不到
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if m, _ := filepath.Match(f.Layout.ShardGlob, d.Name()); m {
+			shards = append(shards, path)
+		}
+		return nil
+	})
+	sort.Strings(shards)
+	return shards, true, nil
 }
 
 // MainPath 是主记录的文件路径。`<id>` 是句柄，**不是**文件名占位符之外的任何东西。

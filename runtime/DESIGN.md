@@ -1643,6 +1643,93 @@ slug 重复 / 表缺席不报错 / 有文件无表 / **空 tools 拦下**（连�
 **仍未测**：同机同 app 的**并发**（一条 app 只允许一条长连接，这次是串行验的），
 以及第二条腿（codex / openclaw）在业务 agent 上回话。
 
+### 7.1.30 审计归集双源：归集不再解析任何一家的记录（2026-10-10，W3「10-25 审计归集双源」）
+
+**判据**：两个 harness 的记录都能被 `anc audit collect` 归集。
+
+**起因**（2026-10-10 用沙箱 vault + config 实测，三条都不是推断）：
+
+| 命令 | 结果 |
+|---|---|
+| `... --harness codex` | 扫到 **0 个分片**，报 `codex：dir_rule 是空的`，rc=1 |
+| `... --harness openclaw` | 目录找对了（14 个分片），但 **0 次行使**，rc=0 |
+| `... --harness claude` | 1 分片 / **0 行使**，报「工具 `mcp__anc__anc_read_context` 不在工具表里」 |
+
+根因两条，都在同一处：`audit.Collect` **自己**按 claude 的 jsonl 形状解析（`message.content`
+块数组 + `tool_use` / `tool_result`），口径表里的 `reader` 字段一次都没用上；找目录又用
+`Family.TranscriptDir`（slug 规则），而 codex 的记录按 **年/月/日** 分层 —— 目录从工作目录**推不出来**。
+
+**定形：把「行使」收进 reader（方案 A）**
+
+- `trail.Session` 多一份 `Acts`：一次工具调用的**原始事实** —— `{CallID, At, Tool, Input, Result, Why}`。
+  `Result` 只有四种：`ok` / `denied` / `failed` / `unknown`（没配到结果，**不许当成「没发生」**）。
+  `Input` 是**各家原样**，不归一 —— 一份要被四家共用的结构不能带任何一家的语义。
+- **四家读取器各自填 `Acts`**（claude / codex / openclaw / codebuddy）—— 格式知识一家只留一份。
+- `audit.Collect` 改成：**枚举分片 → 该家 reader 读出 Acts → 工具表分类抽「对谁」→ 定结果**。
+  自己那套 jsonl 解析删掉。**分工是硬的**：记录长什么样归 `internal/trail`，
+  一次行使该怎么读归工具表（那是数据）。
+- 新增 `trail.ReadShard(fam, path)`：按**路径**读一份分片，不自己推目录 —— 归集那一路
+  已经把手上的分片列出来了。句柄也**不在那里定**（见下「幂等键」）。
+
+**分片从哪来**：口径表新增一对数据 `shard_dir` + `shard_glob`（成对，半张表必须报错）。
+
+- 声明了 = 这家把分片堆在同一层里、目录从项目名推不出来 → **全量枚举**，
+  再按记录里自带的 `cwd` 认领到项目（`Session.Cwd`）。
+- 没声明 = 按项目推目录（老路，`<root>/<projects_dir>/<slug(work_dir)>`）。
+- 认不到 = 别的目录的会话（这台机器上不止我们这几个项目）→ **跳过，连它的口径说明都不带**。
+  但**记录里没有 `cwd`** 是另一回事：那是认不出归属，必须报。
+- 非 Windows 之外：`normPath` 比路径时统一分隔符，Windows 上不分大小写（配置写 `D:\Foo`、
+  记录写 `d:\foo` 是同一处）。
+
+**codex 的行使口径**（2026-10-10 实测本机 84 份 rollout，写代码直接照这个）：
+
+| 项 | 实测 |
+|---|---|
+| 分片 | 全在 `<home>/sessions/` 下按 年/月/日 分层，文件名一律 `rollout-*.jsonl`（84 份，无例外） |
+| 工作目录 | 只在 `session_meta.cwd` 里 —— 认领项目靠它 |
+| 一次调用 | `response_item` 的 `function_call`：`{name, arguments, call_id}`，入参是**字符串**（不是对象） |
+| 成败 | `event_msg/item_completed` 上：`CommandExecution.status`（实测 521 个命令里 41 个 `failed`）与 `McpToolCall.status`；`ImageView` 那种**没有 status** |
+| 兜底 | 没有 status 的退到「有没有 `function_call_output`」（有输出 = 跑完了）；两样都没有 = `unknown` |
+| 入参键 | `exec_command` 的键是 **`cmd`**（不是 `command`） |
+
+**幂等键用文件名，不用记录自报的 `session_id`**：codex 一份分片是一个 **fork 出来的 rollout 文件**，
+而记录里的 `session_id` 会和**母会话重名**（fork 把前史一起带了进来）。实测本机就有
+`rollout-...01a11174-..._01a1214d-...` 这种一份：它自报的 `session_id` 正是母会话那个。
+拿 `session_id` 当键，两份不同分片会撞成一条。用例 `TestCollectGlobalIDUsesFileNameNotSessionID` 盯着这一条。
+
+**工具表补的条目（数据，不是代码）**：codex（`exec_command` / `shell_command` / `write_stdin` /
+`js` / `view_image`→read(path) / `send_input` / `wait_agent` / `spawn_agent` / …）+ openclaw
+（`read` / `memory_get` / `write` / `edit` / `exec` / `web_fetch`(url) / `message` / `gateway` / …）
++ ANC 自己接入口**三家前缀变体**（claude 是 `mcp__anc__anc_xxx`、openclaw 是 `anc__anc_xxx`、
+codex 是光秃秃的 `anc_xxx`）。两个**刻意不登记目标键**的：`gateway`（它也有 `path`，但那是它
+自己的配置路径，登记了会把「读了一个文件」错记到它头上）、`exec`/`exec_command` 这类自由文本。
+
+**两条降噪，都是为了「真问题看得见」**
+
+1. **读取器的口径说明去重**：每一家对**每一份**记录都会追加同样的说明（「codex 的记录里没有金额」），
+   84 份会刷成 252 行。去重键是**读取器原话** —— 带文件名的那种（「N 行解析不了」）各是各的，不会被吃掉。
+2. **别人的分片不留痕**：不是我们项目的记录，连它的口径说明都不混进我们的归集结果。
+
+**判据（真数据实测：沙箱里的 vault + config）**
+
+| 命令 | 结果 |
+|---|---|
+| `anc audit collect <v> --harness codex` | **84 分片 / 9 次行使 / 9 条记录**（ok 2 · failed 7 · 目标抽不出 5） |
+| `anc audit collect <v> --harness claude` | **1 分片 / 1 次行使 / 1 条记录**（ok 1） |
+| 两边 `--write` 之后重跑 | **0 条**（幂等：`Record.ID` 来自「分片句柄 + call id」） |
+
+**用例**（新增 11 条，都不是空跑：把口径改回旧写法，对应那条当场红）
+
+- `internal/trail/reader_acts_test.go` 5 条：四家的 Acts 形状（claude 配对 / codex 的 status 与
+  「有输出算跑完」/ openclaw 的**对象**入参 / codebuddy 的**字符串**入参）+ `ReadShard` 按路径读。
+- `internal/audit/collect_global_test.go` 2 条：全量枚举按 cwd 认领（别人的分片跳过且不报、
+  没 cwd 的必须报）+ 幂等键用文件名。
+- `internal/harness/shards_test.go` 4 条：递归枚举、没声明 shard_dir 的家不列全量、
+  记录目录不在**不是错**、半边声明必须拒。
+
+**仍未做**：openclaw 的分片枚举（那家同一层里还躺着 `<id>.trajectory.jsonl`，`*.jsonl` 会把它
+一起吃进来 —— 要按前缀排除，所以这一家先留老路按目录枚举）；hermes / dsh 仍无读取器。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
