@@ -1599,12 +1599,13 @@ slug 重复 / 表缺席不报错 / 有文件无表 / **空 tools 拦下**（连�
 **用例**：`internal/org/agents_test.go` 13 条（新增 role 两种情形 + 与成员同名相撞）+ `internal/render/agents_test.go`
 6 条（项目块逐字段 / 收件人按岗位取 / 没配 cwd 跳过 / role 取不到跳过 / 没接线进灰档 / `WorkDirs` 对得上 / 键名钉字面量）。`gofmt` / `go vet` 干净，**15 包全绿**。
 
-**仍未测（别说成验过）**：业务 agent 在**独立 OS 账号**里的**真回话** —— 装载面这一轮已实测（§7.1.29），
-剩下的是入站那一问一答；同一个飞书 app 同一时刻只允许一条长连接，要验得串行（停掉占着连接的那个实例）。
+**已实测（2026-10-10，§7.1.29）**：业务 agent 在**独立 OS 账号**里**真回话** —— 入站一问一答走完
+（`message received` → `turn complete`，用量非零、`silent=false`），探针落绿。
+同机同 app 只允许一条长连接，所以是**串行**验的：停掉占着那条连接的实例，验完起回来。
 
-### 7.1.29 业务 agent 在独立 OS 账号里装载（2026-10-10，沙箱 Linux 真跑）
+### 7.1.29 业务 agent 在独立 OS 账号里装载并真回话（2026-10-10，沙箱 Linux 真跑）
 
-§7.1.28 的「仍未测」这一轮补上装载那半：**换一台机器、换一个 OS 账号，非 root 跑通**，真回话只差一条入站消息。
+§7.1.28 的「仍未测」这一轮补齐：**换一台机器、换一个 OS 账号、非 root 跑通，并且真回话**。
 
 **做法**：同一份公司真相源，业务 agent 落在**它自己的 OS 账号**下（与成员 bot 不共用账号），
 `anc apply <vault> --agent-home <slug>=<它的 cwd> --apply`。它装**用户级** systemd 单元，
@@ -1621,6 +1622,7 @@ slug 重复 / 表缺席不报错 / 有文件无表 / **空 tools 拦下**（连�
 | 产物只含它该有的 | `config.toml` | 只有一个业务 agent 的 project（+ 公司那个 devbot）；成员 bot 一条都不在里面 |
 | 业务 agent 不发 `admin_from` | 同上 | 全份产物里只有 devbot 那条有 `admin_from` |
 | 账号隔离 | 两边互读家目录 | 双向 `Permission denied`（家目录默认 700，不需要额外配置） |
+| 真回话 | 一条真飞书消息 → 日志 → 探针 | `message received` → `turn complete`（`tools=17`、用量非零、`silent=false`）；探针随后报绿（「最近一次成功回复在 Ns 前」） |
 
 **两条实测教训（都是这次踩出来的）**
 
@@ -1631,9 +1633,15 @@ slug 重复 / 表缺席不报错 / 有文件无表 / **空 tools 拦下**（连�
    `platform ready`、紧跟一条 `websocket error: app_id is invalid`（同一个进程里先绿后死）。
    所以「某 bot 到底能不能用」的判据只有真相源（`unwired` + 探针那四档），**不许拿上游那一行当证据**。
 
-**登记（待拍，不动代码）**：apply 第 7 步回读的就绪判据 `want` 把 `unwired` 的 project 也算进去
-（`runtime/apply.go`），本轮实测到**同一份部署既会假绿也会假红** —— 已写成议题草稿，按纪律
-「改测试文件前先问」先登记不落。
+**回读判据修正（同一轮，已落盘）**：第 7 步的就绪判据原来是 `want = len(plan.Projects)` ——
+把 `unwired` 的 project 也算进期望值，同一份部署**既会假绿也会假红**（上面那两种上游表现各对应一种）。
+现在期望值只取**接了线的** project（`readyExpectation`，与灰档共用 `render.UnwiredProjects` 一支算），
+并且**按每个 project 数**（认 logfmt 里那个 `project=`，带引号的也认）—— 不再按 `platform ready` 的行数数。
+同族口径补一条：**一个可期待的都没有时不许打绿**（空集上的全绿是最纯的假绿，同探针那条）。
+用例：`runtime/apply_cli_test.go` 5 条；把计数退回旧写法，其中一条当场红 —— 不是空跑。
+
+**仍未测**：同机同 app 的**并发**（一条 app 只允许一条长连接，这次是串行验的），
+以及第二条腿（codex / openclaw）在业务 agent 上回话。
 
 ## 8. 与 SPEC 的映射
 
