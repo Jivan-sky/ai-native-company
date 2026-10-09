@@ -35,7 +35,7 @@ func TestShardNameKeepsUsableAndCleansTheRest(t *testing.T) {
 	// 名字能不能当文件名，尺子只有一条：三平台都得建得出来。
 	cases := map[string]string{
 		"alice":            "alice",
-		"白嘉伟":              "白嘉伟",
+		"王小明":              "王小明",
 		"alice-2":          "alice-2",
 		"a/b\\c:d*e?f\"g":  "a_b_c_d_e_f_g",
 		"  spaced  ":       "spaced",
@@ -78,7 +78,7 @@ func TestAppendShardsByActorAndRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, err := Append(v, Record{ID: "2", At: "2026-10-08T11:00:00+08:00", Actor: "白嘉伟",
+	p2, err := Append(v, Record{ID: "2", At: "2026-10-08T11:00:00+08:00", Actor: "王小明",
 		Action: ActionWrite, Object: "/v/20-ops/b.md", Result: ResultDenied})
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestAppendShardsByActorAndRoundTrips(t *testing.T) {
 	if filepath.Base(p1) != "2026-10.alice.jsonl" {
 		t.Errorf("分片名 = %s，想要 2026-10.alice.jsonl", filepath.Base(p1))
 	}
-	if filepath.Base(p2) != "2026-10.白嘉伟.jsonl" {
+	if filepath.Base(p2) != "2026-10.王小明.jsonl" {
 		t.Errorf("中文名应当能当分片名，得到 %s", filepath.Base(p2))
 	}
 	if p1 == p2 {
@@ -164,7 +164,7 @@ func TestDeriveZones(t *testing.T) {
 		{"自己域内", "alice", v + "/10-knowledge/a.md", ZoneDomain, "business", true, false},
 		{"跨域", "alice", v + "/20-ops/b.md", ZoneDomain, "ops", true, true},
 		{"vault 内非域目录", "alice", v + "/members/alice/persona.md", ZoneVault, "", false, false},
-		{"vault 外", "alice", "/home/sjw/.claude/settings.json", ZoneOutside, "", false, false},
+		{"vault 外", "alice", "/home/dev/.claude/settings.json", ZoneOutside, "", false, false},
 		{"目标抽不出", "alice", "", ZoneUnknown, "", false, false},
 		{"行使者没配域：跨域判不出来", "carol", v + "/10-knowledge/a.md", ZoneDomain, "business", false, false},
 		{"project 名也解得出来", "demo-alice", v + "/20-ops/b.md", ZoneDomain, "ops", true, true},

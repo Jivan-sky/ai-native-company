@@ -22,7 +22,7 @@ func TestLintLevelsComeFromPolicy(t *testing.T) {
 		{"三引号会破 TOML", "正常一行\n这行有 ''' 三引号", "persona.toml.quote_break", true},
 		{"美元大括号会被替换", "含 ${ENV} 的行", "persona.env.substitution", true},
 		{"双花括号槽位", "含 {{slot}} 的行", "persona.slot.unreplaced", false},
-		{"绝对路径", "见 /Users/sjw/vault/x.md", "persona.path.absolute", false},
+		{"绝对路径", "见 /Users/dev/vault/x.md", "persona.path.absolute", false},
 		{"冻结事实", "当前仅有 3 个客户", "persona.fact.frozen", false},
 	}
 	for _, c := range cases {

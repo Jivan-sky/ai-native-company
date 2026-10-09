@@ -23,7 +23,7 @@ const taskXML = `<?xml version="1.0" encoding="UTF-16"?>
   </Settings>
   <Triggers>
     <LogonTrigger>
-      <UserId>LAPTOP-JELKEG9T\sjw</UserId>
+      <UserId>LAPTOP-XXXXXXXX\dev</UserId>
     </LogonTrigger>
   </Triggers>
 </Task>`

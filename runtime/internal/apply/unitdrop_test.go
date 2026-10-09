@@ -21,13 +21,13 @@ func TestUnitDropInPaths(t *testing.T) {
 // drop-in 必须落进 [Service] 段：EnvironmentFile 是 Service 指令，写在 [Unit] / [Install]
 // 里 systemd 直接拒收 —— 这是回落读时最容易踩的一处。
 func TestUnitBlockTargetsServiceSection(t *testing.T) {
-	block := UnitBlock("/home/sjw/.anc/secrets.env", "0.1.0")
+	block := UnitBlock("/home/dev/.anc/secrets.env", "0.1.0")
 	if !strings.Contains(block, "\n[Service]\n") {
 		t.Fatalf("没有 [Service] 段：\n%s", block)
 	}
 	// 不加引号是硬要求：systemd 的 EnvironmentFile= 不去引号，加了引号整串会被当成
 	// 非绝对路径而整条忽略（实测报 `path is not absolute, ignoring`）—— 那样凭据桥等于没做。
-	if !strings.Contains(block, "\nEnvironmentFile=/home/sjw/.anc/secrets.env\n") {
+	if !strings.Contains(block, "\nEnvironmentFile=/home/dev/.anc/secrets.env\n") {
 		t.Fatalf("EnvironmentFile 行不对（必须不带引号）：\n%s", block)
 	}
 	for _, ln := range strings.Split(block, "\n") {
@@ -42,7 +42,7 @@ func TestUnitBlockTargetsServiceSection(t *testing.T) {
 
 // 回读：写进去的路径要能原样取回来（回显与「被改过」判据都靠它）。
 func TestInspectUnitRoundTrip(t *testing.T) {
-	path := "/home/sjw/.anc/secrets.env"
+	path := "/home/dev/.anc/secrets.env"
 	out, action := InjectLoader("", UnitBlock(path, "0.1.0"))
 	if action != ActionAdded {
 		t.Errorf("空文件注入 action = %q，想要 %q", action, ActionAdded)
