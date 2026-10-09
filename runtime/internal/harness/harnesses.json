@@ -5,7 +5,9 @@
     {
       "id": "claude",
       "display": "Claude Code",
-      "root_env": ["CLAUDE_CONFIG_DIR"],
+      "root_env": [
+        "CLAUDE_CONFIG_DIR"
+      ],
       "root_dir": ".claude",
       "record_format": "jsonl-plain",
       "session_handle": "file-stem",
@@ -18,7 +20,7 @@
         "subagent_glob": "*.jsonl",
         "subagent_meta_suffix": ".meta.json"
       },
-      "note": "口径是 2026-10-07 实测的（三条：不按行累加要按 message.id 合并、子 agent 的账算在本会话头上、成本用 harness 自己算的）。唯一有读取器的一家。"
+      "note": "口径是 2026-10-07 实测的（三条：不按行累加要按 message.id 合并、子 agent 的账算在本会话头上、成本用 harness 自己算的）。有子任务记录的一家。"
     },
     {
       "id": "codebuddy",
@@ -34,6 +36,67 @@
         "main_file": "<id>.jsonl"
       },
       "note": "读取器 = codebuddy-jsonl。形态是 2026-10-09 在沙箱里真跑出来的（用户提问 → Read 工具调用 → 工具结果 → 收尾回答）：<记录根>/projects/<cwd 压缩名>/<会话 id>.jsonl，每行自带 sessionId / cwd。行语义与 claude 不同：用量按步挂 providerData.usage、工具调用是独立行（function_call / function_call_result）、时间戳是毫秒 epoch、记录里没有成本字段。未验：办公端 WorkBuddy 的 ~/.workbuddy 与这里的 .codebuddy 是不是同一个记录根；子任务记录（Agent 工具）落不落盘。"
+    },
+    {
+      "id": "codex",
+      "display": "OpenAI Codex CLI",
+      "root_env": [
+        "CODEX_HOME"
+      ],
+      "root_dir": ".codex",
+      "record_format": "jsonl-plain",
+      "session_handle": "file-stem",
+      "reader": "codex-jsonl",
+      "layout": {
+        "search_dir": "sessions",
+        "search_glob": "rollout-*-<id>.jsonl"
+      },
+      "note": "读取器 = codex-jsonl。形态是 2026-10-09 在本机真记录上**逐字段对拍**出来的（一个 fork 出来的会话，5 轮 / 541 行）。记录根下按 年/月/日 分层 —— 工作目录推不出目录，所以走「按 id 递归找」而不是 slug 规则。四条口径：① 一轮的账 = 该轮各次调用 usage 求和，实测与末条 turn_token_usage 逐字段相等；② thread_token_usage 是**线程累计**，fork 出来的会话把前史一起带进来（本样本 6.4 亿 vs 本段 1.04 千万），不能当本会话的账；③ 提问在 event_msg/item_completed 的 UserMessage 里，不在 response_item 的 message/user 里（后者是环境上下文那种合成注入）；这一段整段可能挂着环境上下文（`<in-app-browser-context …>` + `## My request:` + 真人那句），显示时取 `## My request:` 后面那句、只剥行首已知的几个块（表里没有的记号不猜、原样留着）；④ 失败判据在 CommandExecution.status，不在 function_call_output 上。记录里**没有金额字段**。未验：子任务记录落不落盘、root_env 的 CODEX_HOME 是否真被这家认、Windows 之外的记录根。"
+    },
+    {
+      "id": "openclaw",
+      "display": "OpenClaw",
+      "root_env": [],
+      "root_dir": ".openclaw",
+      "record_format": "jsonl-plain",
+      "session_handle": "file-stem",
+      "reader": "openclaw-jsonl",
+      "layout": {
+        "dir_rule": "fixed",
+        "projects_dir": "agents/main/sessions",
+        "main_file": "<id>.jsonl"
+      },
+      "note": "读取器 = openclaw-jsonl。形态是 2026-10-09 在本机真记录上读出来的（一条 MCP 工具调用：提问 → toolCall → toolResult → 收尾回答）。三条口径：① 一轮 = 一条 role=user 的消息，用量与金额都挂在**每条 assistant 消息**上，按 responseId 去重取大（同一条被重写只算一次；金额与用量同一口径，不一个去重一个累加）；② 失败判据是 toolResult.isError，另有**模型自己失败**那一轮的 stopReason=error + errorMessage（实测「Connection error.」，用量 0、无 responseId）——也记失败，不然那几轮成了静默空轮；③ **成本记录里有**（usage.cost.total，美元）—— 这一家不用自己算。缓存读单列、**不含在输入里**（实测 input + output + cacheRead = totalTokens），正好和 codex 相反。工具名带 MCP 命名空间前缀（实测 `anc__anc_send_envelope`），原样搬。content **两种形状都出现过**（块数组，也有整段就是字符串的，实测内容是一条 `[OpenClaw heartbeat poll]`）——只认块数组会把后者整行解析不了。未验：同级 <id>.trajectory.jsonl 里还有一份事件流（含 model.completed 的另一种用量口径），本读取器**没用它**；agent 目录目前只登记 main。"
+    },
+    {
+      "id": "hermes",
+      "display": "Hermes",
+      "root_env": [],
+      "root_dir": "AppData/Local/hermes",
+      "record_format": "jsonl-plain",
+      "session_handle": "file-stem",
+      "reader": "",
+      "layout": {
+        "dir_rule": "fixed",
+        "projects_dir": "sessions",
+        "main_file": "<id>.jsonl"
+      },
+      "note": "只登记了口径，**还没有读取器**：会话记录（sessions/<id>.jsonl）是 OpenAI 风格的消息（role / content / tool_calls），**里面没有用量字段** —— 用量与金额只在它自己的 state.db（sqlite）的 sessions 表里（input/output/cache_read/cache_write/reasoning tokens + estimated_cost_usd / actual_cost_usd）。2026-10-09 拍板「零依赖优先」，读 sqlite 要引依赖，所以先不读。目录与文件名已实测；记录根目前只按 Windows 写（AppData/Local/hermes），Linux / macOS 的根**未验**。"
+    },
+    {
+      "id": "dsh",
+      "display": "DSH",
+      "root_env": [],
+      "root_dir": ".dsh",
+      "record_format": "jsonl-zstd",
+      "session_handle": "parent-dir-name",
+      "reader": "",
+      "layout": {
+        "dir_rule": "dash-wrapped-slug",
+        "projects_dir": "sessions",
+        "main_file": "session-<id>/session.jsonl.zstd"
+      },
+      "note": "只登记了口径，**读不了**：主记录是 **zstd 压缩**的 jsonl（session.jsonl.zstd），当前二进制零第三方依赖（标准库没有 zstd 解压）。要读得引一个 zstd 解压实现，体积**未实测**；2026-10-09 拍板「零依赖优先」，所以先登记不读。目录名规则实测 7 例（D:\\codex_work → --D-codex_work--：字母数字与 `_` `-` 原样保留，其余连续的一段 → 一个 '-'，两头各包一层 '--'）。记录内部形状**未验**（解不开就没看）。"
     }
   ]
 }

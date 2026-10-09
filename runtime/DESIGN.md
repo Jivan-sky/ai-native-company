@@ -1383,6 +1383,88 @@ ANC 侧没有任何分支 —— 这正是「形态收成一张表」想要的�
 
 **仍未落**：与 §7.1.14 同一张清单 —— 计量 / 拒答 / 会话归属。
 
+### 7.1.25 留痕又两条腿：Codex / OpenClaw 记录读取器（2026-10-09，零依赖优先）
+
+§7.1.22 说「换一家 harness = 加一行」——那一刀只到**接入口径**。这一轮把这句推到**记录读取**：
+表里的 `reader` 字段指名用哪个读取器，`anc trail` 按名字取；表里 `reader` 为空的家，
+明说**读不了**，不假装能读。
+
+**零依赖优先**（2026-10-09 拍板）：两个读取器只用标准库（`bufio` / `encoding/json` / `os` /
+`strings` / `time` / `io/fs`），一个第三方包都没引 —— 交付物里不为「跑 20 行逻辑带一整个运行时」。
+
+**怎么定位一份记录：两种，都写在同一张表里**
+
+| 方式 | 表里的字段 | 用在哪家 | 为什么 |
+|---|---|---|---|
+| 推目录 | `dir_rule` + `projects_dir` + `main_file` | claude / codebuddy / hermes / dsh | 目录名由 cwd 按规则压出来 |
+| 按 id 递归找 | `search_dir` + `search_glob`（glob 必须含 `<id>`） | codex | 记录按 `年/月/日` 分层，cwd 推不出目录 |
+
+`ResolveMain` 的两种结局都不许猜：**0 命中 = 读不到**（主记录留空，Problems 里写一句
+「`<目录>` 底下没有句柄为 `<id>` 的主记录（这是**读不到**，不是 0 消耗）」）；**2 命中 = 报错** ——
+句柄定不出唯一一份记录时宁可报错，也不挑一份出来充数。
+
+**codex 六条口径**（2026-10-09 在本机真记录上逐字段对拍：一个 fork 出来的会话，5 轮 / 541 行）
+
+1. 一轮的账 = 该轮各次调用的 `usage` 按 `response_id` 去重后求和 —— 实测与末条 `turn_token_usage`
+   **逐字段相等**（5/5 轮），两条路互为对拍。
+2. `thread_token_usage` 是**线程累计**：fork 出来的会话把前史一起带进来（本样本 **6.4 亿** vs
+   本段 **1.04 千万**）—— 拿它当本会话的账就是严重多报。
+3. 提问在 `event_msg/item_completed` 的 `UserMessage` 里；`response_item` 的 `message/role=user`
+   是环境上下文那种**合成注入**，不算一轮（混起来轮次会翻倍）。
+4. 失败判据在 `CommandExecution.status`（`completed` / `failed`），不在 `function_call_output` 上 ——
+   后者只有输出文本；工具名靠 `call_id` 对回 `function_call`。
+5. 记录里**没有金额**（实测：全文只有推理正文里出现过 cost 这个词）—— `cost_usd` 记 0 是
+   **读不到**，不是花了 0 元。
+6. **缓存读含在输入里**（实测 `total = input + output`，cached 是 input 的一部分）—— 不许相加。
+
+活体：`turns 5` · `in 10446656` · `out 71875` · `cache_read 10302848` ·
+`exec_command 64` / `write_stdin 5` · `失败 2` · `调用 69` —— 与独立写的一份 Python 对拍**逐数相等**。
+
+**openclaw 六条口径**（2026-10-09 在本机真记录上读：一条 MCP 工具调用，提问 → toolCall →
+toolResult → 收尾回答）
+
+1. 一轮 = 一条 `role=user` 的消息；**用量与金额都挂在每条 assistant 消息上**，一轮可能有多条。
+2. 同一条消息被重写时，**用量与金额都按 `responseId` 去重取大** —— 一个去重一个累加会自相矛盾。
+   代价写清楚：取大不是取末值，重写时间线**早期**的成本会被保留（宁可略高，不略低）。
+3. 失败判据是 `toolResult.isError`；**模型自己失败**的那一轮另有 `stopReason:"error"` +
+   `errorMessage`（实测「Connection error.」），也记失败。
+4. **金额记录里有**（`usage.cost.total`，美元）—— 这一家不用我们自己算。
+5. **缓存读单列、不含在输入里**（实测 `input + output + cacheRead = totalTokens`）。
+6. toolCall 的名字带 MCP 命名空间前缀（实测 `anc__anc_send_envelope`）—— 原样搬，不剥前缀
+   （剥了就和记录对不上）。
+
+活体两份：① 有 MCP 工具调用那份 `turns 1 in 20807 out 301 cache_read 49664 cost 0.00299726`，
+与它自己 `.trajectory.jsonl` 里 `model.completed` 的 `usage`（input 20807 / output 301 /
+cacheRead 49664 / total 70772）**完全一致**；② 另一份 `turns 4 in 54836 out 108 cache_read 12800
+cost 0.00770728`，与逐条 assistant 的字段求和逐数相等。
+
+**两家正好相反的一条（不许混用）**：**缓存读的归属**。codex 含在输入里，openclaw 单列。
+两家各写一条 `usageOf`，混用会把输入算错一个量级。
+
+**这一轮在真记录上抓到、都已修的三个读错**（各配用例）
+
+| 读错 | 真记录里的样子 | 现在怎么读 |
+|---|---|---|
+| codex 提问被样板顶掉 | 整段是 `<in-app-browser-context …>` + 空行 + `## My request:` + 真人那句 —— 5 轮的 prompt 全是这段样板 | 先取 `## My request:` **后面**那句；没有记号就剥行首已知的块；**表里没有的记号不猜**、原样留着；剥完是空的就退回原文（宁可看到样板，也不能把提问抹成空白） |
+| openclaw 模型自己失败**没记成失败** | 那一轮的 assistant 消息带 `stopReason:"error"`「Connection error.」，用量 0、也没有 `responseId` | 记 `failed`（`Tool` 留空 —— 是模型失败、不是某个工具失败），并在 Problems 里说明「这一轮到底烧没烧 token 记录里看不出来」。不改的话看板上是一排绿灯的空轮 |
+| openclaw `content` 只认块数组 | 两种形状都出现过：块数组，也有整段就是字符串的（如 `[OpenClaw heartbeat poll]`） | 两种都收。只认块数组会把后者整行解析不了 —— 提问丢了，还被报成「记录格式可能变了」 |
+
+**读不了的两家（印在表上，不是隐形债）**
+
+- **hermes**：会话记录（`sessions/<id>.jsonl`）是 OpenAI 风格的消息，**里面没有用量字段** ——
+  用量与金额只在它自己的 `state.db`（sqlite）的 `sessions` 表里。零依赖优先下读 sqlite 要引依赖，先不读。
+- **dsh**：主记录是 **zstd 压缩**的 jsonl（`session.jsonl.zstd`），标准库没有 zstd 解压 ——
+  要读得引一个解压实现，体积**未实测**，先登记不读。
+
+**用例与判据**：`internal/trail/reader_codex_test.go` 9 条 + `reader_openclaw_test.go` 7 条 = **16 条**，
+照真记录形状造（外层 type 分层 / `thread_token_usage` 故意写成 9.9 亿 / 末行时间戳乱序 / 失败判据两条 /
+重写按 responseId 去重 / 环境上下文与未知记号 / 字符串 content）。`gofmt` 空 · `go vet` rc=0 ·
+`go test -count=1 ./...` **十五包全绿**。
+
+**仍未落（写清免得变成隐形债）**：读到的账怎么进看板（现在只到「按 reader 名字取到一份 Session」这一层）；
+openclaw 同级那份 `.trajectory.jsonl` 事件流没读；hermes / dsh 的记录根只有 Windows 一条；
+**macOS 记录根全部未验**；各家的子任务（subagent）记录落不落盘都还没验。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

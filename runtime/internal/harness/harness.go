@@ -17,6 +17,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -44,6 +45,25 @@ const (
 	// 它和 claude 那条**不是同一条**（claude 会把 `_` `.` 空格都换成 '-'）——
 	// 混用会把目录名算错，而算错的后果是「读不到」，会被误当成「没有」。
 	RulePathsepRunsToDash = "pathsep-runs-to-dash-lower-drive"
+
+	// RuleFixed：记录目录与工作目录**无关**（一家一个固定目录）。
+	//
+	// 实测（2026-10-09）：hermes 的会话落在 <根>/sessions/ 下（扁平 <id>.jsonl）、
+	// openclaw 的落在 <根>/agents/<agent>/sessions/ 下 —— 都不按 cwd 起名，
+	// 拿 claude 那条 slug 规则去推会推出一个不存在的目录（然后被当成「没有」）。
+	RuleFixed = "fixed"
+
+	// RuleDashWrappedSlug：允许的字符 = 字母数字 + `_` + `-`，其余**连续的一段** → 一个 '-'，
+	// 然后在两头各包一层 '--'。
+	//
+	// 实测（2026-10-09，DSH 的 sessions 目录名 7 例）：
+	//
+	//	C:\Users\sjw\deepseek-harness -> --C-Users-sjw-deepseek-harness--
+	//	D:\AI-BPO                     -> --D-AI-BPO--
+	//	D:\codex_work                 -> --D-codex_work--
+	//
+	// 注意 `_` 与 `-` **原样保留**（不是全换成 '-'）——它和 claude 那条不是同一条规则。
+	RuleDashWrappedSlug = "dash-wrapped-slug"
 )
 
 //go:embed harnesses.json
@@ -63,6 +83,13 @@ type Layout struct {
 	SubagentGlob string `json:"subagent_glob,omitempty"`
 	// SubagentMetaSuffix 是子任务记录旁边的元数据后缀（claude 是 .meta.json）。
 	SubagentMetaSuffix string `json:"subagent_meta_suffix,omitempty"`
+
+	// SearchDir 是「按 id 递归找」的起点（相对记录根）。
+	// 设了它，主记录就不再由 dir_rule 推出来 —— 目录**从会话本身算不出来**的家用这一条
+	// （codex 按 年/月/日 分层，工作目录推不出日期）。
+	SearchDir string `json:"search_dir,omitempty"`
+	// SearchGlob 是递归找主记录的文件名模式（`<id>` 换成会话句柄）。与 SearchDir 成对出现。
+	SearchGlob string `json:"search_glob,omitempty"`
 }
 
 // Family 是一家的接入口径。
@@ -156,11 +183,23 @@ func (t Table) validate() error {
 		if f.RecordFormat == "none" {
 			continue // 没有记录的家：布局本就不该有
 		}
-		if strings.TrimSpace(f.Layout.ProjectsDir) == "" {
-			return fmt.Errorf("%s 的 layout.projects_dir 是空的", f.ID)
+		// 主记录怎么定位：**两种口径，二选一**（trail 走的 Family.ResolveMain 与这里一一对应）。
+		//  - 推目录：dir_rule（+ projects_dir）—— 目录能从工作目录算出来（claude / codebuddy）
+		//  - 按 id 递归找：search_dir + search_glob —— 目录算不出来（codex 按日期分层）
+		if strings.TrimSpace(f.Layout.SearchDir) != "" || strings.TrimSpace(f.Layout.SearchGlob) != "" {
+			if strings.TrimSpace(f.Layout.SearchDir) == "" || strings.TrimSpace(f.Layout.SearchGlob) == "" {
+				return fmt.Errorf("%s 的 layout：search_dir 与 search_glob 必须成对出现", f.ID)
+			}
+			if !strings.Contains(f.Layout.SearchGlob, "<id>") {
+				return fmt.Errorf("%s 的 layout.search_glob 里没有 <id> —— 那样会把所有会话都当成同一段", f.ID)
+			}
+			continue
 		}
 		if strings.TrimSpace(f.Layout.MainFile) == "" {
 			return fmt.Errorf("%s 的 layout.main_file 是空的", f.ID)
+		}
+		if strings.TrimSpace(f.Layout.ProjectsDir) == "" {
+			return fmt.Errorf("%s 的 layout.projects_dir 是空的", f.ID)
 		}
 		if _, err := ruleFunc(f.Layout.DirRule); err != nil {
 			return fmt.Errorf("%s：%w", f.ID, err)
@@ -283,6 +322,31 @@ func ruleFunc(rule string) (func(string) string, error) {
 			}
 			return b.String()
 		}, nil
+	case RuleDashWrappedSlug:
+		return func(s string) string {
+			var b strings.Builder
+			b.Grow(len(s) + 4)
+			b.WriteString("--")
+			prevDash := false
+			for _, r := range s {
+				switch {
+				case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '_', r == '-':
+					b.WriteRune(r)
+					prevDash = false
+				default:
+					if !prevDash {
+						b.WriteByte('-')
+						prevDash = true
+					}
+				}
+			}
+			b.WriteString("--")
+			return b.String()
+		}, nil
+	case RuleFixed:
+		// 目录与工作目录无关：不是「推不出来」，是这家根本不按工作目录分层。
+		// 返回空串，交给 filepath.Join 把这一段省掉。
+		return func(string) string { return "" }, nil
 	case "":
 		return nil, fmt.Errorf("dir_rule 是空的")
 	default:
@@ -310,6 +374,59 @@ func (f Family) TranscriptDir(root, workDir string) (string, error) {
 // MainPath 是主记录的文件路径。`<id>` 是句柄，**不是**文件名占位符之外的任何东西。
 func (f Family) MainPath(dir, id string) string {
 	return filepath.Join(dir, strings.ReplaceAll(f.Layout.MainFile, "<id>", id))
+}
+
+// ResolveMain 定出某段会话的主记录在哪、以及主记录所在目录（子任务记录相对它算）。
+//
+// 两种口径，与 validate 里那两条一一对应：
+//   - 推目录：<root>/<projects_dir>/<slug(work_dir)> + <main_file>
+//   - 按 id 递归找：<root>/<search_dir> 底下递归匹配 <search_glob>（`<id>` 换成句柄）
+//
+// 递归那一路**允许 0 命中**（返回空 main，调用方照「读不到」讲，不当成 0 消耗），
+// 但**不允许 2 命中**：命中多了说明这个句柄定不出唯一记录 —— 那是要报出来的事，
+// 不是挑一个凑数（挑错的后果是把别人的账算在你头上）。
+func (f Family) ResolveMain(root, workDir, id string) (dir, main string, err error) {
+	if strings.TrimSpace(f.Layout.SearchDir) != "" {
+		base := filepath.Join(root, filepath.FromSlash(f.Layout.SearchDir))
+		pattern := strings.ReplaceAll(f.Layout.SearchGlob, "<id>", id)
+		var hits []string
+		_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, werr error) error {
+			if werr != nil {
+				return nil // 读不动的那一层跳过：整棵树报错会让人以为这一家全都读不到
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if ok, _ := filepath.Match(pattern, d.Name()); ok {
+				hits = append(hits, path)
+			}
+			return nil
+		})
+		sort.Strings(hits)
+		switch len(hits) {
+		case 0:
+			return base, "", nil
+		case 1:
+			return filepath.Dir(hits[0]), hits[0], nil
+		default:
+			return base, "", fmt.Errorf("%s：id %q 在 %s 下命中 %d 份主记录（%s）—— 先弄清哪一份才算",
+				f.ID, id, base, len(hits), strings.Join(baseNames(hits), " / "))
+		}
+	}
+	dir, derr := f.TranscriptDir(root, workDir)
+	if derr != nil {
+		return "", "", derr
+	}
+	return dir, f.MainPath(dir, id), nil
+}
+
+// baseNames 只用于报错信息：说清命中的是哪几个文件名。
+func baseNames(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, filepath.Base(p))
+	}
+	return out
 }
 
 // SubagentPaths 列出子任务记录的 glob 与旁边的元数据路径。

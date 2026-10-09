@@ -287,13 +287,17 @@ func ReadSessionIn(fam harness.Family, root, project, slot string, historic bool
 		s.Problems = append(s.Problems, err.Error())
 		return s
 	}
-	dir, derr := fam.TranscriptDir(root, workDir)
-	if derr != nil {
-		s.Problems = append(s.Problems, derr.Error())
+	dir, main, merr := fam.ResolveMain(root, workDir, id)
+	if merr != nil {
+		s.Problems = append(s.Problems, merr.Error())
 		return s
 	}
 	s.Dir = dir
-	main := fam.MainPath(dir, id)
+	if main == "" {
+		s.Problems = append(s.Problems, fmt.Sprintf(
+			"原生记录找不到：%s 底下没有句柄为 %s 的主记录（这是**读不到**，不是 0 消耗）", dir, id))
+		return s
+	}
 	if _, err := os.Stat(main); err != nil {
 		s.Problems = append(s.Problems, fmt.Sprintf(
 			"原生记录找不到：%s（这是**读不到**，不是 0 消耗）", main))
@@ -429,6 +433,8 @@ type readerFunc func(path string, s *Session) (map[string]int, error)
 // 加一家 harness，只有「读的语义」真的不一样时才加一行；布局不一样（目录名、文件名、
 // 子任务在哪）只改数据，不改这里 —— 那正是口径搬进表的意义。
 var readers = map[string]readerFunc{
+	ReaderCodex:     scanCodex,
+	ReaderOpenClaw:  scanOpenClaw,
 	"claude-jsonl":  scanClaude,
 	ReaderCodeBuddy: scanCodeBuddy,
 }
@@ -775,6 +781,70 @@ func reasonHead(s string) string {
 		s = s[:i]
 	}
 	return head(s, promptHead*2)
+}
+
+// ambientTags 是 harness 塞在真人提问**前面**的环境上下文块的名字。
+//
+// 实测（2026-10-09 本机 Codex rollout）：一轮的提问整段是
+// `<in-app-browser-context …>…</in-app-browser-context>` + 空行 + `## My request:` + 真人那句。
+// 直接截前 80 字，看到的一行全是这套样板，人到底问了什么反而看不见 —— 所以先剥再截。
+// 表里没有的记号**不猜**（猜错比不猜更坏），原样留着。
+var ambientTags = []string{"environment_context", "in-app-browser-context", "app-context"}
+
+// promptOf 从一条用户消息里挑出「人问的那句话」，再截到 promptHead。
+// 两步：① 认上游自己的分隔记号 `## My request:`（有就取它**后面**的）；② 剥行首已知的
+// `<tag …>…</tag>` 块（可能连着好几个）。剥完是空的就退回原文 —— 宁可看到的是一行样板，
+// 也不能让这一轮的提问变成空白。
+func promptOf(s string) string {
+	full := strings.TrimSpace(s)
+	s = full
+	if i := strings.LastIndex(s, "## My request:"); i >= 0 {
+		s = strings.TrimSpace(s[i+len("## My request:"):])
+	} else {
+		for {
+			rest, ok := cutLeadWrapper(s, ambientTags)
+			if !ok {
+				break
+			}
+			s = strings.TrimSpace(rest)
+		}
+	}
+	if s == "" {
+		s = full
+	}
+	return head(s, promptHead)
+}
+
+// cutLeadWrapper 剥掉 s 行首的一个 `<tag …>…</tag>` 块（只认 tags 里有的名字），
+// 返回余下的部分；行首没有可剥的块就返回 ok=false。属性（`<tag source="…">`）照收。
+func cutLeadWrapper(s string, tags []string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "<") {
+		return s, false
+	}
+	gt := strings.IndexByte(s, '>')
+	if gt < 0 {
+		return s, false
+	}
+	name := strings.TrimPrefix(s[:gt], "<")
+	if i := strings.IndexAny(name, " \t\r\n"); i >= 0 {
+		name = name[:i]
+	}
+	known := false
+	for _, tag := range tags {
+		if tag == name {
+			known = true
+			break
+		}
+	}
+	if name == "" || !known {
+		return s, false
+	}
+	end := strings.Index(s, "</"+name+">")
+	if end < 0 {
+		return s, false
+	}
+	return s[end+len("</"+name+">"):], true
 }
 
 func toolUses(raw json.RawMessage) []toolRef {
