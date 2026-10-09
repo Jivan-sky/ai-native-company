@@ -146,6 +146,19 @@ func (o *Org) validateProjects(p *Policy, rep *Report) {
 	}
 }
 
+// roleSlugs 给报错文案用（排序，保证同输入同输出）—— 与 domainSlugs 同一支写法。
+func (o *Org) roleSlugs() string {
+	out := make([]string, 0, len(o.Roles))
+	for _, r := range o.Roles {
+		out = append(out, r.Role)
+	}
+	sort.Strings(out)
+	if len(out) == 0 {
+		return "roles/ 下还没有任何岗位"
+	}
+	return strings.Join(out, " / ")
+}
+
 // domainSlugs 给报错文案用（排序，保证同输入同输出）。
 func (o *Org) domainSlugs() string {
 	out := make([]string, 0, len(o.Domains))

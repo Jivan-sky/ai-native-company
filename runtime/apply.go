@@ -37,6 +37,7 @@ const applyUsage = `anc apply —— 把 org 变成一台机器上真在跑的�
   --config <文件>   gateway config（默认 <vault>/../gateway/config.toml）
   --homes <目录>    每 bot 的家目录根（默认 <vault>/../homes）
   --data <目录>     gateway 的 data_dir（默认 <vault>/../data）
+  --agent-home <slug>=<目录>   业务 agent 在本机的 cwd（可重复）—— **本机事实**，不进 git
   --secrets <文件>  凭据文件（默认 ~/.anc/secrets.env）
   --daemon <文件>   cc-connect 可执行文件（默认 ~/.anc/bin/ 或 PATH）
   --apply           真做（默认只打印这七步要看的东西）
@@ -69,6 +70,8 @@ func cmdApply(args []string) int {
 	doApply := fs.Bool("apply", false, "真做")
 	adopt := fs.Bool("adopt", false, "接管没有指纹的现有 config")
 	allowScale := fs.Bool("allow-scale", false, "允许新增/删除 project")
+	agentHome := &kvFlag{}
+	fs.Var(agentHome, "agent-home", "业务 agent 的本机 cwd：<slug>=<目录>（可重复）")
 	noRestart := fs.Bool("no-restart", false, "装完不重启")
 	wait := fs.Duration("wait", 30*time.Second, "等 platform ready 的窗口")
 	vault := fs.String("vault", "", "vault 目录（也可用位置参数）")
@@ -155,7 +158,7 @@ func cmdApply(args []string) int {
 
 	// ---- 2 渲染 ----
 	step(2, "渲染    org → gateway config")
-	host := org.Host{VaultRoot: abs, HomesRoot: homesPath, DataDir: dataPath}
+	host := org.Host{VaultRoot: abs, HomesRoot: homesPath, DataDir: dataPath, AgentHomes: agentHome.m}
 	plan, err := renderpkg.Build(o, renderpkg.Options{Host: host, Version: version, Now: time.Now()})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "\n错误: %v\n", err)

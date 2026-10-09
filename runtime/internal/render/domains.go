@@ -42,11 +42,17 @@ type DomainBrief struct {
 // Who 已经过 o.WhoLabel（岗位 → 「人名（岗位）」）—— 调用方拿到的是能直接给人看的那一份。
 // o == nil 时返回空（同 LoadDomains 的谦让：没有域表不是错，是还没划域）。
 func VisibleDomains(o *org.Org, m org.Member) (mine []DomainRow, others []DomainBrief) {
+	return visibleDomains(o, m.Domains)
+}
+
+// visibleDomains 是上面那把尺子的本体：**喂它的是「这个主体看得见哪些域」**，不是「它是谁」——
+// 成员 bot 代人、业务 agent 代岗位（SPEC §2.3），两类主体在这里没有区别。
+func visibleDomains(o *org.Org, domains []string) (mine []DomainRow, others []DomainBrief) {
 	if o == nil {
 		return nil, nil
 	}
-	owned := make(map[string]bool, len(m.Domains))
-	for _, s := range m.Domains {
+	owned := make(map[string]bool, len(domains))
+	for _, s := range domains {
 		owned[s] = true
 	}
 	for _, d := range o.Domains {

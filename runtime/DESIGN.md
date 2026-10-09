@@ -1563,6 +1563,45 @@ slug 重复 / 表缺席不报错 / 有文件无表 / **空 tools 拦下**（连�
   还没有把它填进去的地方（现在恒为 nil）—— 与上一条同一个前提，一起拍。
 - **看板不认这张表**：业务 agent 还没有自己的分视图（那是 M2 第 6 项，也是 §4.7 ③ 的下一刀）。
 
+### 7.1.28 业务 agent 进配置：一个 agent 一个 project（2026-10-10，Q23 按 (a) 拍完）
+
+§7.1.27 只把业务 agent **声明**出来了（`agents.md`），渲染没接 —— 卡在 persona 从哪来、平台凭据落哪。
+这一轮按 **(a) 表里加列** 拍完并接上：`role`（persona 复用 `roles/<role>/` 那一套）+ `app_id`（平台绑定）。
+
+**与成员 bot 共用同一套机制，三处差别都是刻意的**
+
+| | 成员 bot（代人） | 业务 agent（代岗位） |
+|---|---|---|
+| persona | `roles/<role>/` + `members/<名>/persona.md` + 域表 | `roles/<role>/` + 域表 —— **没有「人写的 persona」那一段**（FDE 的东西住在它的 cwd 里，ANC 不替它写第二份） |
+| 收件人 | 本人 + `extra_allow_from` + admins | 这块业务 `who` 岗位下的成员 + admins（从 `members/` 现算，不另存名单） |
+| 平台凭据键名 | `FeishuSecretKey(成员名)` | `AgentSecretKey(slug)` —— 同一支 `secretKeyBody`，例：`order-bot` → `ANC_FEISHU_SECRET_ORDERx00002dBOT` |
+
+另有两条照 SPEC §4.7 四条禁令来的：**不发 `admin_from`**（业务 agent 不是给人下命令用的，少一个入口
+少一类事故）；**空 `tools` 不写 `allowed_tools` 这个键**（与成员同一条写法 —— 写一个 `[]` 出去等于替上游
+猜「空数组 = 全开还是全禁」，那次猜错的代价是现场）。
+
+**cwd 是本机事实，所以走旗标**：`--agent-home <slug>=<目录>`（可重复，`anc render` / `anc apply` 都有）。
+不进 org（SPEC §4.5：git = 真相，`~/.anc` = 部署参数），也不新开一种文件格式 —— 部署参数本来
+就是旗标这一族。
+
+**渲染期三种「这一台机器上先不渲染它」，都如实报缺（`plan.Warns`），不猜、不静默跳**
+
+1. `role` 取不到（表里没写或在 `roles/` 里找不到）—— persona 的职责那一段取不到；
+2. 本机没配 cwd —— **不猜目录**（拿 `HomesRoot` 拼一个看着像的，会在别人家目录里建夹子）；
+3. 解不出收件人 —— 写出去就是一个按上游默认谁都能敲的 bot。
+
+**没接 app_id = 照渲染，但进灰档**：与成员的 `unwired: true` 同一条口径，`UnwiredProjects` 一并收录
+（四个消费方共用这一支算：探针 / apply 回读 / 看板运行态 / 告警）。**不新开一条规则** ——
+「声明了还没接线」是状态，不是缺陷。
+
+**指纹 v7 → v8**：`agent|` 段加上 `role` / `app_id` —— 换了岗位或换了平台绑定，重渲染判据必须变。
+
+**用例**：`internal/org/agents_test.go` 13 条（新增 role 两种情形 + 与成员同名相撞）+ `internal/render/agents_test.go`
+6 条（项目块逐字段 / 收件人按岗位取 / 没配 cwd 跳过 / role 取不到跳过 / 没接线进灰档 / `WorkDirs` 对得上 / 键名钉字面量）。`gofmt` / `go vet` 干净，**15 包全绿**。
+
+**仍未测（别说成验过）**：业务 agent 在**独立 OS 账号**里真回话 —— 沙箱上五项前置已实测，但同一个
+飞书 app 同一时刻只允许一条长连接（现在被 anc 的实例占着），要真回话得停它串行验或另建一个 app。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
