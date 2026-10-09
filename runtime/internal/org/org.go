@@ -130,6 +130,7 @@ type Org struct {
 	Members  []Member      // 按 Name 排序
 	Domains  []Domain      // domains.md 的业务域表（罗盘）；文件不存在时为空
 	Projects []Project     // projects.md 的项目汇总（一行一个项目）；文件不存在时为空
+	Agents   []Agent       // agents.md 的业务 agent 表（SPEC §2.3 第二类：代岗位，不代人）；文件不存在时为空
 	Charters []CharterCopy // charters/ 的立项书副本条目；目录不存在时为空
 	Grants   []Grant       // grants/ 的授权条目（SPEC §6 授权模型）；目录不存在 = 零条授权，不算错
 	Routing  []Routing
@@ -142,6 +143,27 @@ type Host struct {
 	VaultRoot string
 	HomesRoot string
 	DataDir   string
+
+	// AgentHomes 是**业务 agent 的 cwd**（agent slug → 目录）。
+	//
+	// 为什么在这里而不在真相源：它是**本机事实**（这台机器上这个 agent 落在哪），
+	// 进 git 就会在跨机同步时只对一台机器成立（SPEC §4.5：git = org 真相，~/.anc = 部署参数）。
+	// 没给的那一个 = 还没落到机器上 —— 渲染时如实列缺，不猜一个目录出来。
+	AgentHomes map[string]string
+}
+
+// AgentHome 取这个业务 agent 的 cwd；没配（或配成空白）→ false。
+// 调用方拿到 false 要**如实报缺**，不许拿 HomesRoot 拼一个看着像的路径顶上 ——
+// 那会把别的账号的目录当成本机目录，装载时要么建错地方、要么在别人家目录里建夹子。
+func (h Host) AgentHome(slug string) (string, bool) {
+	if h.AgentHomes == nil {
+		return "", false
+	}
+	d, ok := h.AgentHomes[slug]
+	if !ok || strings.TrimSpace(d) == "" {
+		return "", false
+	}
+	return d, true
 }
 
 // skipDirs 是不当数据目录扫描的顶层目录。
@@ -423,6 +445,14 @@ func Load(root string) (*Org, error) {
 		return nil, err
 	}
 	o.Projects = projects
+	// 业务 agent 表（SPEC §2.3 第二类）。同域表 / 项目表一档：文件不在 = 还没有业务 agent，不算错。
+	// 它的落点**只有这一处** —— 「谁代哪条流程在跑」和「谁在做哪个项目」是两件事，不共表。
+	agents, agentIssues, err := LoadAgents(root, pol)
+	if err != nil {
+		return nil, err
+	}
+	o.Agents = agents
+	polIssues = append(polIssues, agentIssues...)
 	polIssues = append(polIssues, projIssues...)
 	// 立项书副本落点（charters/）。同域表一档：目录不在 = 还没有副本，不算错 ——
 	// 真源在客户侧，副本是保障。这一层只负责「落点在哪、名字对不对」；
@@ -442,6 +472,7 @@ func Load(root string) (*Org, error) {
 	rep := o.Validate(pol)
 	o.validateDomains(pol, rep)
 	o.validateProjects(pol, rep)
+	o.validateAgents(pol, rep)
 	o.validateCharters(pol, rep)
 	o.validateGrants(pol, rep)
 	rep.Merge(&Report{Issues: polIssues})
@@ -626,8 +657,11 @@ func (o *Org) Validate(p *Policy) *Report {
 // InputsHash 是「重渲染判据」的输入指纹：org 树 + 本机层输入。
 func (o *Org) InputsHash(h Host) string {
 	var b strings.Builder
-	b.WriteString("v6\n") // v6：member.unwired 进指纹（v5 是 company.display，v4 是立项书副本落点，v3 是项目表，v2 是 member.domains 与域表）
+	b.WriteString("v7\n") // v7：业务 agent 表（agents.md）+ 本机 agent 目录进指纹（v6 是 member.unwired）
 	fmt.Fprintf(&b, "host|%s|%s|%s\n", h.VaultRoot, h.HomesRoot, h.DataDir)
+	for _, slug := range sortedMapKeys(h.AgentHomes) {
+		fmt.Fprintf(&b, "host-agent-home|%s|%s\n", slug, h.AgentHomes[slug])
+	}
 	c := o.Company
 	fmt.Fprintf(&b, "company|%s|%s|%s|%s|%s|%s|%v|%d|%s|%s|%d|%s\n",
 		c.Name, c.ID, c.Language, c.Timezone, c.Platform, c.Display, c.Admins, c.SyncIntervalMin,
@@ -652,6 +686,9 @@ func (o *Org) InputsHash(h Host) string {
 			pr.Slug, pr.Name, pr.Domain, pr.Owner, pr.Period, pr.Source)
 	}
 	for _, c := range o.Charters {
+		for _, a := range o.Agents {
+			fmt.Fprintf(&b, "agent|%s|%s|%s|%s|%s|%s\n", a.Slug, a.Name, a.Domain, a.Harness, a.Tools, a.Model)
+		}
 		fmt.Fprintf(&b, "charter|%s\n", c.Slug)
 	}
 	// 授权表也进指纹：它同样是「加载出来的组织状态」的一部分，改了要能被人看见。
@@ -662,6 +699,16 @@ func (o *Org) InputsHash(h Host) string {
 	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(sum[:])
+}
+
+// sortedMapKeys 是 string→string 的稳定键序（指纹与报错文案都要同输入同输出）。
+func sortedMapKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sortedKeys(m map[string]Role) []string {
