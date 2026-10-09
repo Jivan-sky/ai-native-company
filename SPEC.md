@@ -238,8 +238,8 @@ Bot     1 ── N Platform 绑定（一个 bot 可绑多平台账号）
 
 **② 执行**
 
-- **Gateway 层默认 provider = cc-connect**（MIT，Go 单二进制）：13+ IM 平台 × 12+ agent 后端；其 `[[projects]]` 配置模型与「一人一 bot」一一同构，6-bot 生产形态就是上游一等公民。**构建其上，不 fork、不自研**；pin 版本，升级前过回归清单（已知雷：同实例多飞书 app 共享 WebSocket 丢消息）。定义薄的 `GatewayProvider` 抽象，保留接官方 Channels / OpenACP 的插槽。
-- **Harness 统一接口，双后端**：Claude Code 一等公民（token 级流式、常驻会话、原生 auto-compact、权限六档），Codex CLI 第二后端（回合制 `exec` + `resume`，对冲单一厂商政策风险）。接口面：`runTurn({cwd, sessionId?, prompt, attachments?, policy, model?})` → 事件流（`delta` / `tool` / `message` / `result`），加 `interrupt`。
+- **Gateway 层默认 provider = cc-connect**（MIT，Go 单二进制）：13+ IM 平台 × 12+ agent 后端；其 `[[projects]]` 配置模型与「一人一 bot」一一同构，6-bot 生产形态就是上游一等公民。**构建其上，不 fork、不自研**；pin 版本，升级前过回归清单（已知雷：同实例多飞书 app 共享 WebSocket 丢消息）。定义薄的 `GatewayProvider` 抽象，保留接官方 Channels / OpenACP 的插槽。接法与「现在抽还是等第二个实现」见 §4.7 / §13 Q21。
+- **Harness 统一接口，双后端**：Claude Code 一等公民（token 级流式、常驻会话、原生 auto-compact、权限六档），Codex CLI 第二后端（回合制 `exec` + `resume`，对冲单一厂商政策风险）。接口面：`runTurn({cwd, sessionId?, prompt, attachments?, policy, model?})` → 事件流（`delta` / `tool` / `message` / `result`），加 `interrupt`。接法（不变量与换腿要接的同一处）见 §4.7②。
 - 进程模型默认「每回合一进程 + resume」（两后端通吃、崩溃隔离）；Claude 可选升级常驻进程池。
 - **上下文治理做在 harness 层之上**：超阈值先压缩再续接（生产教训：headless `-p /compact` 是 no-op，只有持久会话才有真 compact）。
 - **合规红线写死**：只驱动官方 CLI 本体；**绝不提取 OAuth token 给第三方 SDK**。鉴权做成配置项（订阅 OAuth 默认 / API key fallback），架构原生支持 **per-member credential**。
@@ -407,6 +407,63 @@ IM 里发文件/图片 → gateway 捕获 → 落 inbox/pending/ + .meta.txt（�
      前者不是事故、后者要查，混着看整份报告都不值得信。灰在四个消费方（`anc probe` / `anc apply` 回读 /
      看板运行态 / `anc notify`）**共用同一支算**（`render.UnwiredProjects`），不许各算各的：
      各算各的就会出现「CLI 说灰、回读说黄」这种自相矛盾的报告。
+
+### 4.7 接入面的接法：可替代网关 + 多 harness 腿（2026-10-09 定形）
+
+§1 说的那份「**接入契约**」（FDE 交付时对着它做），落点就是本节 ①②③。
+§4.2 那两条（网关默认 cc-connect、harness 双后端）是**选择**；本节说的是**接法** —— 换掉它们时，
+ANC 这一侧哪几条是不变量、哪几条由对方适配。判据一句话：**换一个网关、加一条 harness 腿，
+是「加一张表 + 一个适配器」，不是重写一套。**
+
+**① 网关（Gateway）四条不变量** —— 任何网关都得给得出；给不出，就不叫可替代：
+
+| # | 能力 | ANC 拿它做什么 | 现在（cc-connect）落在哪 |
+|---|---|---|---|
+| G1 | **声明式全量配置**：一份可校验、可原子替换的文件 | `anc render` 全量生成、`--check` 比指纹、手改视为事故（§4.5） | `config.toml`：`[[projects]]` / `[projects.agent]` / `[projects.platforms]` / `[relay]`（`render.Build`） |
+| G2 | **凭据只从进程环境解析**，配置里只留 `${ENV}` 引用 | 凭据桥：装载前把 `secrets.env` 注进进程环境（`anc apply` 第 5 步） | `daemon install --no-capture-secrets` + systemd drop-in / 计划任务包装脚本（`runtime/DESIGN.md` §7.1.10） |
+| G3 | **装 / 重启 / 日志落点三处口** | 一条命令幂等装载；失败原因取它自己的输出；ready 计数判「真起来了」 | `daemon install\|restart`、`daemon.json` 指出的 log、单元形态由上游按平台决定 |
+| G4 | **会话落盘可读**：project + 槽 → harness 会话 id | trail 的桥：把「谁问的」与「花了多少」对上（§4.6） | `<data>/sessions/<project>_<hash>.json`（`trail.Bridges`） |
+
+**四条禁令**（不写下来，「可替代」就是句空话）：
+
+1. **不 fork 上游；不碰它的私有 API 与内部库** —— 只走它对外承诺的命令行与配置文件。
+2. **不假设它的默认值是安全的。** 它的默认值我们不知道也管不了 —— 所以安全相关的段**必须显式写全**，
+   缺一段就等于接受它的默认。例：`[relay]` 不写 = bot 间通道按上游默认开着（`render.SecurityGaps`）。
+3. **不把业务规则塞进它的配置。** 规则在数据里（§4.2 ③）；它的配置里只放**编排出来的结果**。
+4. **不要求它提供我们没有的东西**（额度池、计费、多租户）—— 那是 ANC 自己的账（§4.6）。
+
+**② harness 腿四条不变量**
+
+| # | 能力 | 现在（claude 腿）落在哪 | 第二条腿接的是**同一处** |
+|---|---|---|---|
+| H1 | 每 bot 一个 cwd 的四件事（persona 挂载 / 会话续接 scope / 附件落点 / 沙箱视野，§3） | `render.WorkDir` + 渲染期注入 | 同上 —— 这一条与 harness 无关 |
+| H2 | 一次问答可无头跑、有结束码 | 由网关拉起官方 CLI 本体 | 同上 |
+| H3 | **原生记录可读**：记录落点规则 + 行解析 + 用量口径 | `trail.Slug` / `trail.ReadSession`（`<home>/projects/<slug>/`）；三条口径：**不按行累加 / 子 agent 算本 bot / 成本用 harness 自己算的**（`runtime/DESIGN.md` §7.1.6） | **只加一个 adapter**（home 根 + 落点规则 + 行解析）；三条口径照抄 —— 口径是 ANC 的，不是某条腿的 |
+| H4 | **工具名 → 行使语义**的映射是数据 | `audit.BuiltinTools()`；行使来源写 `collect:<harness>` | **加条目 + 一个 Source 值**，归集逻辑不动 |
+
+**换腿 = 加一张表**：H3 / H4 的落点已经在了（`internal/trail` 与 `internal/audit` 本来就是「表 + 解析」的形状）。
+第二条腿要做的不是写第二套，是**把 harness 专属的常量收进一处**。
+
+**③ 业务 agent 的独立账号**（§6-9 已拍：**跑在服务侧的 bot 一律独立 OS 账号**）
+
+- 五件套：独立 OS 账号 / 独立 HOME（0700）/ 独立凭据（0600）/ 独立 cwd / **`allowed_tools` 非空**
+  （§6 默认值 5；只有 devbot 例外）。
+- **一个业务 agent 就是一个 project**（`render.ProjectName` 一处派生）；它可以在 `[projects.agent]` 上选
+  **另一条腿** —— 这正是 H2 / H3 的消费方。
+- **数据视野与成员 bot 共用一把尺子**（`render.VisibleDomains`，§4.6 与 `runtime/DESIGN.md` §7.1.21）；
+  不与任何个人额度、个人凭据混用。
+- **与个人 agent 之间：跨域默认不通**（§6 默认值 12）；要通只有一条路 —— grant（§6 授权模型）。
+- 差别不在权限机制：业务 bot 代**岗位**、成员 bot 代**人**（§2.3），用的是同一套机制。
+
+**④ 现在到哪了**（对着上面三张表，如实列缺）
+
+| 项 | 状态 |
+|---|---|
+| G1–G4 | 在 cc-connect 上**已落并实测**（`runtime/DESIGN.md` §7.1.6 / §7.1.8 / §7.1.10）；但「可替代」这一层**目前只有这一段文字** —— 代码里没有抽象层，渲染器直接生成 cc-connect 形态 |
+| H1 / H2 / H4 | 已落（H4 的表已按「加条目」的形状写）；**H3 第二条腿未实测** —— `trail` 与 `audit collect` 现在只认 claude 的落点与格式（`runtime/DESIGN.md` §7 清单） |
+| ③ 业务 agent 独立账号 | **未实测** —— 沙箱里还没有一个独立账号的业务 bot 跑完一条流程 |
+
+**⑤ 本节新增的待拍** → §13 Q20 / Q21。
 
 ---
 
@@ -792,3 +849,5 @@ CLI / 对话式 bot / 看板是**同一个变更管道的三个前端**，管道
 | Q17 | **探针要不要做功能级 ping**（真发一条消息、等它回，以此判「此刻活着」） | ✅ **已定 2026-10-07：不做**。理由：一是烧 token（每次探测都是一次真调用）；二是「现在这一秒能不能回话」的**裁判权留给人**，探针只观测、只报红，不做自动处置。据此 §4.6「三重交叉」收敛为**只读交叉 + 人工裁判**：真拨 socket 判活 + 会话事实判「真回过话没有」，报红时连带说清**该交给谁**（`company.admins`）|
 | Q18 | **设备凭据的离线窗口 + 客户端形态**：设备凭据多久不连上就失效；客户端主路走哪条 | ✅ **已定 2026-10-08**：设备凭据**离线 90 天**（≈3 个月）自动失效、**不自动续**；**撤销即时生效**（离职 / 换机，见 #35）—— 这是**设备凭据**的窗口，与权柄 grant 的 30 天是**两把不同的锁**。客户端形态**插件 / MCP 优先**，CLI（`anc send`）降为兜底（理由：CLI 会受 harness 迭代影响而失效）。落地见 GitHub #44 / #45 |
 | Q19 | **出站读出口的可见范围与 grant 的关系**：现在按「成员所属域」过滤（与渲染期过滤同一把尺子），跨域一律拒 | ✅ **实现口径已定 2026-10-09**：`anc_read_context` 只读、按 `render.VisibleDomains` 过滤、跨域拒且留痕、不泄漏本机路径（见 §6「出站读出口」与 `runtime/DESIGN.md` §7.1.21）。**仍待拍**：跨域 grant（#32）的执行层落地后，这条出口是照 grant 开口子，还是永远只给「找谁」 |
+| Q20 | **第二条 harness 腿先接谁**（Codex / Hermes / OpenClaw / 别的） | 待拍。可选判据来自 §4.7-H2/H3/H4：无头执行 + 结束码、原生记录落点稳定可读、工具名可映射。**注意**：已有一条腿不等于第三条也要走同一条 —— 接法是 §4.7 那四条，不是某一家的参数 |
+| Q21 | **网关抽象现在抽，还是等第二个实现**：§4.2 说「定义薄的 `GatewayProvider` 抽象」，但当前只有一个实现（cc-connect），§4.7 的 G1–G4 目前只是文字 | 待拍。**倾向：先只留接法（§4.7），等真有第二个网关、或第二条 harness 腿真跑起来再抽** —— 抽象要为两个实现服务，一个实现抽出来的是猜测 |
