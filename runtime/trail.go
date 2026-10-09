@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"anc/internal/gateway"
+	"anc/internal/harness"
 	"anc/internal/judge"
 	renderpkg "anc/internal/render"
 	"anc/internal/trail"
@@ -24,7 +25,9 @@ const trailUsage = `anc trail —— 谁问了什么、agent 干了什么、花�
 选项：
   --config <文件>     gateway config（默认 <vault>/../gateway/config.toml）
   --data <目录>       gateway data_dir（默认 <vault>/../data）
-  --claude-home <目录> harness 的项目记录目录（默认 $CLAUDE_CONFIG_DIR，其次 <用户目录>/.claude）
+  --harness <id>      按哪一家的口径读（默认 claude）；口径在表里，不在代码里
+  --harnesses <文件>   接入口径表（整份替换内置那份）
+  --claude-home <目录> 直接指定记录根（不改口径，只改去哪找）
 	--project <名字>    只看一个 project
 	--turns <N>         每个会话最多列几轮（默认 20；0 = 全列）
   --rules <文件>      换一份判据表（默认内置；判据是数据，不是代码）
@@ -49,7 +52,9 @@ func cmdTrail(args []string) int {
 	fs := flag.NewFlagSet("trail", flag.ContinueOnError)
 	cfg := fs.String("config", "", "gateway config")
 	data := fs.String("data", "", "gateway data_dir")
-	claudeHome := fs.String("claude-home", "", "harness 项目记录目录")
+	harnessID := fs.String("harness", harness.DefaultID, "按哪一家的口径读")
+	harnessTable := fs.String("harnesses", "", "接入口径表（整份替换内置那份）")
+	claudeHome := fs.String("claude-home", "", "直接指定记录根（不改口径）")
 	only := fs.String("project", "", "只看一个 project")
 	turnLimit := fs.Int("turns", 20, "每个会话最多列几轮")
 	rulesFile := fs.String("rules", "", "判据表文件（整份替换内置的）")
@@ -82,7 +87,15 @@ func cmdTrail(args []string) int {
 	if dataPath == "" {
 		dataPath = filepath.Join(filepath.Dir(abs), "data")
 	}
-	home, homeWhy := resolveClaudeHome(*claudeHome)
+	fam, home, homeWhy, ferr := resolveRecordsRoot(*harnessTable, *harnessID, *claudeHome)
+	if ferr != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", ferr)
+		return 2
+	}
+	if rerr := fam.CanRead(); rerr != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", rerr)
+		return 1
+	}
 
 	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
@@ -106,7 +119,7 @@ func cmdTrail(args []string) int {
 	var all []trail.Session
 	incomplete := false
 	for _, p := range projects {
-		sessions := collectSessions(p, workDirs[p], dataPath, home)
+		sessions := collectSessions(fam, p, workDirs[p], dataPath, home)
 		for _, s := range sessions {
 			if len(s.Problems) > 0 {
 				incomplete = true
@@ -169,27 +182,33 @@ func cmdTrail(args []string) int {
 	return 0
 }
 
-// resolveClaudeHome 决定去哪找 harness 的原生记录。
+// resolveRecordsRoot 按接入口径表定出「哪一家 + 记录根」。
 //
-// **必须说清用的是哪一份**：单个 bot 现在跑在运维者自己的 home 下（议题 #28 的隔离缺口），
-// 等 bot 有了独立 HOME / CLAUDE_CONFIG_DIR 之后，这里就会指向它。猜错就会把别人的账算到这个 bot 头上。
-func resolveClaudeHome(flagVal string) (string, string) {
-	if v := strings.TrimSpace(flagVal); v != "" {
-		return v, "--claude-home 指定"
-	}
-	if v := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); v != "" {
-		return v, "$CLAUDE_CONFIG_DIR"
-	}
-	home, err := os.UserHomeDir()
+// 表从哪来（内置 / --harnesses）和用哪一家（--harness）都在这里收口 ——
+// trail 与 audit 共用同一份口径，所以「换一家」是一处的事，不是两处。
+func resolveRecordsRoot(tableFile, familyID, flagVal string) (harness.Family, string, string, error) {
+	tb, err := harness.Load(tableFile)
 	if err != nil {
-		return "", "拿不到用户目录"
+		return harness.Family{}, "", "", err
 	}
-	return filepath.Join(home, ".claude"), "用户目录下的 .claude"
+	id := strings.TrimSpace(familyID)
+	if id == "" {
+		id = harness.DefaultID
+	}
+	fam, ok := tb.Lookup(id)
+	if !ok {
+		return harness.Family{}, "", "", fmt.Errorf("口径表里没有 %q 这家（表里有：%s）", id, strings.Join(tb.IDs(), " / "))
+	}
+	root, why := fam.ResolveRoot(flagVal)
+	if why != "" {
+		why = why + "；口径 " + fam.Display
+	}
+	return fam, root, why, nil
 }
 
 // collectSessions 把一个 project 的记录归集齐：cc-connect 说「有哪些 harness 会话」，
 // 原生记录给出「每一段干了什么」。
-func collectSessions(project, workDir, dataPath, claudeHome string) []trail.Session {
+func collectSessions(fam harness.Family, project, workDir, dataPath, root string) []trail.Session {
 	files, _ := filepath.Glob(filepath.Join(gateway.CCConnect.SessionsDir(dataPath), project+"_*.json"))
 	sort.Strings(files)
 	var out []trail.Session
@@ -204,11 +223,11 @@ func collectSessions(project, workDir, dataPath, claudeHome string) []trail.Sess
 		}
 		for _, b := range bridges {
 			if b.SessionID != "" {
-				s := trail.ReadSession(project, b.Slot, false, claudeHome, workDir, b.SessionID, b.AgentType)
+				s := trail.ReadSessionIn(fam, root, project, b.Slot, false, workDir, b.SessionID, b.AgentType)
 				out = append(out, s)
 			}
 			for _, past := range b.PastIDs {
-				s := trail.ReadSession(project, b.Slot, true, claudeHome, workDir, past, b.AgentType)
+				s := trail.ReadSessionIn(fam, root, project, b.Slot, true, workDir, past, b.AgentType)
 				out = append(out, s)
 			}
 		}

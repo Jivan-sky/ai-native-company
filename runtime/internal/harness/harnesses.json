@@ -1,0 +1,39 @@
+{
+  "schema": "anc.harnesses/v1",
+  "_readme": "外部 harness 接入口径表。加一家 = 加一行；reader 为空表示只登记了口径、还不能读。整份替换用 --harnesses <文件>。",
+  "families": [
+    {
+      "id": "claude",
+      "display": "Claude Code",
+      "root_env": ["CLAUDE_CONFIG_DIR"],
+      "root_dir": ".claude",
+      "record_format": "jsonl-plain",
+      "session_handle": "file-stem",
+      "reader": "claude-jsonl",
+      "layout": {
+        "dir_rule": "nonalnum-to-dash",
+        "projects_dir": "projects",
+        "main_file": "<id>.jsonl",
+        "subagent_dir": "<id>/subagents",
+        "subagent_glob": "*.jsonl",
+        "subagent_meta_suffix": ".meta.json"
+      },
+      "note": "口径是 2026-10-07 实测的（三条：不按行累加要按 message.id 合并、子 agent 的账算在本会话头上、成本用 harness 自己算的）。唯一有读取器的一家。"
+    },
+    {
+      "id": "codebuddy",
+      "display": "CodeBuddy / WorkBuddy CLI",
+      "root_env": [],
+      "root_dir": ".codebuddy",
+      "record_format": "jsonl-plain",
+      "session_handle": "file-stem",
+      "reader": "",
+      "layout": {
+        "dir_rule": "nonalnum-to-dash",
+        "projects_dir": "projects",
+        "main_file": "<id>.jsonl"
+      },
+      "note": "布局是 2026-10-09 在沙箱里真跑出来的：<记录根>/projects/<cwd 压缩名>/<会话 id>.jsonl，每行自带 sessionId / cwd / _meta.traceparent。**读取器未实现** —— 只见过 user 那一行的字段，assistant 那一行没验。另：办公端 WorkBuddy 的文档写的是 ~/.workbuddy/mcp.json，跟这里的 .codebuddy 是不是同一个记录根，未验。"
+    }
+  ]
+}
