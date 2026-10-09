@@ -465,7 +465,7 @@ ANC 这一侧哪几条是不变量、哪几条由对方适配。判据一句话�
 |---|---|
 | G1–G4 | 在 cc-connect 上**已落并实测**（`runtime/DESIGN.md` §7.1.6 / §7.1.8 / §7.1.10）。**形态层已抽**（2026-10-09 第一刀）：`internal/gateway` 把「装 / 重启 / 日志落点 / 会话落点 / 凭据键名空间 / 认哪些枚举」收成**一张表**（`gateway.CCConnect`），apply / probe / trail / notify / startup / org 六个消费方改成从表里取 —— 换一家网关 = 加一行表，不改调用点。**仍未抽**：G1 的**产物正文**（`config.toml` 各段怎么写）还在 `internal/render`；两家的 harness 腿仍各写一份 |
 | H1 / H2 / H4 | 已落（H4 的表已按「加条目」的形状写）；**H3 第二条腿未实测** —— `trail` 与 `audit collect` 现在只认 claude 的落点与格式（`runtime/DESIGN.md` §7 清单） |
-| ③ 业务 agent 独立账号 | **渲染已接 / 沙箱真回话未测** —— `agents.md` 落点（加 `role` / `app_id` 两列，§13 Q23 已拍：表里加列，persona 复用 `roles/<role>/` 那套）+ `render.Build` 为每个 agent 产一个 `[[projects]]`（cwd 走 `--agent-home`）+ 10 条规则 + 19 条用例（`runtime/DESIGN.md` §7.1.27 / §7.1.28）。沙箱侧：独立账号五项前置已实测；**真回话没测** —— 同一个飞书 app 同一时刻只允许一条长连接 |
+| ③ 业务 agent 独立账号 | **渲染已接 / 独立账号装载已实测 / 真回话未测** —— `agents.md` 落点（加 `role` / `app_id` 两列，§13 Q23 已拍：表里加列，persona 复用 `roles/<role>/` 那套）+ `render.Build` 为每个 agent 产一个 `[[projects]]`（cwd 走 `--agent-home`）+ 10 条规则 + 19 条用例（`runtime/DESIGN.md` §7.1.27 / §7.1.28）。沙箱侧：**换 OS 账号、非 root、用户级 systemd 装载已实测**（凭据桥 / harness / 平台连接 / 产物只含它该有的 / 账号隔离逐条验过，§7.1.29）；**真回话仍没测** —— 同一个飞书 app 同一时刻只允许一条长连接，本轮已把连接切给业务 agent，等一条真入站消息 |
 
 **⑤ 本节新增的待拍** → §13 Q20 / Q21 / Q23。
 
