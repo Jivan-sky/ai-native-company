@@ -12,156 +12,185 @@
 
   版式：左边一条固定的导航（哪些页、各自接没接数据源），右边是当前页。
   导航用 <a href="#/id"> —— 浏览器原生 hash 路由，不写额外的路由器代码。
+
+  视觉语言（2026-10-10 改）：参照 Claude 的前端 —— **纸感而不是玻璃感**。
+  象牙底 + 发丝线 + 陶土色（clay）主色；不叠渐变、不做毛玻璃、不投阴影，
+  层次全靠 1px 线与留白撑。数字用衬线体（等宽数字看着像后台，衬线看着像读本）。
 -->
 <style>
   :root {
-    --ink: #0b1f33;
-    --ink-2: #3d5f80;
-    --ink-3: #6b8aa6;
-    --line: rgba(255, 255, 255, 0.62);
-    --line-2: rgba(11, 31, 51, 0.08);
-    --sea: #0a84ff;
-    --glass: rgba(255, 255, 255, 0.56);
-    --glass-2: rgba(255, 255, 255, 0.36);
-    --shadow: 0 12px 34px rgba(12, 40, 70, 0.10), 0 2px 6px rgba(12, 40, 70, 0.05);
-    --radius: 20px;
+    /* 纸：页面底与卡片面是同一族暖白，靠一条发丝线分层，不靠灰阶差 */
+    --paper: #faf9f5;
+    --paper-2: #f3f1ea;
+    --surface: #ffffff;
+    --surface-2: #f7f6f1;
+
+    /* 墨：暖黑，不用纯黑（纯黑在暖底上发蓝） */
+    --ink: #191917;
+    --ink-2: #57544e;
+    --ink-3: #8c8a83;
+
+    /* 发丝线：整页的层次都由它和留白给 */
+    --line: #e6e4db;
+    --line-2: #edebe3;
+
+    /* Claude 的主色：陶土（clay）。蓝绿只做辅色，不抢 */
+    --clay: #d97757;
+    --clay-2: #c2603f;
+    --blue: #6a9bcc;
+    --green: #6b8e4e;
+    --amber: #bd8420;
+    --red: #b23a2c;
+
+    --radius: 12px;
+    --radius-lg: 16px;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman",
+             "Songti SC", "Noto Serif SC", serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     color: var(--ink);
-    font: 15px/1.62 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-          "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    font: 15px/1.62 var(--ui);
     -webkit-font-smoothing: antialiased;
-    background:
-      radial-gradient(1100px 620px at 12% -8%, #d9f0ff 0%, rgba(217, 240, 255, 0) 62%),
-      radial-gradient(900px 560px at 92% 4%, #d6f6f0 0%, rgba(214, 246, 240, 0) 60%),
-      radial-gradient(760px 620px at 68% 106%, #e6ecff 0%, rgba(230, 236, 255, 0) 64%),
-      linear-gradient(168deg, #f6fbff 0%, #eef6fb 44%, #f4f9ff 100%);
+    background: var(--paper);
     background-attachment: fixed;
   }
+  /* .glass 这个名字留着不改 —— 它现在是「一块纸面」：白底 + 一条发丝线。
+     （前端骨架里的类名是 app.js 认的契约，改名要连构建产物一起改。） */
   .glass {
-    background: var(--glass);
-    -webkit-backdrop-filter: blur(22px) saturate(165%);
-    backdrop-filter: blur(22px) saturate(165%);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
+    border-radius: var(--radius-lg);
   }
   main { display: block; }
   .shell {
     display: grid;
     grid-template-columns: 216px minmax(0, 1fr);
-    gap: 20px;
+    gap: 22px;
     align-items: start;
     max-width: 1320px;
     margin: 0 auto;
-    padding: 26px 22px 64px;
+    padding: 28px 24px 64px;
   }
   .col { min-width: 0; }
 
-  /* 左侧导航 */
-  .rail { position: sticky; top: 26px; padding: 15px 12px 13px; }
-  .brandbox { padding: 2px 9px 12px; border-bottom: 1px solid var(--line-2); }
-  .brandbox .mark { font-size: 11.5px; font-weight: 700; letter-spacing: 1.7px; color: var(--sea); }
-  .brandbox .co { margin-top: 7px; font-size: 15px; font-weight: 640; line-height: 1.34; }
-  .brandbox .sub { margin-top: 3px; font-size: 11.5px; color: var(--ink-3); line-height: 1.5; }
-  .tabs { margin-top: 11px; display: flex; flex-direction: column; gap: 2px; }
+  /* 左侧导航：比正文底色深半档的象牙，右侧一条发丝线收边 */
+  .rail {
+    position: sticky;
+    top: 28px;
+    padding: 16px 12px 14px;
+    background: var(--paper-2);
+    border-color: var(--line);
+    border-radius: var(--radius-lg);
+  }
+  .brandbox { padding: 2px 9px 12px; border-bottom: 1px solid var(--line); }
+  .brandbox .mark { font-size: 11px; font-weight: 650; letter-spacing: 2.1px; color: var(--clay); }
+  .brandbox .co { margin-top: 8px; font-size: 15.5px; font-weight: 620; line-height: 1.34; letter-spacing: -0.1px; }
+  .brandbox .sub { margin-top: 4px; font-size: 11.5px; color: var(--ink-3); line-height: 1.5; }
+  .tabs { margin-top: 12px; display: flex; flex-direction: column; gap: 2px; }
   .tab {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    padding: 9px 11px; border-radius: 12px; text-decoration: none;
+    padding: 8px 11px; border-radius: 9px; text-decoration: none;
     color: var(--ink-2); font-size: 13.5px; border: 1px solid transparent;
   }
-  .tab:hover { background: rgba(255, 255, 255, 0.5); text-decoration: none; }
+  .tab:hover { background: rgba(255, 255, 255, 0.7); text-decoration: none; color: var(--ink); }
   .tab.active {
-    background: rgba(255, 255, 255, 0.82); color: var(--ink); font-weight: 620;
-    border-color: var(--line); box-shadow: 0 2px 10px rgba(12, 40, 70, 0.06);
+    background: var(--surface); color: var(--ink); font-weight: 620;
+    border-color: var(--line);
   }
   .res { font-size: 10.5px; padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex: none; }
-  .res.on { color: #12633a; background: rgba(29, 185, 84, 0.14); }
-  .res.off { color: var(--ink-3); background: rgba(11, 31, 51, 0.06); }
+  .res.on { color: #40632c; background: rgba(107, 142, 78, 0.13); }
+  .res.off { color: var(--ink-3); background: rgba(25, 25, 23, 0.055); }
 
   /* 页头 */
-  header.top { padding: 17px 24px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
-  header.top .q h1 { margin: 0; font-size: 20px; font-weight: 660; letter-spacing: -0.2px; }
-  header.top .q .ask { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
+  header.top { padding: 18px 24px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+  header.top .q h1 { margin: 0; font-size: 19.5px; font-weight: 640; letter-spacing: -0.25px; }
+  header.top .q .ask { margin: 5px 0 0; font-size: 13px; color: var(--ink-2); }
   .spacer { flex: 1 1 120px; }
   .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 
   .chip {
     display: inline-flex; align-items: center; gap: 7px;
     padding: 5px 11px; border-radius: 999px; font-size: 12.5px; color: var(--ink-2);
-    background: var(--glass-2); border: 1px solid var(--line); white-space: nowrap;
+    background: var(--surface-2); border: 1px solid var(--line); white-space: nowrap;
   }
-  .chip.mono, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+  .chip.mono, .mono { font-family: var(--mono); font-size: 12px; }
   button.refresh {
     font: inherit; font-size: 13px; color: var(--ink); cursor: pointer;
-    padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line);
-    background: var(--glass-2);
+    padding: 6px 15px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--surface);
   }
-  button.refresh:hover { background: rgba(255, 255, 255, 0.72); }
-  button.refresh:disabled { opacity: 0.5; cursor: default; }
+  button.refresh:hover { background: var(--surface-2); border-color: #dcd9cf; }
+  button.refresh:disabled { opacity: 0.45; cursor: default; }
+
   /* 状态灯：四个档**形状 + 颜色**一起变，不靠色深 —— 色盲、灰度截图、小屏都分得开。
      ok   = 实心圆       —— 好，已经过去了
      warn = 带光环的圆   —— 运行中（那圈光晕就是「在动」）
      bad  = 菱形         —— 停 / 坏，形状和另外三个最不一样
      gray = 空心虚线圈   —— 认不出的词，**没人判过**
-     灰刻意不许像绿：一个是「过了」，一个是「没人判过」，混了就等于把没判过的当过了。 */
-  .dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: transparent; border: 1.5px dashed #8b9aab; }
-  .dot.ok { background: #12a150; border: 0; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92), 0 0 0 2.5px rgba(18, 161, 80, 0.18); }
-  .dot.warn { background: #e07b0a; border: 0; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92), 0 0 0 4px rgba(224, 123, 10, 0.20); }
-  .dot.bad { background: #d92d20; border: 0; border-radius: 2.5px; transform: rotate(45deg); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85); }
+     灰刻意不许像绿：一个是「过了」，一个是「没人判过」，混了就等于把没判过的当过了。
+     配色跟着 Claude 那套走：绿是橄榄、黄是赭石、红是砖红，都压掉一点饱和度 ——
+     在白纸上它们仍然分得开，但不像告警灯那样刺眼。 */
+  .dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: transparent; border: 1.5px dashed #a8a49a; }
+  .dot.ok { background: var(--green); border: 0; box-shadow: 0 0 0 1px #fff, 0 0 0 2.5px rgba(107, 142, 78, 0.20); }
+  .dot.warn { background: var(--amber); border: 0; box-shadow: 0 0 0 1px #fff, 0 0 0 4px rgba(189, 132, 32, 0.22); }
+  .dot.bad { background: var(--red); border: 0; border-radius: 2.5px; transform: rotate(45deg); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9); }
   /* 灰档：status 是个认不出的词 —— 原样显示，不硬塞进三档里（形状同默认：空心虚线圈） */
-  .dot.gray { background: transparent; border: 1.5px dashed #8b9aab; box-shadow: none; }
+  .dot.gray { background: transparent; border: 1.5px dashed #a8a49a; box-shadow: none; }
   /* 图例：把「形状 → 含义」摆出来，省得靠颜色猜 */
   .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 14px 0 0; font-size: 12.5px; color: var(--ink-2); }
 
   section { margin-top: 20px; padding: 20px 24px 24px; }
   section > h2 {
-    margin: 0 0 2px; font-size: 15px; font-weight: 620; letter-spacing: 0.2px;
+    margin: 0 0 2px; font-size: 15px; font-weight: 630; letter-spacing: 0.1px;
     display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   }
   section > h2 .hint { font-weight: 400; font-size: 12.5px; color: var(--ink-3); }
   .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(266px, 1fr)); margin-top: 16px; }
   .grid.stats { grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); }
   .card {
-    padding: 15px 16px; border-radius: 16px;
-    background: rgba(255, 255, 255, 0.5);
-    border: 1px solid var(--line-2);
-    box-shadow: 0 2px 10px rgba(12, 40, 70, 0.04);
+    padding: 16px 17px; border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--line);
   }
   .card h3 { margin: 0 0 8px; font-size: 15px; font-weight: 620; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 13px; }
   .card dt { color: var(--ink-3); white-space: nowrap; }
   .card dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
-  .card.stat .n { font-size: 27px; font-weight: 680; letter-spacing: -0.6px; line-height: 1.18; }
-  .card.stat .k { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+  /* 数字用衬线体：等宽体读起来像后台日志，衬线体读起来像报告 */
+  .card.stat { background: var(--surface-2); }
+  .card.stat .n { font-family: var(--serif); font-size: 30px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.14; font-variant-numeric: lining-nums tabular-nums; }
+  .card.stat .k { font-size: 13px; color: var(--ink-2); margin-top: 3px; }
   .card.stat .sub { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
-  .cannot { color: #8a3b34; }
+  .cannot { color: var(--clay-2); }
   /* 状态点 + 文字：.dot 是固定宽高，得靠 inline-flex 才撑得开 */
   .st { display: inline-flex; align-items: center; gap: 8px; }
   /* 时间线页：一个 case 一个原生 <details> 折叠（不写 JS），summary 里点 + 字一行排 */
   details { margin-top: 12px; }
   details > summary { cursor: pointer; padding: 7px 2px; }
   details > summary .st { flex-wrap: wrap; }
-  details > summary:hover { color: var(--sea); }
+  details > summary:hover { color: var(--clay-2); }
 
   .tw { overflow-x: auto; margin-top: 16px; }
   .tw > table { margin-top: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
   th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
   td { overflow-wrap: anywhere; }
-  th { color: var(--ink-3); font-weight: 520; font-size: 12.5px; white-space: nowrap; }
+  th { color: var(--ink-3); font-weight: 560; font-size: 12px; white-space: nowrap; letter-spacing: 0.2px; }
   tbody tr:last-child td { border-bottom: none; }
-  a { color: var(--sea); text-decoration: none; }
+  a { color: var(--clay-2); text-decoration: none; }
   a:hover { text-decoration: underline; }
 
-  .banner { margin-top: 20px; padding: 16px 20px; border-radius: 18px; font-size: 13.5px; }
+  .banner { margin-top: 20px; padding: 16px 20px; border-radius: var(--radius); font-size: 13.5px; }
   .banner h3 { margin: 0 0 8px; font-size: 14px; font-weight: 620; }
   .banner ul { margin: 0; padding-left: 20px; }
   .banner li { margin: 3px 0; }
-  .banner.bad { background: rgba(255, 236, 234, 0.74); border: 1px solid rgba(224, 72, 61, 0.28); color: #7d1f18; }
-  .banner.warn { background: rgba(255, 247, 231, 0.76); border: 1px solid rgba(232, 163, 61, 0.32); color: #7a5312; }
+  .banner.bad { background: #fdf4f1; border: 1px solid #eed3c9; color: #7d3226; }
+  .banner.warn { background: #fdf8ed; border: 1px solid #ecdcbd; color: #6f5215; }
   .empty { color: var(--ink-3); font-size: 13px; margin: 14px 0 0; }
   .pad { padding: 20px 24px; }
   footer { margin-top: 26px; color: var(--ink-3); font-size: 12.5px; line-height: 1.95; }
