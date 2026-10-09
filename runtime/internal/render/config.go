@@ -25,6 +25,12 @@ type Options struct {
 // 出现「看板叫 alice、日志叫 demo-alice」这种对不上号的现场。
 func ProjectName(companyID, member string) string { return companyID + "-" + member }
 
+// AgentProjectName 是这个**业务 agent** 在 gateway 配置里的 project 名。
+//
+// 与成员 bot 共用同一条派生规则（`<公司 id>-<slug>`），不另立一套 —— SPEC §4.7 ③
+// 「一个业务 agent 就是一个 project」；两套拼法迟早出现「看板叫 bizbot、日志叫 sandbox-bizbot」。
+func AgentProjectName(companyID, slug string) string { return ProjectName(companyID, slug) }
+
 // UnwiredProjects 是「**声明**了还没接平台凭据」的 project 名（真相源里成员上的 unwired: true）。
 //
 // 只算**启用中的**：停用的成员本来就不进 config，多报一个只是噪声。

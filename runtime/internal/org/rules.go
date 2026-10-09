@@ -111,6 +111,19 @@ var DefaultRules = []Rule{
 	{"project.domain.unknown", LevelWarn, false, "挂的域不在 domains.md 里 —— 多半是拼错；项目会分不到区块"},
 	{"project.owner.unknown_role", LevelWarn, false, "owner 不在 roles/ 里，渲染时解不出人，只会原样显示岗位名"},
 
+	// —— 业务 agent（SPEC §2.3 第二类：代岗位 / 流程）——
+	// 结构问题与域表 / 项目表同一档：整组 warn，一条红线都不设（新能力先「看见」不先「拦」），
+	// 想在 company.md 的 policy 段写 `agent.xxx = fatal` 就上调。
+	// **唯一一条 fatal 是 tools 为空** —— 它与 role.allowed_tools.empty 是同一条不变量
+	// （空白名单的 bot 连得上却干不了活），同一条不变量只登记成一条规则，不因为它出现在另一张表就换档。
+	{"agent.table.missing", LevelWarn, false, "有 agents.md 但没找到带 slug 列的表 —— 表建歪了，业务 agent 一个都读不出来"},
+	{"agent.slug.format", LevelWarn, false, "slug 要进 project 名、通常还要当 OS 账号名；中文/大写会撞 macOS 的 NFC/NFD 与跨平台差异"},
+	{"agent.slug.duplicate", LevelWarn, false, "同 slug 两行 = agent 身份有歧义，取哪一行只看行的先后"},
+	{"agent.name.missing", LevelWarn, false, "缺显示名，看板上只剩机器标识"},
+	{"agent.domain.missing", LevelWarn, false, "没挂域 —— 数据视野那把尺子（VisibleDomains）以域为单位，没域等于没视野"},
+	{"agent.domain.unknown", LevelWarn, false, "挂的域不在 domains.md 里 —— 多半是拼错；这个 agent 分不到任何数据"},
+	{"agent.tools.empty", LevelFatal, false, "SPEC §4.7 ③ 红线：业务 agent 的 allowed_tools 必须非空（只有 devbot 例外）。实测：dontAsk 下未预授权的工具一律自动拒绝 —— 空白名单的 bot 连得上却干不了活，现场还全是绿的；不锁死：可在 company.md 写 `policy: agent.tools.empty = warn`"},
+
 	// —— 立项书副本（接入链的**落点**）——
 	// 落点的目录名要能与表行对上，否则「谁在做哪个项目」就有一半材料是孤岛。
 	// 仍然只告警：副本目录可能比表行**早到**（材料先丢进来、抽取还没做），那是进度问题不是错。
