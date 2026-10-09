@@ -13,8 +13,8 @@ import (
 func TestSlug(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{`D:\Agetn_Context\codex_work\anc-demo\homes/alice`, "D--Agetn-Context-codex-work-anc-demo-homes-alice"},
-		{`C:\Users\sjw`, "C--Users-sjw"},
-		{"/Users/sjw/anc/homes/alice", "-Users-sjw-anc-homes-alice"},
+		{`C:\Users\dev`, "C--Users-dev"},
+		{"/Users/dev/anc/homes/alice", "-Users-dev-anc-homes-alice"},
 	}
 	for _, c := range cases {
 		if got := Slug(c.in); got != c.want {

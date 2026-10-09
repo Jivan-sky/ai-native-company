@@ -937,7 +937,7 @@ bot 侧的按人过滤视图、看板上「谁能做什么」那个页（投影�
 | `alice` | `ANC_FEISHU_SECRET_ALICE`（存量不变） |
 | `alice-2` | `ANC_FEISHU_SECRET_ALICEx00002d2` |
 | `张三` | `ANC_FEISHU_SECRET_x005f20x004e09` |
-| `白嘉伟` | `ANC_FEISHU_SECRET_x00767dx005609x004f1f` |
+| `王小明` | `ANC_FEISHU_SECRET_x00738bx005c0fx00660e` |
 
 **规则 `member.name.format` 的判据跟着改**（同一个 id、红档、不锁死）：它不再量「名字是不是 ASCII」，
 只量**事实** —— 这个名字会落成 `homes/<名>`、`members/<名>/` 与 project 名 `<公司 id>-<名>`，三平台
@@ -953,10 +953,10 @@ bot 侧的按人过滤视图、看板上「谁能做什么」那个页（投影�
 | 全 ASCII 名（基线） | `anc apply <vault>`（dry-run） | `引用 2 个：…_ALICE, …_DEVBOT` + ✅ 齐，exit 0 |
 | 派生字面（7 个名字，含中文 / `-` / `.`） | `internal/render` 用例 | 逐个字面比对；每个键都过装载侧那把尺子（`apply.LegalKey`）；9 个名字互不撞键 |
 | 中文名拿得到键 | `internal/render` 用例 | 账与回读**都**看得见 `ANC_FEISHU_SECRET_x005f20x004e09`（回读看不见 = 当年那个静默形状） |
-| 中文名 + 凭据文件里有那个键 | `anc apply <vault>`（dry-run） | [1/7] 校验过 → [2/7] `project 1 个：demo-白嘉伟` → [3/7] ✅ 齐 → [7/7] exit 0 |
+| 中文名 + 凭据文件里有那个键 | `anc apply <vault>`（dry-run） | [1/7] 校验过 → [2/7] `project 1 个：demo-王小明` → [3/7] ✅ 齐 → [7/7] exit 0 |
 | 中文名 + 凭据文件里**没有**那个键 | 同上 | 停在 [3/7]：`🔴 缺键 / 空值键：ANC_FEISHU_SECRET_x00767d…` + 补键 FIX，exit 1（**不是**「写不出来」那一档） |
 | 名字含 `/` `:` 或以 `.` 结尾 | `anc org check <vault>` | [1/7] 拦：`member.name.format … 含 / 或反斜杠 …`，exit 1 |
-| 上游收不收中文 project 名 / 中文 work_dir | 真 `cc-connect v1.3.4 --config <anc 渲染产物>`（假 app_id，跑 12 s 后收掉） | `config loaded` → `platform ready project=demo-白嘉伟` → **`engine started project=demo-白嘉伟 agent=claudecode`**；`homes/白嘉伟` 由 `anc render` 建出。唯一的错在授权那一跳：`app_id is invalid`（假 app，预期） |
+| 上游收不收中文 project 名 / 中文 work_dir | 真 `cc-connect v1.3.4 --config <anc 渲染产物>`（假 app_id，跑 12 s 后收掉） | `config loaded` → `platform ready project=demo-王小明` → **`engine started project=demo-王小明 agent=claudecode`**；`homes/王小明` 由 `anc render` 建出。唯一的错在授权那一跳：`app_id is invalid`（假 app，预期） |
 
 `gofmt` / `go vet` / `go test -count=1 ./...` **十二包全绿**（`internal/render` 3 条、`internal/org` 3 条、
 根包 2 条新用例）。
@@ -1111,7 +1111,7 @@ demo 会话的 27 次行使里，11 条落在「vault 内非域」、11 条落�
 - 看板：`/api/audit`（`anc.audit/v1`）—— demo vault 归集出 **27 条**（`ok 20 / denied 5 / failed 2`，
   落点 `域内 0 / 跨域 0 / 域外 11 / vault 内非域 11 / 判不出 5`），沙箱里再加两条补记 = 29 条；
   `object` 形如 `<vault>/20-ops/CLAUDE.md`、`…/.claude/settings.json`（vault 外只留末两段）。
-  `--dump-dom "#/audit"` 断言这些真数据都在页面上，且**无本机用户名泄露**（`sjw` 一次都不出现）；
+  `--dump-dom "#/audit"` 断言这些真数据都在页面上，且**无本机用户名泄露**（`dev` 一次都不出现）；
   同一页在真浏览器里也逐块核过（四档卡片 / 落点卡片 / 流水表 / 「被拦下的与失败的」/「这一页答不了什么」）。
 - **没验的**：真凭据下的归集闭环；非 claude 的 harness（工具表是数据，加条目即可 —— **但没实测**）；
   `on_behalf_of` 的填充；审计的**归档 / 留存期**（#27 / #25）与**读权限**（#32 / #34）；

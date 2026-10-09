@@ -326,7 +326,7 @@ func TestSecretKeyDerivation(t *testing.T) {
 		{"alice-2", "ANC_FEISHU_SECRET_ALICEx00002d2"},
 		{"a.b", "ANC_FEISHU_SECRET_Ax00002eB"},
 		{"张三", "ANC_FEISHU_SECRET_x005f20x004e09"},
-		{"白嘉伟", "ANC_FEISHU_SECRET_x00767dx005609x004f1f"},
+		{"王小明", "ANC_FEISHU_SECRET_x00738bx005c0fx00660e"},
 	} {
 		got := FeishuSecretKey(tc.name)
 		if got != tc.want {
@@ -338,7 +338,7 @@ func TestSecretKeyDerivation(t *testing.T) {
 	}
 	// 不同的名不许撞成同一个键（撞了就是两个人共用一个凭据槽）。
 	seen := map[string]string{}
-	for _, name := range []string{"alice", "alice.", "alice-2", "张三", "白嘉伟", "张 三", "手冢治虫", "a_b", "a.b"} {
+	for _, name := range []string{"alice", "alice.", "alice-2", "张三", "王小明", "张 三", "手冢治虫", "a_b", "a.b"} {
 		k := FeishuSecretKey(name)
 		if prev, dup := seen[k]; dup {
 			t.Errorf("%q 与 %q 撞成同一个键 %s", name, prev, k)
