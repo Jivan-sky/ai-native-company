@@ -86,6 +86,10 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	// 脱敏表先落定（进程一次）—— 审计的**落盘即脱敏**必须对五条写口同时生效，
+	// 散在各子命令里落定早晚漏一条。见 redact.go。
+	armRedactor()
+
 	cmd := os.Args[1]
 	args := os.Args[2:]
 	switch cmd {
