@@ -50,12 +50,26 @@ import (
 //
 // 为什么这次不做：期限那一格刚因为「替不存在的需求定语法」被拍掉 —— 同一条教训。
 // 授权**产生**的真实用法还没有样本，先按「一律人点头」这条不会错的口径走。见 GitHub #62。
+// requestingKinds 是「**请求**而不是行使」的 kind 表。
+//
+// 提案（`proposal`）的定义就是「agent 只能提、不能直接行使」（#34）—— 它**不能**靠 grant 才能提：
+// 还没拿到权的人当然没有 grant，拿 grant 当提案的门就等于**提案永远提不出来**。
+// 门禁拦的是「把数据拿出去 / 写进去」；提案里**没有任何业务数据**，只是一句请求。
+// 所以这一支**不判授权、不报 `grant.match.missing`**，但它**照样是一次跨域请求** → 留痕照记。
+//
+// 这是一张**数据表**，不是第二个 `if`：将来若还有哪个 kind 也属「请求而非行使」，加在这里。
+// `ask` **不在**此列 —— 它可能带着数据去问，算不算行使要单独判，不搭便车。
+//
+// 不给它配档位开关：这不是「门的松紧」，是**门的适用范围**（提案不是行使）。松紧才是数据。
+var requestingKinds = map[string]bool{KindProposal: true}
+
 type GateOutcome struct {
 	Subject     string // 按谁的权限判的（on_behalf_of 优先，退回 who）；空 = 主体解不出
 	OnBehalfOf  string // 原样带出，留痕要用
 	Domain      string // scope.domain；空 = 这封信不通 grant
 	CrossDomain bool   // true = 这次是跨域（有覆盖或被拒都算）
 	Grant       string // 命中的那条 grant 的落点（vault 相对路径）；没命中为空
+	Requesting  bool   // true = 这一封是**请求**（提案），不是行使：不判授权，但仍算一次跨域请求（要留痕）
 }
 
 // Gate 判一封信的授权。返回发现 + 这次的结论（结论给调用方留痕用 ——
@@ -91,6 +105,12 @@ func Gate(o *org.Org, e Envelope, p *org.Policy) ([]org.Issue, GateOutcome) {
 		return nil, out // 自己域内：不需要 grant
 	}
 	out.CrossDomain = true
+
+	// 请求（提案）不是行使：不判授权 —— 但还是「一次跨域请求」，CrossDomain 留着好让调用方留痕。
+	if requestingKinds[strings.ToLower(strings.TrimSpace(e.Kind))] {
+		out.Requesting = true
+		return nil, out
+	}
 
 	for _, g := range o.Grants {
 		if grantCovers(g, ref, idn, dom) {
