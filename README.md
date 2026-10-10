@@ -33,10 +33,14 @@ ai-native-company/
 ├─ docs/            给实现读：上游四份实现视图的副本（M1 设计 / 里程碑 / 轻形态 MVP / 调研）
 ├─ skill/           给 Agent 读：可单独安装的能力件（资产沉淀的预存件），FDE skill 路线 B 指向这里
 └─ runtime/         给机器跑：ANC 驻场装配器（anc-onsite 已并入）
-   └─ DESIGN.md     运行层落地设计（v0.1 草案；D4 / D5 / D6 已拍板，D1 / D2 与 D3 的其余部分未拍板）
+   ├─ DESIGN.md     运行层落地设计（v0.1 草案；D4 / D5 / D6 已拍板，D1 / D2 与 D3 的其余部分未拍板）
+   └─ testdata/     测试样本一处收着（org vault 样本 · 卡片事件体 · golden 快照）—— 不进正式文件的目录
 ```
 
 **真相源只有一份。** `skill/`、`runtime/` 都是 `SPEC.md` 的派生视图——改口径改 SPEC，不在这几处各改一遍。
+**测试都跟包走，样本一处收着。** Go 的 `*_test.go` 必须与它测的包同目录（语言约束，不是随手放），
+所以**测试代码挨着代码住**；而**一切测试样本**（vault 样本 / 事件体 / golden 快照）收到 `runtime/testdata/` 一处，
+不进正式文件的目录。
 **开放问题不在仓库里。** 全部未定事项记在 [GitHub Issues](https://github.com/Jivan-sky/ai-native-company/issues)，
 每条带「要定什么 / 为什么没定 / 选项与建议 / 验收 / 卡住谁」。仓库内**不再**维护问题台账（曾有一份 `ISSUES.md`，2026-10-07 迁走并删除）。
 
