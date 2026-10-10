@@ -37,10 +37,10 @@ const (
 	//
 	// 2026-10-09 在沙箱里实测四个路径得出的（CodeBuddy / WorkBuddy CLI）：
 	//
-	//	d:\ANC沙箱            -> d-ANC沙箱
+	//	d:\某目录            -> d-某目录
 	//	d:\My_Tools\proj_dir\work_ab -> d-My_Tools-proj_dir-work_ab
-	//	D:\ANC沙箱\Probe_X   -> d-ANC沙箱-Probe_X
-	//	D:\ANC沙箱\probe.d\a b -> d-ANC沙箱-probe.d-a b
+	//	D:\某目录\Probe_X   -> d-某目录-Probe_X
+	//	D:\某目录\probe.d\a b -> d-某目录-probe.d-a b
 	//
 	// 它和 claude 那条**不是同一条**（claude 会把 `_` `.` 空格都换成 '-'）——
 	// 混用会把目录名算错，而算错的后果是「读不到」，会被误当成「没有」。

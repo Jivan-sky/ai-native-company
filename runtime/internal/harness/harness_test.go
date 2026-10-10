@@ -119,10 +119,10 @@ func TestSlugRule(t *testing.T) {
 // 它和 claude 那条不是同一条，混用会把目录名算错，而算错的后果是「读不到」。
 func TestSlugRulePathsepRunsToDash(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{`d:\ANC沙箱`, "d-ANC沙箱"},
+		{`d:\某目录`, "d-某目录"},
 		{`d:\My_Tools\proj_dir\work_ab`, "d-My_Tools-proj_dir-work_ab"},
-		{`D:\ANC沙箱\Probe_X`, "d-ANC沙箱-Probe_X"},
-		{`D:\ANC沙箱\probe.d\a b`, "d-ANC沙箱-probe.d-a b"},
+		{`D:\某目录\Probe_X`, "d-某目录-Probe_X"},
+		{`D:\某目录\probe.d\a b`, "d-某目录-probe.d-a b"},
 	}
 	for _, c := range cases {
 		got, err := Slug(RulePathsepRunsToDash, c.in)
