@@ -176,8 +176,9 @@ func usage() {
    anc timeline add|list <vault>      决策与执行的留存记录（红 / 黄 / 绿三档，append-only）
    anc hot ping|put|ls|claim|release|drop|done
                                      「进行中」的热层：状态是当前值，不是历史（达标落库，进行中放这里）
-   anc approvals add|ls|decide <vault>
-                                     提案的待批队列与「点头」（审批的落点：看板 / 飞书卡片走同一个入口）
+   anc approvals add|ls|decide|card|card-action <vault>
+                                      提案的待批队列、卡片与「点头」（审批的落点：看板 / 飞书卡片走同一个入口）
+                                      卡片长什么样是数据（--frame），值是现算的（谁提的 / 属于谁 / 该谁批）
    anc audit log|add|collect <vault>  行使的流水：谁在什么时候、对谁、行使了什么（含被拒的）
    anc envelope check <vault> <信封.json>  接入面的信封：解析 + 绑真相源（只读）
    anc envelope serve <vault> [--addr 127.0.0.1:8791]

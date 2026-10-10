@@ -680,7 +680,17 @@ CLI / 对话式 bot / 看板是**同一个变更管道的三个前端**，管道
 
 **看板那条已落（2026-10-10）**：`POST /api/approvals/decide` 是看板**唯一**的写口 ——
 只收 `POST` + `application/json`（跨站表单发不出这个 Content-Type）、**只留痕不写真相源**；
-看板其余路径仍是 GET / HEAD。见 `runtime/DESIGN.md` §7.1.35。**飞书卡片那条还没接。**
+看板其余路径仍是 GET / HEAD。见 `runtime/DESIGN.md` §7.1.35。
+
+**飞书卡片那条：ANC 这一侧已落，缺的是网关那一侧的口（2026-10-10 实测确认，见 §7.1.39）**：
+卡片是**数据** —— 帧（长什么样）住在外面的 JSON 里、值全是现算的（`anc approvals card`，改帧不用重编译）；
+回程（`anc approvals card-action`）用 `open_id` 定位「谁点的 / 落在哪台 bot / 这个 agent 属于谁」，
+再走**与 CLI / 看板同一个信号入口**落两笔痕。**递出去那一步过不去**：
+cc-connect v1.3.4 的对外口（unix socket `POST /send`）只有文本与附件，**没有发卡片的口**，
+卡片是它给自带命令（`/status` `/help` 那一类）在进程内渲染的；飞书回调那一侧它取到了 `Operator.OpenID`
+（`platform/feishu/feishu.go:799`）却只用于 allowlist，认不出的 `action` 值直接丢掉。
+所以这不是「ANC 没接」，是**上游没有这个面** —— 上游 PR 记在 §7.1.39，我们不自己连飞书 API
+（换平台是网关的事，SPEC §4.7 ①）。
 
 **读路径同样只有一条（2026-10-07 已实现）**：**真相源 → 只读投影（`anc org export`，`anc.board/v1`）
 → 看板 / 前端**。投影是**纯函数、只读、不含凭据面字段** —— 不导出 `open_id` / `app_id`。

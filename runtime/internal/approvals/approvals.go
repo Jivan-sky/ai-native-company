@@ -296,7 +296,11 @@ type Decision struct {
 	By         string // 谁点的：open_id / 人名 / bot 名 —— **原样**（先留痕，不校）
 	Signal     Signal
 	Why        string
-	At         time.Time
+	// Via 是**这一次点头是怎么来的**：哪个前端、落在哪台 bot、原始的平台标识
+	// （看板来的通常是空的；飞书卡片那条回程由 CLI 填）。它进审计那一行的 Detail ——
+	// 「谁在哪儿点的头」是行使记录的一部分，事后要能一路回到那一张卡片。
+	Via string
+	At  time.Time
 }
 
 // New 建一次点头，并把该拦的拦在这里。
@@ -359,8 +363,17 @@ func (d Decision) AuditRecord(p Pending) audit.Record {
 		Why:    d.Verdict(),
 		Tool:   "anc approvals",
 		Source: "manual",
-		Detail: "提案 " + p.ID + "：" + p.Title,
+		Detail: "提案 " + p.ID + "：" + p.Title + viaLine(d.Via),
 	}
+}
+
+// viaLine 把「怎么来的」缀在审计那一行后面。空 = 不加任何东西（**不写「（无）」**：
+// 一个没有来源说明的行，比一行写着「来源：无」的更容易看出是没记，而不是记了个「无」）。
+func viaLine(via string) string {
+	if s := strings.TrimSpace(via); s != "" {
+		return " · 经 " + s
+	}
+	return ""
 }
 
 // TimelineEntry 是这次点头要落的那条库行。

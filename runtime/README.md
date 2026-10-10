@@ -465,8 +465,13 @@ anc approvals decide <vault> <提案 id> -by <谁> -signal approve|reject|hold [
 - **顺序**：先落库（`timeline`）→ 再落审计 → 再清热层。库没落成，队列不动 —— 反序会把一次点头弄丢。
 - **幂等**：重复入队不冲时间戳；不在队里再点头 = 报错（`exit 1`），不静默成功。
 - **两个嘴**：**看板这条已接**（「待批」页 + 写口 `POST /api/approvals/decide`，见 README 的看板一节）；
-  **飞书卡片那条还没接**（出站 interactive 卡片 + 长连接收 `card.action.trigger`，不靠公网回调）。
-  两处走**同一个入口** —— CLI / 对话式 bot / 看板是同一个变更管道的三个前端（SPEC §7）。
+  **飞书卡片这条 ANC 侧已接**（`anc approvals card` 出卡片、`anc approvals card-action` 收回程，
+  两处都走**同一个信号入口** —— CLI / 对话式 bot / 看板是同一个变更管道的三个前端，SPEC §7）。
+  卡片长什么样是**数据**（帧住在外面的 JSON 里），键与值全是**现算**的业务事实：
+  谁提的 / 这个 agent 属于谁 / 该谁批的是哪个人 / 等了多久 / 该什么颜色。改帧不用重编译。
+  **缺的只有网关那一侧的口**：cc-connect v1.3.4 没有「外部工具发卡片」的 API 面
+  （unix socket `POST /send` 只有文本与附件），飞书回调把点击递给我们也没有现成通道 ——
+  这一段见 `DESIGN.md` §7.1.39，上游 PR 记在那里。
 
 ### 接入面的信封（`anc envelope`）
 
@@ -610,7 +615,8 @@ harness **H1–H4**、业务 agent 独立账号的五件套。判据一句话：
   再点一次 409；痕两笔落进 `timeline` / `audit`；`anc approvals ls` 跟着空 —— **一个前端一套状态的坑**没踩。
   **浏览器侧也真跑过**：Edge 无头 `--dump-dom "#/approvals"` 断言页面上出现真数据（两条待批、`manager` /
   `devbot`、`已等 2 小时`、三个按钮），再用 **CDP 真点了一下「同意」** —— 填 `by` → 点 → 回执出现 →
-  队列 2 条变 1 条。**没验的**：真机观感（字体、屏宽折行）；飞书卡片那条嘴还没接。
+  队列 2 条变 1 条。**没验的**：真机观感（字体、屏宽折行）；飞书卡片在**真飞书**里的观感
+ （卡片 JSON 与回程都是真的，见下一段的实测 —— 但「点一下真按钮」这一步过不了网关那一侧，缺上游的口）。
 - 探针第四档「灰」（2026-10-09）：单元 6 条（`internal/probe` / `internal/render` / `internal/board` /
   端到端各一条，共 7 条），**变异验证**过（删掉 `AllGreen` 里那行 `continue` → 两条立刻变红）。
   **真 VM 实测**：`unwired: true` 声明 → `anc probe` 退出码 **0**、`anc apply` 回读一致、
