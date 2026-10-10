@@ -7,13 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/approvals"
 	"anc/internal/org"
 )
 
-// Server 是看板的**只读** HTTP 出口。
+// Server 是看板的 HTTP 出口。
 //
-// 只读是设计约束，不是「暂时还没写」：
+// **默认只读**，这是设计约束，不是「暂时还没写」：
 //   - 只有 GET / HEAD，别的方法一律 405 —— 没有写入口，就不存在越权写入口；
+//   - **唯一例外**是审批信号（`POST /api/approvals/decide`，见 approvals.go）：
+//     它不是第二条写入口，而是同一个变更管道的第三个前端（SPEC §7）——
+//     与 CLI 走同一个入口、同一份留痕。除此之外没有任何写路由；
 //   - 每次请求现读 vault（不缓存）：改完真相源刷新即见。看板的价值在「现在是什么样」，
 //     缓存的看板会让人拿着过期信息做判断；
 //   - 校验红档不隐藏：`/api/issues` 如实回显，前端把它摆最上面。
@@ -28,6 +32,10 @@ type Server struct {
 	// 它和 Vault 是两类东西 —— Vault 是真相源，DataDir 是运行态现场，
 	// 所以运行态走独立端点，不并进投影契约（见 runtime.go）。
 	DataDir string
+
+	// Approvals 是待批队列（热层）。nil = 没接上：`/api/approvals` 如实回 wired=false，
+	// 写口也拒绝服务 —— 没有队列就没有地方落痕，绝不假装点头成功。
+	Approvals approvals.Queue
 }
 
 func (s *Server) now() time.Time {
@@ -47,16 +55,33 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/assets", s.handleAssets)
 	mux.HandleFunc("/api/timeline", s.handleTimeline)
 	mux.HandleFunc("/api/audit", s.handleAudit)
+	mux.HandleFunc("/api/approvals", s.handleApprovals)
+	mux.HandleFunc(WritePath, s.handleApprovalsDecide)
 	mux.Handle("/", http.FileServerFS(UIFS()))
 	return readOnly(mux)
 }
 
 // readOnly 只放行读方法。405 带上 Allow 头 —— 让调用方知道该用什么方法，而不是自己去猜。
+//
+// 唯一的例外是审批信号那条（见 approvals.go 的 WritePath）：它不是「把看板改成可写」，
+// 而是那一条本来就属于变更管道 —— CLI 与它走的是同一个入口。
+//
+// 方法在**这一层**判，不留给处理函数：否则 `GET` 那个写口会落到处理函数上，
+// 报出一个「Content-Type 不对」的假原因（真原因是动词不对）—— 2026-10-10 实测踩到。
 func readOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == WritePath {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", "POST")
+				http.Error(w, "这个写口只认 POST："+WritePath, http.StatusMethodNotAllowed)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "看板是只读的：只有 GET / HEAD", http.StatusMethodNotAllowed)
+			http.Error(w, "看板只读：只有 GET / HEAD（写只有一处 "+WritePath+"，且只收 POST + application/json）", http.StatusMethodNotAllowed)
 			return
 		}
 		next.ServeHTTP(w, r)
