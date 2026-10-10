@@ -21,9 +21,9 @@ type Options struct {
 
 // ProjectName 是一个成员在 gateway 配置里的 project 名（= `[[projects]] name`）。
 //
-// 规则只有这一处：任何要显示「同一个 bot」的地方都得走它 —— 各写各的，迟早
-// 出现「看板叫 alice、日志叫 demo-alice」这种对不上号的现场。
-func ProjectName(companyID, member string) string { return companyID + "-" + member }
+// 拼法**只有一个定义处**：`org.ProjectName`（它是 org 模型的事实，不是某个渲染器的口味）。
+// 这里留着同名导出，是为了不动既有调用方；要改拼法去 org 那一条。
+func ProjectName(companyID, member string) string { return org.ProjectName(companyID, member) }
 
 // DefaultHarness 是「这个 project 没写 harness 时用哪条腿」。
 //

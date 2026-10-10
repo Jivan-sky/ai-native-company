@@ -131,8 +131,12 @@ func main() {
 		if len(args) > 0 && args[0] == "export" {
 			os.Exit(cmdOrgExport(args[1:]))
 		}
+		if len(args) > 0 && args[0] == "who" {
+			os.Exit(cmdOrgWho(args[1:]))
+		}
 		fmt.Fprint(os.Stderr, renderUsage)
 		fmt.Fprint(os.Stderr, boardUsage)
+		fmt.Fprint(os.Stderr, orgWhoUsage)
 		os.Exit(2)
 	case "board":
 		if len(args) > 0 && args[0] == "serve" {
