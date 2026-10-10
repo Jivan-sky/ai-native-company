@@ -2168,14 +2168,117 @@ bot 读了 `~/.claude/settings.json`，当时在用的 `ANTHROPIC_AUTH_TOKEN` �
 | 用例 | `internal/org/identity_test.go` 5 条 —— 含两条反例：**归属不落到 admins**、**停用成员不算归属** |
 | 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` 17 包全绿 |
 
-**这一刀没做的**：① 飞书卡片那条路还没接（在飞书里点「批」→ 回调 → `POST /api/approvals/decide`），
-见 §7.1.34 / §7.1.35 与 SPEC 里「飞书卡片那条还没接」那句；② `anc org who` **只解身份、不做判断** ——
-「谁能批、谁不能批」是授权层的事，这里一个 if 都不加。
+**这一刀没做的**：① 飞书卡片那条路当时还没接（在飞书里点「批」→ 回调 → 同一个信号入口）——
+**2026-10-10 已落**，见 §7.1.39（含「递出去那一步卡在上游没有那个口」的实测）；② `anc org who`
+**只解身份、不做判断** —— 「谁能批、谁不能批」是授权层的事，这里一个 if 都不加。
 
 **踩到的一个坑（值得单独记一笔）**：动手时**覆盖了一个已经存在的同名文件**
 （`internal/org/identity.go` 早在 `29ab833` 就有了，里面就是「主体」那套）。
 是 `git diff` 里出现 54 行删除才发现的 —— 编译器只能拦住「同名函数」，拦不住「整个文件被换掉」。
 写新文件之前先查它在不在，这一步不能省。
+
+### 7.1.39 飞书卡片：帧是数据、值是实时业务（2026-10-10，W4 余项第三刀）
+
+**起因是 human 把方向顶住了**（原话）：「飞书卡片我们是**根据实时业务变更**的，所以你不能把它给写死了。
+甚至出一个**粗糙框架**就可以，就是像按键之类的；但里面**的键、值都需要根据实时业务去填**，
+不能写死 —— 要不然要我们的 ANC、要我们这么多 agent 都是废物吗？」
+
+这句话否掉的是「把审批卡片画成一张固定页面」那条路（也就是 §7.1.35 看板那一刀的形状）：
+看板那一页是**一个**前端、**一种**画法；卡片要出到 IM 里，收的人、要看的字段、能点的键
+**每个客户都不一样**。所以卡片这一层分两块：
+
+| 是什么 | 住在哪 | 谁改 |
+|---|---|---|
+| **帧**（长什么样：标题 / 几段字 / 哪几列 / 哪几个按键） | 一份 JSON（`--frame` 指过去；没有就用出厂帧） | **客户自己**，不用重编译 |
+| **值**（此刻要显示的东西） | 由调用方**当场算**（热层那条提案 + 真相源 + 钟） | 业务自己动，代码不掺和 |
+
+出厂帧在 `internal/card.Default()` —— 它是**数据**（一个 Frame 字面量），不是分支。
+`anc approvals card --dump-frame` 把它打出来，拿走改、`--frame` 指回来就是新卡片。
+**槽位缺了就喊**：帧里写 `{{x}}` 而值里没有 `x`，那一格渲染成「（没这个值：x）」并回一条 Note ——
+空与「本来就没有」在卡片上分不出来，静默变空是最难查的那种错。
+
+**槽位键是这一处的契约**（`approvals.Facts`）：`id / title / body / status / enqueued / waited / tone /
+company / domain / project / target / to / submitter / submitter_kind / submitter_owner / approver`。
+其中四个是**只有 ANC 答得出来**的（也是这一刀真正要的东西）：
+
+| 键 | 答什么 | 判据 |
+|---|---|---|
+| `submitter` | 谁提的 | `org.Identity(who)` —— 名字 + 类别（成员 bot / 业务 agent）+ 铭文 |
+| `submitter_owner` | **这个 agent 属于谁** | `org.Owner(id)`：成员「他属于他自己」；业务 agent 走域 who 岗位 → 启用中的人 |
+| `approver` | 该谁批的是**哪个人** | `org.WhoLabel(域表 who)` —— 岗位是队列里的值，人名现算 |
+| `tone` | 该什么颜色 | `timeline.Band(status)` → 飞书那套颜色名。待批 = 卡点需介入 = **红** |
+
+**颜色只此一处说了算**：`pending` 落红是加在 `timeline.bandOf` 那一张表上的
+（它也是 approvals 自己写进热层的词），不是卡片这一层另立一套判据。
+
+**回程**（`anc approvals card-action`）：一次按键 = 一条**可识别信号**。
+按键的 `value` 里只放两个键（`anc_id` / `anc_signal`，常量定义在 `internal/card`），
+到这一侧才解析 —— **两个键都在才算数，缺一个不猜**，认不出的信号一律拒（同「只认三个字」）。
+然后把 `open_id` 走 `org.ByOpenID` 定位「谁点的」，`--app-id`（网关那一侧知道这条回调落在哪个 app）
+走 `org.ByAppID` 定位「哪台 bot、它属于谁」，最后走**与 CLI / 看板同一个信号入口**
+（`approvals.New` + `approvals.Settle`）落两笔痕。承接口径一条没改：不校该不该他批、不写真相源、先落库再清热层。
+
+**`by` 取编号身份，不取显示名**（实测当场抓到的）：拿显示名当 `by`，两份痕的文件名会变成
+`2026-10.Alice_Wang.jsonl`（timeline 的 `safeName`）与 `2026-10.Alice Wang.jsonl`（audit 的 `ShardName`，
+**带空格**）—— 两个写口两把尺子，而且换一次显示名历史就断成两截。改成 `alice` 之后两边同一条分片，
+人话名字进 `Via`。
+
+**新增 `Decision.Via`**：这一次点头**是怎么来的**（`飞书卡片 · 点的人 alice（Alice Wang · ou_demo_alice）
+· 落在 tradebot（业务 agent），属于 alice`），缀在审计那一行的 `detail` 后面。空就不写 ——
+不写「（无）」：一行没有来源说明的行，比一行写着「来源：无」的更容易看出是没记。
+
+#### 上游那一侧：递不出去，是**没有这个面**（实测，不是没接）
+
+对着 cc-connect v1.3.4 的源码逐条核过（`https://github.com/chenhg5/cc-connect`，克隆到本机核的）：
+
+| 找什么 | 结论 | 证据 |
+|---|---|---|
+| 外部工具发卡片 | **没有这个口**：unix socket `POST /send` 的请求体只有 `message` / `images` / `files` / `audios` / `videos` / `at_*` | `core/api.go` 的 `SendRequest` 与 `handleSend` |
+| 卡片是谁发出来的 | 引擎**进程内**给自带命令渲染的（`/status` `/help` `/model` `/dir` 那一类） | `core/engine.go` 里 `replyWithCard` / `sendWithCard` 的几十个调用点 |
+| 飞书回调里有没有「谁点的」 | **有，但没往上游递**：`event.Event.Operator.OpenID` 取了，只用于 allow_from 校验；`cmd:` 前缀会把点击变成「该人发的一条消息」（这条 identity 是保住的） | `platform/feishu/feishu.go:799-812`、`onCardAction` 的分支 |
+| 认不出的 `action` 值 | **直接丢掉**（`nav:` / `act:` 走它自己的 navHandler，认不出就 return nil） | 同上 |
+| bridge 协议那条路 | 出站有 `card`、入站有 `card_action`，但那是**给平台适配器**的协议；而且 `card_action` 载荷**不含 operator**（谁点的丢在适配器那一侧） | `docs/bridge-protocol.md`、`core/bridge.go` 的 `bridgeCardAction` |
+
+所以上游 PR 要的是两件小事（都不动它的架构）：① `/send` 加一个可选的 `card` 字段（把 ANC 渲染好的
+卡片 JSON 原样递给平台）；② `onCardAction` 把**认不出的 action**（以及 `Operator`）转出来。
+**我们不自己连飞书 API** —— 换平台是网关的事（SPEC §4.7 ①），绕过去就是第二条网关。
+
+#### 顺带核到的一条（留给「ANC 不能主动下发任务」那个议题）
+
+同一个二进制里有一个**反向下发**的口：`POST :9111/hook`
+（`core/webhook.go`：`{project, session_key, prompt|exec, payload}` —— 往某台 bot 的会话里塞一条
+prompt 或一条命令，`payload` 会作为上下文拼进 prompt）。它就是 human 说的
+「通过对应的飞书应用机器人，把这条任务传到对应的人/agent 的会话里」那条路。
+**这一刀没动它**（不在本次范围），但它的存在意味着「下发」不必等飞书卡片那一半 —— 记在这里免得重复找。
+
+#### 实测（沙箱 Ubuntu + 真 Redis 7.0.15，判据床 `mcp-test` 那份 vault；`tradebot` 挂 trade 域、who=manager=alice）
+
+| 判据 | 结果 |
+|---|---|
+| 换一份帧：只两列 + 三个按键，标题用 `{{company}}` | ✅ 渲染出来是 `Demo Trading Co（demo） · 有人要权`，按键值跟着帧走 |
+| 帧里写了个不存在的信号 `maybe` | ✅ 帧照渲（按键照出）—— **拒在回程那一侧**：`认不出的信号 "maybe"`，`exit 1`。口径不散在两处 |
+| 坏帧：写错槽位 + `kind: 表格` + 按键没写 `signal` | ✅ 三条 Note 各自指到哪一块；那一格写「（没这个值：没这个键）」；认不出的块与没信号的按键**不渲染**（不猜） |
+| 帧版本不对（`anc.card/v9`） | ✅ 拒绝并说明只认 `anc.card/v1` |
+| `card --json` | ✅ 真 interactive 卡片 JSON（`config` / `header.template=red` / `markdown` + `div.fields` + `action.actions`）；按钮 `value` 里是 `anc_id` + `anc_signal` |
+| 业务 agent 提的（`tradebot`） | ✅ 「谁提的：贸易助手（业务 agent · trade）：替 manager 岗盯进出口合同的签订与执行」；**「属于谁：alice（域 trade 的 who 岗位 manager —— 经理（Alice Wang））」** |
+| 成员提的（`devbot`） | ✅ 「属于谁：成员没有归属人 —— 他属于他自己」 |
+| 该谁批 | ✅ `manager · 经理（Alice Wang）`（队列里存的是岗位，人名现算） |
+| 颜色 | ✅ `red`，并写明「从状态 pending 现算」 |
+| 回程：`anc_signal: yes` | ✅ 拒（`exit 1`），队列没动 |
+| 回程：没带 `anc_id` | ✅ 拒：「两个键都在才算数，缺一个也不猜」 |
+| 回程：`ou_stranger` | ✅ **照收**（先留痕，判断交给 agent）：`by` = `ou_stranger`，`via` 里写明「认不出（在 members/ 里没人认领 —— 自报的身份不算）」 |
+| 回程：alice 点 approve（`--app-id cli_demo_tradebot`） | ✅ `谁点的 alice`；`via` = `飞书卡片 · 点的人 alice（Alice Wang · ou_demo_alice） · 落在 tradebot（业务 agent），属于 alice` |
+| 痕两笔 | ✅ `timeline/2026-10.alice.jsonl` 一条 `decision`（`case` = 提案 id）+ `audit/2026-10.alice.jsonl` 一条 `invoke`（`detail` 带 `· 经 …`） |
+| 重复点同一条 | ✅ 拒（`ErrNotQueued`），不再落痕 |
+| 队列 | ✅ 点完 `anc approvals ls` 少一条 —— 与 CLI / 看板**同一份队列** |
+| 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **18 包全绿** |
+
+证据：`<沙箱>/logs/2026-10-10-飞书卡片.log`、`…-飞书卡片-帧.log`；帧样本 `…/e2e/my-frame.json`、`…/broken-frame.json`。
+
+**这一刀没做的**：① 递出去那一步（等上游那个口，见上）；② 卡片上**填理由**（`why`）的入口 ——
+现在是按钮点了就走，`why` 留给后面（要看客户真怎么用）；③ 卡片里嵌「提案原文之外」的活数据
+（比如让 agent 把当时的上下文塞进去）—— 那要等上下文资产那一块，现在不焊。
+④ 用例：本轮**只跑了实测**，`internal/card` 还没有测试文件（加测试要先跟 human 定判据，见 AGENTS.md 第 2 条）。
 
 ---
 

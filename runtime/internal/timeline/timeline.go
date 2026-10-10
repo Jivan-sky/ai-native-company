@@ -45,6 +45,10 @@ var bandOf = map[string]string{
 	"running": BandYellow,
 	"blocked": BandRed,
 	"failed":  BandRed,
+	// pending 是 approvals 那一侧自己写进热层的词（`prop:` 那条队列的当前态）。
+	// 它落红：待批的意思就是「卡在等人点头」—— 按三档口径（红 = 失败**或**有卡点需介入）
+	// 就是这一档。写在这里而不是卡片那一层：状态词画什么颜色**只此一处**说了算。
+	"pending": BandRed,
 }
 
 // Band 把 status 映射成配色档。认不出的返回 BandUnknown —— **刻意不报错**：
