@@ -161,6 +161,7 @@ var DefaultRules = []Rule{
 	{"grant.ttl.missing", LevelOff, false, "SPEC §6（2026-10-10 改口径）：期限可选、**不写 = 永久** —— 所以这条出厂档是 off，不是删掉：想要「授权必带期限」的客户在 company.md 里 `policy: grant.ttl.missing = warn` 把它开回来"},
 	{"grant.action.unknown", LevelWarn, false, "action 不在已知词表 —— 照收，只是执行层认不出来（词表不锁死）"},
 	{"grant.from.unknown", LevelWarn, false, "from 解不出成员或岗位 —— 授权者不存在，这条链是断的（域是客体，不能当授权者）"},
+	{"grant.match.missing", LevelFatal, false, "SPEC §6 不变量 1「默认拒」：跨域信封没有被 grants/ 里任何一条覆盖 —— 没有 grant 就是不通（跨业务域、跨 bot、看板分区同理）。**与上面九条结构校验不同**：那九条是「新能力先看见不先拦」，这一条是**执行层**，出厂就拦。不锁死 —— 存量客户在 company.md 写 `policy: grant.match.missing = warn` 就能先看见不先拦"},
 
 	// —— 策略层（策略自己也要被校验，否则拼错规则名 = 你以为关了其实没关）——
 	{"policy.override.unknown", LevelFatal, true, "policy 段写了不存在的规则 id 或非法级别值"},

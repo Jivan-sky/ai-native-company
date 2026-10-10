@@ -211,9 +211,13 @@ grant:
   （`30d` / `90d` …）；写了多少，执行层就按多少算。**到点怎么失效、怎么级联、能不能续期**归执行层 ——
   这一节只约定**形状**。出厂档：`grant.ttl.missing` 是 **`off`**（不写期限不报）—— 想要「授权必带期限」，
   在 `company.md` 里写 `policy: grant.ttl.missing = warn`（规则是数据，不是删掉），见 `DESIGN.md` §7.1.15。
-- 十条 `grant.*` 规则出厂档 **九条 `warn` + 一条 `off`**（`grant.ttl.missing`）：与域表 / 项目表 / 接入面
+- **结构那十条**出厂档 **九条 `warn` + 一条 `off`**（`grant.ttl.missing`）：与域表 / 项目表 / 接入面
   同一条先例 —— 新能力先「看见」、不先「拦」，一条红线都不设。要提红 / 关掉，在 `company.md` 的
   `policy:` 段写 `grant.action.unknown = fatal` / `grant.ttl.missing = warn`（实测见 `DESIGN.md` §7.1.15）。
+- **执行那一条（`grant.match.missing`）出厂就是 `fatal`**：跨域信封没有被任何一条 grant 覆盖 →
+  **拒收**（SPEC §6 不变量 1「默认拒」）。它与上面十条不同 —— 那十条是结构校验（先看见），
+  这一条是**执行层**（出厂就拦）。要松开写 `policy: grant.match.missing = warn|off`，规则是数据。
+  见 `DESIGN.md` §7.1.32。
 - **看板投影里带 `grants`（全量、不筛选）**，但这张表**还没有自己的看板页**（下一件）。
   注意看板是**全量**、bot 侧该看的是**只属于它那几条** —— 两个消费者、两个视图，不共用一份产物。
 ### 只读投影出口（`anc org export`）
@@ -415,6 +419,9 @@ anc envelope check <vault> <信封.json> [--json]
 - **不设门禁**：七条发现整组默认 `warn`（只回显，不拦）。想提红或想关掉，写进
   `company.md` 的 `policy:` 段（`envelope.who.unknown = fatal`，`= off` = 整条不出）——
   **这就是「开关」：门禁是数据，不是代码里的 if**。生效档位看 `anc org check <vault> --rules`。
+- **授权那一组出厂就拦**：`scope_domain` 写的是**别人的**域（跨域）而在 `grants/` 里没有一条覆盖
+  → `grant.match.missing`，出厂 `fatal` = **拒收**（退出码 1）。这是 SPEC §6 不变量 1「默认拒」。
+  想先看见不先拦，写 `policy: grant.match.missing = warn|off`。见 `DESIGN.md` §7.1.32。
 - **域 / 项目表为空就不报**：没有 `domains.md` / `projects.md` 的存量 vault，
   不该因为「有人发了封信」被提醒 —— 门禁不许长在别人的文档上。
 - 真相源本身是红的（`org.Load` 红档）→ 绑不了、直接退出 1，不编一份绿灯。
@@ -449,6 +456,9 @@ anc_read_context(who, on_behalf_of?, domain?)                                   
 - **门禁跟 `check` 完全一致**（走同一份规则表）：默认 warn = **照收**（落盘 + 回话）；
   被 `policy:` 提成 `fatal` 的 = **拒收**（不写日志、回 `isError`）——
   因为 `fatal` 在这个库里的定义就是「阻止落盘」。
+- **授权那一组出厂 `fatal`**：跨域信封没有 grant 覆盖 → 拒收。**拒也留痕** —— 被拒的信封进不了
+  信封日志，所以另落一条 `audit`（`result=denied`）；跨域且被授权的那次同样留痕（`result=ok`，
+  `Detail=grant <落点>`）。**域内信封不通 grant、不进 audit**（信封日志已经记着它）。见 §7.1.32。
 - 日志落 **data 目录**（`<data>/envelope/<YYYY-MM>.<who>.jsonl`，按 who 分片、append-only）：
   这是**流量**、不是真相 —— 真相在 git 里，每封信进 git 就是每天刷 diff；
   也避免 vault 顶层多一个目录被 org 当成「数据来源」扫进路由表。
