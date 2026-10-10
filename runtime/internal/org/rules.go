@@ -146,7 +146,9 @@ var DefaultRules = []Rule{
 	// —— 授权表（SPEC §6 授权模型 / grants/）——
 	// 与域表 / 项目表 / 接入面同一条先例，理由也一样：授权是**新能力**，先「看见」不先「拦」。
 	// 存量 vault 没有 grants/ 目录 = 零条授权，一声不吭（不报错）。
-	// 想让某条变红，在 company.md 的 policy 段写 `规则id = fatal`（本组全部允许上调，也允许 off）。
+	// 出厂档：**九条 warn + 一条 off**（`grant.ttl.missing` —— 2026-10-10 改口径：期限可选、不写 = 永久）。
+	// 想让某条变红，在 company.md 的 policy 段写 `规则id = fatal`（本组全部允许上调，也允许 off）；
+	// 反过来，想让「授权必带期限」的口径回来，把 `grant.ttl.missing` 开成 warn / fatal 即可。
 	// 这一层只做**结构**校验：from 解得出 actor。to / object 的客体词表（通道 #33、看板分区 #7）
 	// 还没有定义处，现在校验它们只能是猜 —— 宁可留白，不做看着像校验的猜测。
 	{"grant.file.unparsable", LevelWarn, false, "落点里有认不出的文件 —— 一个 grant 一个文件：要么是说明文件（CLAUDE.md / README.md），要么带 frontmatter；静默丢掉一条授权比报一条错危险得多"},
@@ -156,7 +158,7 @@ var DefaultRules = []Rule{
 	{"grant.to.missing", LevelWarn, false, "缺被授权者 —— 给谁的不清楚"},
 	{"grant.action.missing", LevelWarn, false, "缺动作 —— read / write / invoke 一个都没写"},
 	{"grant.object.missing", LevelWarn, false, "缺客体 —— 授权总得给到某个东西上"},
-	{"grant.ttl.missing", LevelWarn, false, "SPEC §6：ttl 必填、无默认 —— 不过期的授权等于永久后门"},
+	{"grant.ttl.missing", LevelOff, false, "SPEC §6（2026-10-10 改口径）：期限可选、**不写 = 永久** —— 所以这条出厂档是 off，不是删掉：想要「授权必带期限」的客户在 company.md 里 `policy: grant.ttl.missing = warn` 把它开回来"},
 	{"grant.action.unknown", LevelWarn, false, "action 不在已知词表 —— 照收，只是执行层认不出来（词表不锁死）"},
 	{"grant.from.unknown", LevelWarn, false, "from 解不出成员或岗位 —— 授权者不存在，这条链是断的（域是客体，不能当授权者）"},
 

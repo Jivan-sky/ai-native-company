@@ -63,7 +63,8 @@ func TestScanGrantsRecursesAndSorts(t *testing.T) {
 	}
 }
 
-// 五个必填字段缺一个报一个：缺字段是**写得不对**，不是「没给这条权」。
+// 四个必填字段缺一个报一个：缺字段是**写得不对**，不是「没给这条权」。
+// **期限不在这四个里面**（2026-10-10 改口径：可选、不写 = 永久），见下一条用例。
 func TestGrantMissingFieldsWarn(t *testing.T) {
 	v := copyVault(t, "domains")
 	writeGrant(t, v, "half", "---\ngrant:\n  from: member:alice\n---\n")
@@ -72,8 +73,37 @@ func TestGrantMissingFieldsWarn(t *testing.T) {
 		t.Fatalf("缺字段不该拦（整组默认 warn）：%v", err)
 	}
 	assertSameSet(t, "warn", ruleIDs(o.Warnings), []string{
-		"grant.action.missing", "grant.object.missing", "grant.to.missing", "grant.ttl.missing",
+		"grant.action.missing", "grant.object.missing", "grant.to.missing",
 	})
+}
+
+// 期限可选：不写 = 永久。所以「另四个字段齐了」就是一条干净授权，出厂零发现。
+func TestGrantWithoutTTLIsCleanByDefault(t *testing.T) {
+	v := copyVault(t, "domains")
+	writeGrant(t, v, "forever", "---\ngrant:\n  from: member:alice\n  to: role:ops\n  action: read\n  object: shipments\n---\n")
+	o, err := Load(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(o.Grants) != 1 {
+		t.Fatalf("期望 1 条授权，实际 %d：%+v", len(o.Grants), o.Grants)
+	}
+	if o.Grants[0].TTL != "" {
+		t.Fatalf("没写期限就该是空（= 永久），实际 %q", o.Grants[0].TTL)
+	}
+	assertSameSet(t, "warn", ruleIDs(o.Warnings), []string{})
+}
+
+// 出厂档 off ≠ 这条规则没了：客户想要「授权必带期限」，在 company.md 里开一下就到。
+func TestGrantTTLMissingCanBeTurnedOn(t *testing.T) {
+	v := copyVault(t, "domains")
+	writeGrant(t, v, "forever", "---\ngrant:\n  from: member:alice\n  to: role:ops\n  action: read\n  object: shipments\n---\n")
+	addPolicy(t, v, "grant.ttl.missing: warn")
+	o, err := Load(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSameSet(t, "warn", ruleIDs(o.Warnings), []string{"grant.ttl.missing"})
 }
 
 // from 解不出 actor = 这条链是断的。域不能当 from —— 域是客体，不会授权。

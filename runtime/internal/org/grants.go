@@ -26,7 +26,7 @@ type Grant struct {
 	To         string // 给谁：actor 或客体
 	Action     string // read | write | invoke
 	Object     string // 客体标识
-	TTL        string // 期限：**必填、不许省略**（SPEC §6）。这里原样透出，形态由执行层定
+	TTL        string // 期限：**可选；空 = 永久**（SPEC §6 / Q25，2026-10-10 改口径）。原样透出，形态由执行层定
 	OnBehalfOf string // 署名：bot 发出的必须带（它不自有权限，只是代理对象的投影）
 	Reason     string // 一句话：为什么给
 	Body       string // 正文（自由文本，给人写「展开」的地方）
@@ -128,7 +128,9 @@ func readGrant(path, rel string, p *Policy) (*Grant, []Issue) {
 	g.Object, g.TTL = field("object"), field("ttl")
 	g.OnBehalfOf, g.Reason = field("on_behalf_of"), field("reason")
 
-	// 五个必填字段（SPEC §6 的形状里没有可选项；ttl 明写「必填，无默认」）。
+	// 四个必填字段。**期限不在必填之列**（SPEC §6 / Q25，2026-10-10 改口径：`ttl` 可选、不写 = 永久）。
+	// `grant.ttl.missing` 这条发现**照样发**，只是出厂档是 off（收集时被丢掉）—— 这样客户想要
+	// 「授权必带期限」时，在 company.md 里开一下就到，而不是回来改代码。
 	for _, f := range []struct {
 		key, rule string
 		val       string
