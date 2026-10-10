@@ -399,6 +399,29 @@ anc hot done <vault> <id> -by <谁> [-title <一句话>] [--kind execution] [--s
 - **客户端是手写的**：只用得到十几条命令，所以不引第三方 Redis 客户端（零依赖、单 exe、
   `CGO_ENABLED=0`）。换回标准客户端只动 `internal/hot/resp.go` 一个文件。
 
+### 审批的落点（`anc approvals`）
+
+```
+anc approvals add <vault> <信封.json> [--at RFC3339]
+anc approvals ls [--json] [--stale 24h]
+anc approvals decide <vault> <提案 id> -by <谁> -signal approve|reject|hold [-why <一句话>]
+```
+
+**只管「等人点头」那一段。** 提案（`kind: proposal`）进来 → 进待批队列（热层，`prop:` 前缀）→
+人给一个**可识别信号** → 落痕两笔（`timeline` 一条 `decision` + `audit` 一条 `invoke`）→ 清队列。
+
+- **ANC 只做三件**：收提案、送给该批的人、留痕。**不写真相源** —— `grants/` 那个文件由
+  **人侧的管理者 bot** 写（提案是人话，结构只出现在终点）。
+- **该谁批**：域表 `who` 那一列 —— **岗位**，不是人名（人名由展示层现算）。解不出只提示、不拦 ——
+  队列里宁可带一句「不知道该谁批」，也不要一个空的 `to` 让人以为只是没填。
+- **只认三个字**：`approve` / `reject` / `hold`（同意 / 驳回 / 挂起）。别的一律拒 ——
+  把「他这句算不算批准」交给模型猜，就是把门交给一个能被说服的东西。`ask` 不在这张表里。
+- **不校「点的人是不是该批的人」**：先原样留痕，判断交给 agent。要校，是后面的事。
+- **顺序**：先落库（`timeline`）→ 再落审计 → 再清热层。库没落成，队列不动 —— 反序会把一次点头弄丢。
+- **幂等**：重复入队不冲时间戳；不在队里再点头 = 报错（`exit 1`），不静默成功。
+- **两个嘴还没接**：看板（待批区 + 按钮）与飞书卡片（出站卡片 + 长连接收 `card.action.trigger`）。
+  两处走**同一个入口** —— CLI / 对话式 bot / 看板是同一个变更管道的三个前端（SPEC §7）。
+
 ### 接入面的信封（`anc envelope`）
 
 ```
@@ -661,6 +684,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `timeline.go` | `anc timeline add` / `list` 的 CLI（append-only，不改旧行） |
 | `hot.go` | `anc hot ping` / `put` / `ls` / `claim` / `release` / `drop` / `done` 的 CLI（进行中的状态在热层，达标落库） |
 | `internal/hot/` | 「进行中」的热层：状态编解码 + 新鲜度判据 + 最小 RESP2 客户端（纯 Go 标准库，零第三方依赖） |
+| `approvals.go` | `anc approvals add` / `ls` / `decide` 的 CLI（提案 → 待批 → 点头 → 留痕） |
+| `internal/approvals/` | 待批队列与结账：热层进出 + 「先落库、再清热层」（口径写在包注释里） |
 | `internal/timeline/` | 决策与执行留存的读写与折叠（纯 Go 标准库；按作者分片、词表不锁死） |
 | `internal/board/timeline.go` | 时间线的只读出口（`/api/timeline`，`anc.timeline/v1`） |
 | `audit.go` | `anc audit` 的 CLI：`log` / `add` / `collect` / `tools`（事后归集 + 显式补记） |
