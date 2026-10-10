@@ -262,3 +262,66 @@ func TestIngressOwnDomainLeavesNoAudit(t *testing.T) {
 		t.Fatalf("域内信封不进 audit（它不是跨域行使），实际 %+v", rs)
 	}
 }
+
+// ⑧ 提案（kind=proposal）是**请求**不是行使：不判授权，但仍算一次跨域请求（好留痕）。
+//
+// 起因是一次真对拍：bob 的 bot 想替他要 ops 域的写权，信封被自家门禁判成「跨域行使」拒收 ——
+// 可**提案人还没拿到权，当然没有 grant**，于是提案永远提不出来。提案里没有任何业务数据，
+// 它只是一句请求；门禁拦的是「把数据拿出去 / 写进去」。
+func TestGateProposalIsARequestNotAnExercise(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	o, err := org.Load(vault)
+	if err != nil {
+		t.Fatalf("真相源加载失败：%v", err)
+	}
+	issues, v := envelope.Gate(o, envelope.Envelope{
+		Who: "alice", OnBehalfOf: "member:alice", Kind: envelope.KindProposal,
+		Scope: envelope.Scope{Domain: "logistics"},
+	}, o.Policy)
+	if len(issues) != 0 {
+		t.Fatalf("提案不该被授权那一组拦（还没有权的人也要提得出请求）：%v", issues)
+	}
+	if !v.CrossDomain || !v.Requesting {
+		t.Fatalf("提案要算「一次跨域请求」——不然留不下痕：%+v", v)
+	}
+	if v.Grant != "" {
+		t.Fatalf("提案没命中任何 grant，不该编一个：%+v", v)
+	}
+	if v.Subject != "alice" || v.Domain != "logistics" {
+		t.Fatalf("主体 / 客体要照实带出来：%+v", v)
+	}
+	// 同一封信换个 kind（ask）就照旧拒 —— 证明放宽的只是「请求」这一类，不是把门拆了。
+	if got := gateRules(t, vault, envelope.Envelope{
+		Who: "alice", Kind: envelope.KindAsk, Scope: envelope.Scope{Domain: "logistics"},
+	}); len(got) != 1 || got[0] != "grant.match.missing" {
+		t.Fatalf("ask 仍要按跨域判，实际 %v", got)
+	}
+}
+
+// ⑧ 提案：跨域也照收（不判授权）—— 进信封日志 + 留一条 ok 痕，理由写明「这是请求」。
+func TestIngressAcceptsCrossDomainProposalAndLogs(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	data := t.TempDir()
+	g := &envelopeIngress{Vault: vault, DataDir: data}
+	text, isErr := g.sendEnvelope(map[string]any{
+		"who": "alice", "on_behalf_of": "member:alice", "kind": "proposal",
+		"body": "想要 logistics 的写权", "scope_domain": "logistics",
+	})
+	if isErr {
+		t.Fatalf("提案不该被拒：%s", text)
+	}
+	if names := logFiles(t, data); len(names) != 1 {
+		t.Fatalf("收下的提案该进信封日志：%v", names)
+	}
+	rs := auditRecords(t, vault)
+	if len(rs) != 1 {
+		t.Fatalf("跨域提案要留一条痕，实际 %d 条", len(rs))
+	}
+	r := rs[0]
+	if r.Result != audit.ResultOK || r.Actor != "alice" || r.Object != "domain:logistics" {
+		t.Fatalf("这一条痕没答全「谁 / 向谁 / 结果」：%+v", r)
+	}
+	if r.Why == "" {
+		t.Fatalf("理由要写明这是「请求」而不是「行使」：%+v", r)
+	}
+}

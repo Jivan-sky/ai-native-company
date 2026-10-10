@@ -439,6 +439,9 @@ func denyWhy(fatal []org.Issue) string {
 
 // gateNote 是「进了门」时的补充说明：命中 grant 就不写；靠 warn 档进来的要写明。
 func gateNote(v envelope.GateOutcome) string {
+	if v.Requesting {
+		return "提案：请求授权 —— 不判授权（提案不是行使；否则还没拿到权的人永远提不出请求）"
+	}
 	if v.Grant == "" {
 		return "跨域未见 grant 覆盖：grant.match.missing 是 warn 档，照收（这条发现记在信封日志里）"
 	}
