@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/audit"
 	"anc/internal/envelope"
 	"anc/internal/mcp"
 	"anc/internal/org"
@@ -30,15 +31,20 @@ const envelopeUsage = `anc envelope —— 接入面：递进来（信封）+ �
   anc envelope serve <vault 目录> [--addr 127.0.0.1:8791] [--data <data 目录>]
                     起接入面：harness 通过 MCP（streamable HTTP）调 anc_send_envelope 把信封递进来
 
-它答两件事：
+它答三件事：
   1 结构   读不读得懂（缺 id / ts 不是 RFC3339 / 缺 who → 拒收，退出码 1）
   2 绑定   who / on_behalf_of / scope 指向的东西在真相源里**到底存不存在**
-           发现走生效规则表的档位：默认 warn（只回显，不拦）；提红 / 关掉都写在
-           company.md 的 policy 段 —— 门禁是数据，不是代码里的 if
+           这一组发现走生效规则表的档位：默认 warn（只回显，不拦）
+  3 授权   这封信的（主体，客体）有没有一条 grant 覆盖 —— **只判跨域**
+           （没写 scope / 写的是自己那一摊，本来就不通 grant）
+           这一条**出厂就是 fatal**（SPEC §6 不变量 1「默认拒」），可以关：
+           company.md 的 policy 段写 grant.match.missing = warn|off
+
+三组的档位都在数据里 —— 门禁是数据，不是代码里的 if。看生效档位：anc org check <vault> --rules。
 
 顺带把判据那六问摊出来：谁 / 代谁 / 哪块业务 / 要什么 / 证据在哪 / 要不要人拍。
 
-它**不**做：不发、不写、不拦。想看待生效的档位：anc org check <vault> --rules。
+它**不**做：不发、不写。想看待生效的档位：anc org check <vault> --rules。
 `
 
 // envelopeFinding 是发现对外的形状（与 board.Finding 同形）：规则 id / 档位 / 定位 / 文案。
@@ -106,6 +112,10 @@ func cmdEnvelopeCheck(args []string) int {
 		return 1
 	}
 	issues := envelope.Bind(o, e, o.Policy)
+	// 授权那一组与绑定同源：同一个 vault、同一个信封、同一份规则表。
+	// 两个子命令（check / serve）走的是同一支 —— 不存在「查得出、拦不住」那种两套判法。
+	gated, _ := envelope.Gate(o, e, o.Policy)
+	issues = append(issues, gated...)
 	fatal, warn := splitIssues(issues)
 
 	if *asJSON {
@@ -135,10 +145,10 @@ func printEnvelopeCheck(e envelope.Envelope, fatal, warn []org.Issue) {
 	}
 	fmt.Println()
 	if len(fatal) == 0 && len(warn) == 0 {
-		fmt.Println("绑定：0 项发现（生效档位看 `anc org check <vault> --rules`）")
+		fmt.Println("判定：0 项发现（生效档位看 `anc org check <vault> --rules`）")
 		return
 	}
-	fmt.Printf("绑定：%d 项红 / %d 项非红档发现\n", len(fatal), len(warn))
+	fmt.Printf("判定：%d 项红 / %d 项非红档发现\n", len(fatal), len(warn))
 	for _, i := range fatal {
 		fmt.Printf("  🔴 [%s] %s\n", i.Rule, i.Msg)
 	}
@@ -193,10 +203,13 @@ harness（Claude Code / Codex / …）通过 MCP 调工具。桥的两半都在�
   别人的域只给「找谁」；要别人的域**拒**，但指路。身份不许自报：解不出 = 这个人不存在。
   每次调用留一条痕进 audit（谁 / 要什么 / 给没给 / 为什么拒）。
 
-门禁口径（与 envelope check 完全一致，因为走的是同一份规则表）：
-  发现默认 warn = **照收**（落盘 + 回话）；被 company.md 的 policy 段提成 fatal 的，
-  按 fatal 的定义（阻止落盘）**拒收**：不写日志、回 isError=true。想开就开、想关就关，
-  开关在数据里，不在这段代码里。
+门禁口径（与 envelope check 完全一致，因为走的是同一份规则表、同一支判法）：
+  绑定那一组发现默认 warn = **照收**（落盘 + 回话）；被 company.md 的 policy 段提成 fatal 的，
+  按 fatal 的定义（阻止落盘）**拒收**：不写信封日志、回 isError=true。
+  **授权那一组**（grant.match.missing）出厂就是 fatal：跨域信封没有 grant 覆盖 → 拒收。
+  想开就开、想关就关，开关在数据里，不在这段代码里。
+  拒也留一条痕：被拒的信封进不了信封日志，所以另落一条 audit（result=denied，SPEC §6 不变量 4）。
+  跨域且被授权的那次同样留痕（result=ok）—— 审计不是只记拒绝。
 
 无状态：不发 Mcp-Session-Id、不记会话、不提供 SSE 流 —— 状态在真相源与日志里，不在连接里。
 
@@ -229,6 +242,7 @@ func (g *envelopeIngress) srv() *mcp.Server {
 			Name: "anc_send_envelope",
 			Description: "把一个信封递给 ANC（接入面）。who 必须是 vault 里真实存在的成员/bot 名 —— " +
 				"身份不许自报：解不出来 ANC 会如实报出来（默认只告警、不拦）。" +
+				"scope_domain 写**别人的**域 = 跨域：没有 grant 覆盖会**被拒**（数据默认不通，SPEC §6-12）。" +
 				"on_behalf_of 写你代谁：member:名字 | role:岗位 | domain:slug，或直接写名字。",
 			InputSchema: map[string]any{
 				"type": "object",
@@ -309,16 +323,29 @@ func (g *envelopeIngress) sendEnvelope(args map[string]any) (string, bool) {
 		return "真相源加载失败，绑不了：" + err.Error() + "\n（先修 org：anc org check <vault>）", true
 	}
 	issues := envelope.Bind(o, e, o.Policy)
+	// 授权那一组：主体（on_behalf_of 优先）＋客体（scope.domain）有没有 grant 覆盖。
+	// verdict 不是装饰 —— 「行使必留痕」要有痕可留（下面两个审计落点全靠它）。
+	gated, verdict := envelope.Gate(o, e, o.Policy)
+	issues = append(issues, gated...)
 	fatal, warn := splitIssues(issues)
 
 	var b strings.Builder
 	if len(fatal) > 0 {
-		// fatal 在这个库里的定义就是「阻止落盘」（org/rules.go）—— 所以拒收：不写日志。
-		fmt.Fprintf(&b, "拒收（%d 项红档；日志没写）：\n", len(fatal))
+		// fatal 在这个库里的定义就是「阻止落盘」（org/rules.go）—— 所以拒收：不写信封日志。
+		// **但拒也要留一条痕**（SPEC §6 不变量 4「行使必留痕」，含被拒的那一次）：
+		// 被拒的信封进不了信封日志，所以那一条痕必须落在这儿 —— 否则「谁想递什么、
+		// 为什么被拒」一个字都不剩，而「想行使但没被授权」恰恰是审计最该答的那一问。
+		fmt.Fprintf(&b, "拒收（%d 项红档；信封日志没写）：\n", len(fatal))
 		for _, i := range fatal {
 			fmt.Fprintf(&b, "  🔴 [%s] %s\n", i.Rule, i.Msg)
 		}
+		g.auditEnvelope(verdict, audit.ResultDenied, denyWhy(fatal), now)
 		return b.String(), true
+	}
+	// 跨域且进了门 = 一次真行使 → 留一条 ok 的痕。域内信封不通 grant，也就不进 audit
+	// （它不是一次「跨域 / 跨通道」行使，信封日志已经记着它）。
+	if verdict.CrossDomain {
+		g.auditEnvelope(verdict, audit.ResultOK, gateNote(verdict), now)
 	}
 	rec := envelope.Record{Envelope: e, At: now.Format(time.RFC3339), Findings: envelope.ToFindings(issues)}
 	path, err := envelope.Append(g.DataDir, rec)
@@ -359,6 +386,82 @@ func listArg(args map[string]any, k string) []string {
 		}
 	}
 	return out
+}
+
+// auditEnvelope 给一次**跨域**入站行使留一条痕（SPEC §6 不变量 4）。
+//
+// 什么时候记：只有跨域才记。域内信封不通 grant，也就不是一次「跨域 / 跨通道」行使。
+//
+// 结果怎么填（这里有一条**如实记**的边界）：
+//   - 跨域 + 命中一条 grant → ok，`Detail` 写明是哪一条；
+//   - 跨域 + 没有覆盖 + 拒收  → denied（想行使，权没给）；
+//   - 跨域 + 没有覆盖 + 规则是 warn 档照收 → **ok**，`Why` 写明「照收」。
+//     它确实进来了，写成 denied 是假话；audit 的四档（ok/denied/failed/unknown）答不了
+//     「照收但未授权」这一档，所以那件事由**信封日志的 findings** 记着（两条腿互补）。
+//
+// **类别先记 invoke**：信封的 action 这一维**还没定**（信封里就没有这个字段，见 gate.go 注释）——
+// 这里记的是「行使了**接入面这一个调用**」，不是「这封信的业务动作」。等 kind → action 那张表
+// 拍出来，改的就是这一行（届时它应该变成数据）。
+func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, result, why string, at time.Time) {
+	actor := v.Subject
+	if actor == "" {
+		actor = "unknown"
+	}
+	object := v.Domain
+	if object != "" {
+		object = "domain:" + object
+	}
+	rec := audit.Record{
+		ID:         fmt.Sprintf("send-%d-%s", at.UnixNano(), audit.ShardName(actor)),
+		At:         at.Format(time.RFC3339),
+		Actor:      actor,
+		Action:     audit.ActionInvoke,
+		Object:     object,
+		Result:     result,
+		Why:        clipRunes(why, 200),
+		OnBehalfOf: v.OnBehalfOf,
+		Tool:       "anc_send_envelope",
+		Source:     "serve",
+		Detail:     grantDetail(v),
+	}
+	if _, err := audit.Append(g.Vault, rec); err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️  入站信封没留上痕（audit）：%v\n", err)
+	}
+}
+
+// denyWhy 把拒收的理由折成一句（取第一条红档的原文）—— 审计要的是当时那句话，不是转述。
+func denyWhy(fatal []org.Issue) string {
+	if len(fatal) == 0 {
+		return ""
+	}
+	return fatal[0].Rule + "：" + fatal[0].Msg
+}
+
+// gateNote 是「进了门」时的补充说明：命中 grant 就不写；靠 warn 档进来的要写明。
+func gateNote(v envelope.GateOutcome) string {
+	if v.Grant == "" {
+		return "跨域未见 grant 覆盖：grant.match.missing 是 warn 档，照收（这条发现记在信封日志里）"
+	}
+	return ""
+}
+
+func grantDetail(v envelope.GateOutcome) string {
+	if v.Grant == "" {
+		return ""
+	}
+	return "grant " + v.Grant
+}
+
+// clipRunes 按 rune 截断（不是按字节）—— 按字节切会把一个汉字劈成两半，落盘就是坏码。
+func clipRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 func cmdEnvelopeServe(args []string) int {
