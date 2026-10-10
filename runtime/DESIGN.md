@@ -2050,7 +2050,7 @@ bot 读了 `~/.claude/settings.json`，当时在用的 `ANTHROPIC_AUTH_TOKEN` �
 | 同一条泄漏原文走 `anc audit add --why/--detail` | ✅ **0 命中**；抹成 `"ANTHROPIC_AUTH_TOKEN": "sk-«已脱敏:sk»"`、`Authorization: «已脱敏:authorization» sk-«已脱敏:sk»` |
 | 读口兜底：`anc audit log`（老的真污染文件） | ✅ 输出里 **0** 密钥值、有占位符；并报出 `2026-10.alice.jsonl:1` 落盘时是明文 |
 | 不误伤：`input_tokens: 12345 output_tokens: 6789` | ✅ 原样不动 |
-| 不误伤：`${ENV}` 引用 / 空值 / 短于 4 字的值 | ✅ 原样不动（引用本身就是指针） |
+| 不误伤：`${ENV}` 引用（**含裸写的 `K=${VAR}`** —— 2026-10-10 补掉的一处漏伤） / 空值 / 短于 4 字的值 | ✅ 原样不动（引用本身就是指针） |
 | 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **17 包全绿** |
 
 **要诚实说清的一件事**：拿今天的读取器跑那次「读 settings.json」的会话，`anc audit collect` 落到的
@@ -2068,7 +2068,59 @@ bot 读了 `~/.claude/settings.json`，当时在用的 `ANTHROPIC_AUTH_TOKEN` �
 - 形态档最初**没把前缀捕成组** → `sub[0]` 是整段命中，`sub[1]` 拿到的是 token 而不是前缀，
   于是**形态档一次都没命中过**（而 `go build` 与既有用例全绿）。
 
-两次都是先被「拿真数据看一眼抹成了什么」抓住的，不是被用例抓住的。
+- **裸串那一支的字符集排掉了 `}`**（不排掉它，`{"k":"v"}` 的收尾大括号会被当成值的一部分吃掉），
+  于是**裸写**的 `K=${VAR}` 被截成 `${VAR` —— `redactable` 认不出它已经是个指针、照抹，还留下一个
+  孤零零的 `}`（实测：`token=${ANTHROPIC_AUTH_TOKEN}` → `token=«已脱敏:token»}`）。修法是给值那一支
+  补一条「整条 `${NAME}` 指针」的写法，排在裸串支之前。**这一处是用例抓出来的** —— 之前只试过带引号的
+  `${ENV}`（它走双引号串那一支，恰好是好的）。
+
+前两次都是先被「拿真数据看一眼抹成了什么」抓住的，不是被用例抓住的；第三次（`${ENV}`）反过来，是用例抓出来的。
+
+### 7.1.37 审计认不出的客体：引用形状先认下来（2026-10-10，议题 #63）
+
+**起因是读出来的结论是假的**：`gate` 的留痕写的是**引用形状** —— `runtime/envelope.go` 的
+`auditEnvelope` 写 `object = "domain:" + 域slug`；而出站读出口（`envelope_read.go`）与审批留痕
+（`internal/approvals`）写的是**裸 slug**。但 `derive.go` 的落点分类**只认路径形状**，
+两条都认不出。同一批流水，改前改后读出来是两个结论：
+
+| `mcp-test` vault 的 9 条真流水 | 改前 | 改后 |
+|---|---|---|
+| 落点 | 域内 0 · vault 内非域 4 · 域外 0 · 目标抽不出 5 | 域内 4 · vault 内非域 0 · 域外 0 · 目标抽不出 5 |
+| 其中跨域 | **0** | **3** |
+
+「一条真跨域被读成 vault 内非域」正是本文反复点的那一类错误：把**判错 / 判不出**画成**没事**。
+
+**`Owner` 三档，按「越明确越先」**：
+
+1. **引用形状** `domain:<slug>` —— 词表的唯一定义处是 `org.SplitRef`（grants 的 `object` 认它，
+   见 `internal/envelope/gate.go` 的 `objectIsDomain`）。审计**不另造一套引用语法、不自己解析冒号**
+   （#43 第 4 点划下的边界）。**表里没宣过的 slug 也算命中这一档**：是不是域，由**写法**说了算。
+2. **路径形状** —— vault 下的顶层目录 → `domains.md` 的 `data` 列（原来唯一认的那种）。
+3. **裸 slug 兜底** —— 客体既不是路径、又不含 `/`、又正好是一个**已声明**的 slug。为什么要有这一档：
+   出站读出口与审批留痕写的就是裸 slug，而域的 `data` 目录名**未必等于** slug
+   （实测里 `slug=trade / data=projects`），只按路径认会把真跨域算成非域。
+
+**「是不是域」与「这个域还在不在表上」分成两件事**（`Owner` / `Declared`）：域表是会改的，
+老流水里会留下指着一个已经不在表上的域的行。那种行**仍然是「域」**（写口写的就是这个形状）、
+`Actee` 留着让人看见它指的是谁，但 `Known=false` → 页面写「**跨域未判**」。
+**不许**落进 `vault` / `域外` 那两格 —— 那等于替一个判不出来的东西说「没事」。
+代价是「域内」这一格里会多算一条这种行；它的行面上明写着「跨域未判」，
+比把它算进「vault 内非域」诚实。
+
+**刻意不解**别的引用形状（`member:` / `role:` / `project:`）：四类落点里没有它们的位置，
+落进「vault 内非域」是一条**已知的、如实留着的缺口**（今天也没有任何写口把这种形状写进 `object`），
+等真出现再定 —— 先替它猜一个才是错。
+
+**实测**（真 vault：`slug=trade/logistics`、`data=projects/shipments`，alice→trade / bob→logistics）：
+
+| 判据 | 结果 |
+|---|---|
+| `--object domain:trade`（bob 在 logistics） | ✅ 域内 · **跨域** |
+| `--object domain:logistics`（alice 在 trade） | ✅ 域内 · **跨域** |
+| `--object domain:ops`（表里没有这个 slug） | ✅ **「ops（跨域未判）」** —— 不再冒充「vault 内非域」 |
+| `--object logistics`（裸 slug，目录名是 `shipments`） | ✅ 域内 · **跨域** |
+| 用例 | `TestDeriveZones` 补 4 条 ＋ `TestOwnerTakesRefShapeSeparatelyFromWhetherTheSlugIsDeclared` |
+| 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **17 包全绿** |
 
 ---
 

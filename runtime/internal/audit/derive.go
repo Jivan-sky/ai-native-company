@@ -20,8 +20,13 @@ type Scope struct {
 	companyID string
 	byDir     map[string]string   // vault 顶层目录名 → 域 slug
 	label     map[string]string   // 域 slug → 显示名
+	slugs     map[string]bool     // **已声明的**域 slug 全集（不管它有没有 data 目录）
 	actors    map[string][]string // 成员名 → 域集合
 }
+
+// refKindDomain 是 `domain:<slug>` 这个引用形状的种类词 —— 与 grants 认的**同一个词**
+// （`org.SplitRef` 是这个词表的唯一定义处）。
+const refKindDomain = "domain"
 
 // NewScope 从 org 真相源建一张映射。o 为 nil 时返回一张空表（一切落「未归属」，不 panic）。
 func NewScope(vault string, o *org.Org) *Scope {
@@ -29,6 +34,7 @@ func NewScope(vault string, o *org.Org) *Scope {
 		vault:  vault,
 		byDir:  map[string]string{},
 		label:  map[string]string{},
+		slugs:  map[string]bool{},
 		actors: map[string][]string{},
 	}
 	if o == nil {
@@ -36,6 +42,11 @@ func NewScope(vault string, o *org.Org) *Scope {
 	}
 	sc.companyID = o.Company.ID
 	for _, d := range o.Domains {
+		if slug := strings.TrimSpace(d.Slug); slug != "" {
+			// **先记全集**：`domain:<slug>` 是授权层的客体写法（grants 认它），
+			// 一个域没配 data 目录不代表它不是域 —— 那种情况只是「按路径认不出它」。
+			sc.slugs[slug] = true
+		}
 		dir := strings.TrimSpace(d.Data)
 		if dir == "" {
 			continue
@@ -63,17 +74,51 @@ func (sc *Scope) Label(slug string) string {
 	return slug
 }
 
-// Owner 判这个客体落在哪个域。
+// Owner 判这个客体落在哪个域。认**三种形状**，按「越明确越先」的顺序：
 //
-// 只处理**路径形状**的客体 —— 其它形状（通道、外部系统）落「未归属」：
-// 那些客体的词表还没有定义处，现在编一个只能是猜（同 grants.go 对 to / object 的留白）。
+//  1. **引用形状** `domain:<slug>` —— 授权层的客体写法。这个词表只有一处定义：
+//     `org.SplitRef`（grants 的 `object` 认它，见 `internal/envelope/gate.go` 的 `objectIsDomain`）。
+//     审计不另造一套引用语法，也不自己解析冒号。**表里没宣过的 slug 也算命中这一档**
+//     （是不是域由写法说了算；「这个域此刻还在不在表上」是 Declared 的事）。
+//  2. **路径形状** vault 下的顶层目录 → domains.md 的 data 列（原来唯一认的那种）。
+//  3. **裸 slug 兜底** —— 客体既不是路径、又正好是一个**已声明的域 slug** 时按域算。
+//     为什么要有这一档：出站读出口与审批留痕写的是**裸 slug**（`Object: domain`），
+//     而域的 data 目录名未必等于 slug（实测的例子里 slug 是 `trade`、data 是 `projects`，
+//     只按路径认就会把一条真跨域算成「vault 内·非域」）。
+//
+// 别的引用形状（`member:` / `role:` / `project:` …）**不在这里解**：它们不是「落在哪儿」，
+// 四类落点里没有它们的位置 —— 落进「vault 内·非域」是一条**已知的、如实留着的缺口**
+// （今天也没有任何写口把这种形状写进 object），等真出现再定，先替它猜一个才是错。
 func (sc *Scope) Owner(object string) (string, bool) {
-	dir := sc.topDir(object)
-	if dir == "" {
+	o := strings.TrimSpace(object)
+	if o == "" {
 		return "", false
 	}
-	slug, ok := sc.byDir[dir]
-	return slug, ok
+	if kind, name := org.SplitRef(o); kind == refKindDomain {
+		// 形状上就是域 —— **宣没宣过不在这一档判**（那是 Declared 的事）。
+		// 表里没有的 slug 照样是「这一次行使指着某个域」，只是「跨不跨」判不出来；
+		// 把它撵回路径那两档，会让它冒充成「vault 内·非域」这种没事的样子。
+		if name == "" {
+			return "", false
+		}
+		return name, true
+	}
+	if slug, ok := sc.byDir[sc.topDir(o)]; ok {
+		return slug, true
+	}
+	if !isAbsPath(filepath.ToSlash(o)) && !strings.Contains(o, "/") && sc.slugs[o] {
+		return o, true
+	}
+	return "", false
+}
+
+// Declared 报这个 slug 在**当前**域表里宣过没有。
+//
+// Owner 答的是「这个客体是不是域」；它答的是「这个域此刻还在不在表上」。
+// 两件事分开，是因为域表是会改的：老流水里会留下指着一个已经不在表上的域的行 ——
+// 那是**判不出它在哪、跨不跨**（Known=false），不是「没这回事」。
+func (sc *Scope) Declared(slug string) bool {
+	return sc.slugs[strings.TrimSpace(slug)]
 }
 
 // InVault 判这个客体在不在（这个）vault 里。
@@ -152,7 +197,7 @@ func (sc *Scope) ActorDomains(actor string) []string {
 
 // 目标落在哪一类。四个值：
 //
-//	domain  —— 落在某个业务域（domains.md 的 data 列指向的顶层目录）
+//	domain  —— 客体是业务域：`domain:<slug>` 这种引用形状，或落在 data 列指向的顶层目录
 //	vault   —— 在 vault 内，但不属于任何域（结构目录 / 还没划域的数据目录）
 //	outside —— 在 vault 之外：越过真相源边界
 //	unknown —— 抽不出目标（object 为空）
@@ -193,6 +238,12 @@ func Derive(r Record, sc *Scope) Derived {
 			return Derived{Zone: ZoneVault}
 		}
 		return Derived{Zone: ZoneOutside}
+	}
+	if !sc.Declared(slug) {
+		// 指着一个当前域表里没有的域：**「向的是域」是明确的**（写口写的就是这个形状），
+		// 但它在哪、跨不跨，按当前表判不出来 —— 留 Actee 让人看见它指的是谁，
+		// Known=false 让页面写「跨域未判」。不许落进 vault/域外那两格冒充「没事」。
+		return Derived{Actee: slug, Zone: ZoneDomain}
 	}
 	domains := sc.ActorDomains(r.Actor)
 	if len(domains) == 0 {
