@@ -48,8 +48,8 @@ func TestDoneFacts_颜色跟着落库那一行(t *testing.T) {
 	}
 }
 
-// 收口帧渲染出来：结论进标题、正文与「谁点的」都在、**没有按键**。
-func TestDoneCard_结论进标题_没有按键(t *testing.T) {
+// 收口帧渲染出来：结论进标题、正文与「谁点的」都在、**三个按键都变暗（disabled）**。
+func TestDoneCard_结论进标题_三键全禁用(t *testing.T) {
 	p, d := doneCase(t, SignalReject)
 	c, notes := p.DoneCard(nil, d, card.DefaultDone())
 	if len(notes) != 0 {
@@ -61,10 +61,20 @@ func TestDoneCard_结论进标题_没有按键(t *testing.T) {
 	if !strings.Contains(c.Text(), "只读，不写") {
 		t.Errorf("正文没带上原文：%s", c.Text())
 	}
+	n := 0
 	for _, el := range c.Elements {
-		if el.Kind == card.KindButtons {
-			t.Fatal("收口帧渲染出来还有按键 —— 收口的意思就是不能再点")
+		if el.Kind != card.KindButtons {
+			continue
 		}
+		for _, b := range el.Buttons {
+			n++
+			if !b.Disabled {
+				t.Errorf("按键 %q 没禁用 —— 收口之后点不动才算收口", b.Label)
+			}
+		}
+	}
+	if n != 3 {
+		t.Fatalf("收口帧的按键数 = %d，want 3（变暗不是撕掉）", n)
 	}
 }
 

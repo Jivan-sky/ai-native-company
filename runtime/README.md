@@ -735,7 +735,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | 路径 | 说明 |
 |---|---|
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；D4/D5/D6 已拍板，D1/D2 未拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `hot` / `envelope` / `gate` / `board` / `org` / `version`） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `hot` / `envelope` / `gate` / `gateway` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `org.go` | `anc org who` 的 CLI（平台身份 → 谁；只查表，不猜） |
@@ -762,6 +762,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `apply.go` | `anc apply` 的 CLI：七步装载（render → 校验 → daemon install → 凭据桥 → 重启 → 回读） |
 | `gate.go` | `anc gate` 的 CLI：交付链路的门 —— org + timeline 两个真相源算事实，跑交付层判据（`internal/judge/delivery.go`） |
 | `internal/judge/` | 判据层（**判据是数据，不是代码**）：会话层（`anc trail`）+ 交付层（`anc gate`）一个引擎两个作用域；只出结论、不设门禁 |
+| `gateway.go` | `anc gateway relay` 的 CLI：第二条网关的收口环（吃一行一条的事件流 → 落痕 → 收口；收口三档 `print` / `off` / `cmd:`） |
+| `internal/gateway/` | 可替代网关的**形态表**（`gateway.CCConnect`：装 / 重启 / 日志落点 / 会话落点 / 凭据键名空间 / 认哪些枚举）+ relay 核心（认事件 / 幂等 / 五个结局；碰外面那两步是 `Sink`） |
 | `orginit.go` | `anc org init`：生成 org 真相源骨架（vault 模板） |
 | `internal/org/` | org 真相源的解析与校验：frontmatter、org 模型、域表 / 项目表、规则表（`rules.go`） |
 | `internal/org/charters.go` | 立项书副本落点（`charters/<slug>/`）的扫描与跨表校验 |
