@@ -2122,6 +2122,61 @@ bot 读了 `~/.claude/settings.json`，当时在用的 `ANTHROPIC_AUTH_TOKEN` �
 | 用例 | `TestDeriveZones` 补 4 条 ＋ `TestOwnerTakesRefShapeSeparatelyFromWhetherTheSlugIsDeclared` |
 | 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **17 包全绿** |
 
+### 7.1.38 平台身份 → org 里的谁：三样各查一遍（2026-10-10）
+
+**要解决什么**：平台的嘴（cc-connect）递过来的**不是编号**，是三样别的东西 ——
+谁发的（`open_id`）、发到哪个 app（`app_id`）、落在哪台 bot 上（project 名）。
+而审计流水 / 审批 / 授权里说的是人 / 岗位 / 域 / project。中间少这一层，
+「这条审批是谁提的」「这个 agent 属于谁」就得各处自己拼。
+
+**落点**：`internal/org/identity.go` —— 在已有的 `Identity(ref)`（按编号取主体）旁边补三个入口
+＋ 一个归属判定。**只查表，不猜**：查不到就如实 false（同 `Identity(ref)` 的口径：
+判不出来 = 这个主体不存在，调用方的拒话照这个口径写）。
+
+| 入口 | 认什么 | 只能落在 |
+|---|---|---|
+| `ByOpenID` | 平台里唯一的「人」标识 | 成员 —— 业务 agent 不代表人，没有 open_id |
+| `ByAppID` | 这条消息发到哪个 app | 成员 bot / 业务 agent 二选一（共用同一套接入，SPEC §4.7 ③） |
+| `ByProject` | `<公司 id>-<名字>`；不带前缀的裸编号也收 | 成员 bot / 业务 agent |
+
+**「属于谁」只答归属，不答收件**（`Owner`）：成员返回空 —— 人没有归属人（他属于他自己，
+这是第一性的）；业务 agent 走 `域 → domains.md 的 who（岗位） → 该岗位上启用中的成员`，
+与渲染器算**收件人**的第一段是同一支判据（`render.agentAllowFrom`）—— 两处各算各的，
+迟早出现「消息发给甲、看板说归乙」。但域 who 岗位上没人时，渲染那边会落到公司 admins 兜底
+（不兜它就没人叫得动这个 agent），那是**收件**口径；混进归属就等于宣称「没人的域归老板所有」。
+所以这一格**空着并说明原因**，返回的第二个值就是那句判据原话。
+
+**拼法只有一个定义处**：`<公司 id>-<名字>` 从 `render` 挪到 `org.ProjectName`
+（它是 org 模型的事实，SPEC §4.7 ③），`render.ProjectName` 改成同一支的导出 ——
+否则审计 / notify / render 三处各拼一遍，早晚出现「看板叫 alice、日志叫 demo-alice」。
+
+**嘴**：`anc org who <vault> [--open-id …] [--app-id …] [--project …] [--json]`。
+两头各自解、**互不代偿**：一头解不出就如实说（带原因），不拿另一头顶上。
+`--app-id` 与 `--project` 同时给时以 app_id 为准（它更贴平台事实）。
+
+**实测**（真 vault：`alice` = `ou_demo_alice` / `cli_demo_alice`，`bob` / `devbot` 三位成员，
+外加一张 `agents.md` 里两个业务 agent）：
+
+| 问 | 答 |
+|---|---|
+| `--open-id ou_demo_alice` | ✅ 人 alice（Alice Wang）· 岗位 manager · 域 trade · 这台 demo-alice |
+| `--app-id cli_demo_bob` | ✅ 人 bob（Bob Li）· 岗位 ops · 域 logistics |
+| `--app-id cli_demo_tradebot` | ✅ 业务 agent tradebot · 铭文「替 manager 岗盯进出口合同的签订与执行」· **属于 alice**（凭什么：域 trade 的 who 岗位 manager —— 经理（Alice Wang）） |
+| `--app-id cli_demo_ghostbot`（domain 写成不存在的域） | ✅ **解不出归属**，并说明「域 nope 不在 domains.md 里」 |
+| `--open-id ou_stranger` | ✅ **解不出**，并说明「在 members/ 里没人认领 —— 自报的身份不算」 |
+| `--project demo-alice` / 裸 `alice` | ✅ 同上；`other-alice` 解不出（前缀要对齐本公司 id） |
+| 用例 | `internal/org/identity_test.go` 5 条 —— 含两条反例：**归属不落到 admins**、**停用成员不算归属** |
+| 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` 17 包全绿 |
+
+**这一刀没做的**：① 飞书卡片那条路还没接（在飞书里点「批」→ 回调 → `POST /api/approvals/decide`），
+见 §7.1.34 / §7.1.35 与 SPEC 里「飞书卡片那条还没接」那句；② `anc org who` **只解身份、不做判断** ——
+「谁能批、谁不能批」是授权层的事，这里一个 if 都不加。
+
+**踩到的一个坑（值得单独记一笔）**：动手时**覆盖了一个已经存在的同名文件**
+（`internal/org/identity.go` 早在 `29ab833` 就有了，里面就是「主体」那套）。
+是 `git diff` 里出现 54 行删除才发现的 —— 编译器只能拦住「同名函数」，拦不住「整个文件被换掉」。
+写新文件之前先查它在不在，这一步不能省。
+
 ---
 
 ## 8. 与 SPEC 的映射

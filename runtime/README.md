@@ -222,6 +222,28 @@ grant:
   见 `DESIGN.md` §7.1.32。
 - **看板投影里带 `grants`（全量、不筛选）**，但这张表**还没有自己的看板页**（下一件）。
   注意看板是**全量**、bot 侧该看的是**只属于它那几条** —— 两个消费者、两个视图，不共用一份产物。
+### 平台身份 → 谁（`anc org who`）
+
+```
+anc org who <vault> [--open-id <ou_…>] [--app-id <cli_…>] [--project <名>] [--json]
+```
+
+平台的嘴递过来的**不是编号**，是三样别的东西 —— 谁发的（`open_id`）、发到哪个 app（`app_id`）、
+落在哪台 bot 上（project 名）；而流水 / 审批 / 授权里说的是人 / 岗位 / 域 / project。
+这一条就是把那三样各查一遍，**只查表、不猜**：查不到就说查不到（带原因）。
+
+- **三样各有一个入口**，也能一次问两头：`open_id` → 成员（业务 agent 不代表人，没有 open_id）；
+  `app_id` → 成员 bot 或业务 agent；`project` 名（`<公司 id>-<名字>`）→ 同一批；
+  裸编号（直接写 `alice` / `tradebot`）也收 —— 前缀必须对齐本公司 id，`other-alice` 不算。
+- **两头各自解、互不代偿**：一头解不出就如实报，不拿另一头顶上。`--app-id` 与 `--project`
+  一起给时以 app_id 为准（它更贴平台事实）。
+- **「属于谁」只在业务 agent 上答**：域 → `domains.md` 的 `who`（岗位）→ 该岗位上**启用中**的成员，
+  并回一句**判据原话**（哪块业务、哪个岗位、岗位上是谁）。人没有归属人 —— 他属于他自己。
+- **归属 ≠ 收件**：域 who 岗位上没人时，渲染那边会落到公司 admins 兜底（不兜它就叫不动这个 agent），
+  那是**收件**口径；归属这一格**空着并说明原因**，不写「归老板」。
+- **它不做判断**：谁能批、谁不能批是授权层的事 —— 这条命令一个 if 都不加。
+  设计记录见 `DESIGN.md` §7.1.38。
+
 ### 只读投影出口（`anc org export`）
 
 ```
@@ -710,6 +732,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `hot` / `envelope` / `gate` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
+| `org.go` | `anc org who` 的 CLI（平台身份 → 谁；只查表，不猜） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
 | `internal/board/server.go` | 看板的只读 HTTP 出口（GET / HEAD；投影 + 校验发现） |
 | `internal/board/ui/` | 看板前端**产物**（手写 `index.html` + 构建出的 `app.js`）；`go:embed` 进二进制 |
