@@ -678,6 +678,10 @@ CLI / 对话式 bot / 看板是**同一个变更管道的三个前端**，管道
 身份用 `open_id`（人 ↔ agent 绑定现算），**不新造身份体系**。
 落地见 `runtime/DESIGN.md` §7.1.34 与 `anc approvals`。
 
+**看板那条已落（2026-10-10）**：`POST /api/approvals/decide` 是看板**唯一**的写口 ——
+只收 `POST` + `application/json`（跨站表单发不出这个 Content-Type）、**只留痕不写真相源**；
+看板其余路径仍是 GET / HEAD。见 `runtime/DESIGN.md` §7.1.35。**飞书卡片那条还没接。**
+
 **读路径同样只有一条（2026-10-07 已实现）**：**真相源 → 只读投影（`anc org export`，`anc.board/v1`）
 → 看板 / 前端**。投影是**纯函数、只读、不含凭据面字段** —— 不导出 `open_id` / `app_id`。
 看板是**观测面，不是凭据面**；「这个人绑没绑好飞书」这类问题属于运行态探针（阶段 C），

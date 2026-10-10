@@ -6,7 +6,7 @@
 // 五条纪律：
 //   1. 真相源里的字一律走 textContent，绝不 innerHTML —— 看板不许成为注入点；
 //   2. 不猜、不补：哪块没有数据源就写清楚「还没接入」，不编假数据把界面填满；
-//   3. 只读：这个页面没有任何写操作（后端也只放行 GET / HEAD）；
+//   3. 几乎只读：唯一的写口是「待批」页的点头（一次留痕，不动真相源）—— 其余全是读；
 //   4. 一页只回答一个问题 —— 那句问题写在页头（Page.question），写不出来就该先想清楚再开页；
 //   5. 数据源没接通的页面，导航上直接标「未接入」，不靠人点进去才发现。
 //
@@ -113,6 +113,30 @@ type AuditView = {
   missing: string[]; note: string; error?: string;
 };
 
+// 待批队列（`/api/approvals`，schema = anc.approvals/v1）—— 读者：该点头的人。
+// 这是看板**唯一**能写的一页：点按钮 = 往 write_path 发一次信号，走的是与 CLI 同一个入口、
+// 同一份留痕（SPEC §7：CLI / 对话式 bot / 看板是同一条变更管道的三个前端）。
+//
+// 三条口径（与后端 internal/approvals 是同一份，前端不另立）：
+//   - 只认三个字：可点的信号由服务端给（signals[]），前端照画，不自己写死一份；
+//   - 不校「点的人是不是该批的人」：by 原样留痕，判断交给 agent（后端也这么收）；
+//   - 点头**不写真相源**：grants/ 由人侧的管理者 bot 写，ANC 只留痕。
+type ApprovalSignal = { value: string; label: string };
+type ApprovalPending = {
+  id: string; who: string; to: string; domain: string; project: string;
+  title: string; body: string; enqueued: string; status: string;
+};
+type ApprovalView = {
+  schema: string; wired: boolean; why?: string; error?: string;
+  write_path: string; signals: ApprovalSignal[];
+  count: number; pending: ApprovalPending[];
+};
+// 点头的回执。两个落点是「写到了哪个文件」，不是内容 —— 内容在库里、在审计里。
+type DecideReply = {
+  ok: boolean; proposal: string; verdict: string; by: string;
+  timeline: string; audit: string; note: string;
+};
+
 // 一次取数、全程共用：已接入的页吃的是同一份投影，切页不重新打网络（按「刷新」才重取）。
 type Data = {
   board: BoardView | null; issues: Issues;
@@ -121,6 +145,7 @@ type Data = {
   assets: AssetsView | null; assetsErr: string;
   timeline: TimelineView | null; timelineErr: string;
   audit: AuditView | null; auditErr: string;
+  approvals: ApprovalView | null; approvalsErr: string;
   err: string;
 };
 
@@ -246,6 +271,26 @@ async function getJSON<T>(url: string): Promise<Fetched<T>> {
   }
 }
 
+// 看板只有一处写：审批信号。它只收 POST + application/json —— 跨站表单发不出这个 Content-Type
+// （浏览器会先发预检，而看板不回 CORS 头），所以没有 token 也挡得住「别的网页替你点头」。
+async function postJSON<T>(url: string, body: unknown): Promise<Fetched<T>> {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const raw = await res.text();
+    try {
+      return { status: res.status, body: JSON.parse(raw) as T, err: "" };
+    } catch {
+      return { status: res.status, body: null, err: "返回的不是 JSON（HTTP " + res.status + "）" };
+    }
+  } catch (e) {
+    return { status: 0, body: null, err: "连不上看板服务：" + (e instanceof Error ? e.message : String(e)) };
+  }
+}
+
 const emptyIssues = (err: string): Issues => ({ ok: false, fatal: [], warn: [], error: err });
 
 // 「读到了一份能吃的契约」= body 在、schema 是非空字符串。五份契约（board / runtime /
@@ -260,7 +305,7 @@ function contract<T extends { schema?: string }>(res: Fetched<T>, label: string)
 }
 
 async function fetchData(): Promise<Data> {
-  const [boardRes, issuesRes, runtimeRes, dataflowRes, assetsRes, timelineRes, auditRes] = await Promise.all([
+  const [boardRes, issuesRes, runtimeRes, dataflowRes, assetsRes, timelineRes, auditRes, approvalsRes] = await Promise.all([
     getJSON<BoardView & { error?: string }>("/api/board"),
     getJSON<Issues>("/api/issues"),
     getJSON<RuntimeView>("/api/runtime"),
@@ -268,6 +313,7 @@ async function fetchData(): Promise<Data> {
     getJSON<AssetsView>("/api/assets"),
     getJSON<TimelineView>("/api/timeline"),
     getJSON<AuditView>("/api/audit"),
+    getJSON<ApprovalView>("/api/approvals"),
   ]);
   const issues = issuesRes.body ?? emptyIssues(issuesRes.err);
   const rt = contract(runtimeRes, "运行态");
@@ -275,6 +321,7 @@ async function fetchData(): Promise<Data> {
   const as = contract(assetsRes, "原料清单");
   const tl = contract(timelineRes, "时间线");
   const au = contract(auditRes, "审计");
+  const ap = contract(approvalsRes, "待批队列");
   const schema = boardRes.body?.schema;
   if (boardRes.body && typeof schema === "string" && schema !== "") {
     return {
@@ -284,6 +331,7 @@ async function fetchData(): Promise<Data> {
       assets: as.v, assetsErr: as.err,
       timeline: tl.v, timelineErr: tl.err,
       audit: au.v, auditErr: au.err,
+      approvals: ap.v, approvalsErr: ap.err,
     };
   }
   const why = boardRes.body?.error ?? boardRes.err ?? ("看板数据读取失败（HTTP " + boardRes.status + "）");
@@ -294,6 +342,7 @@ async function fetchData(): Promise<Data> {
     assets: as.v, assetsErr: as.err,
     timeline: tl.v, timelineErr: tl.err,
     audit: au.v, auditErr: au.err,
+    approvals: ap.v, approvalsErr: ap.err,
   };
 }
 
@@ -671,6 +720,180 @@ function renderAssets(d: Data): Kid[] {
   return out;
 }
 
+// 待批 —— 读者：该点头的人。**全看板唯一能写的一页**（点头 = 一次留痕，不是改配置）。
+//
+// 这一页不做什么：不替人判断该不该给、不自动过期、不代填 by、不解析提案正文
+// （正文是人话，结构只出现在终点 —— grants/ 那七个字段）。
+//
+// by 存在本机（localStorage）：它是「谁点的」，不是凭据 —— 看板没有免登这一层，
+// 所以这一栏由填的人负责，ANC 原样留痕；飞书卡片那条嘴靠事件自带的 open_id，不用它。
+const BY_KEY = "anc.board.by";
+let byWho = "";
+try {
+  byWho = localStorage.getItem(BY_KEY) ?? "";
+} catch {
+  byWho = ""; // 读不到就当没填 —— 不是错误，也不伪造一个名字
+}
+
+// 刚点完头的回执。只放内存：它讲的是「刚才那一下」，不是存档（存档在 timeline / audit）。
+let lastReceipt: DecideReply | null = null;
+let lastDecideErr = "";
+
+function sinceText(iso: string): string {
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return localTime(iso);
+  const mins = Math.floor((Date.now() - t.getTime()) / 60000);
+  if (mins < 0) return localTime(iso);
+  if (mins < 60) return mins + " 分钟前";
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + " 小时前";
+  return Math.floor(hrs / 24) + " 天前";
+}
+
+function receiptBanner(r: DecideReply): HTMLElement {
+  return el("div", { class: "banner ok" },
+    el("h3", {}, "刚刚点头：" + dash(r.verdict) + "（" + (r.by === "" ? "没记谁" : r.by) + "）"),
+    el("ul", {},
+      el("li", {}, el("span", { class: "mono" }, dash(r.proposal)), " —— ", dash(r.note)),
+      el("li", {}, "落库 ", el("span", { class: "mono" }, dash(r.timeline))),
+      el("li", {}, "审计 ", el("span", { class: "mono" }, dash(r.audit)))));
+}
+
+// 「谁在点」—— 看板没有免登，所以这一栏由页面出，并记在本机（下次不用再打）。
+function bySection(): Kid {
+  const input = el("input", {
+    class: "by", type: "text",
+    placeholder: "你的名字 / 岗位（会原样写进留痕）",
+    value: byWho,
+  });
+  input.addEventListener("input", () => {
+    byWho = (input as HTMLInputElement).value;
+    try {
+      localStorage.setItem(BY_KEY, byWho);
+    } catch {
+      // 记不住就算了：留痕照写，只是下次要重打。这不是错误，不弹东西吓人。
+    }
+  });
+  return section("谁在点", "看板没有免登：这一栏由填的人负责；ANC 只把它原样留痕，不校",
+    el("p", { class: "empty" },
+      "飞书卡片那条路不需要它 —— 卡片点击事件自带 open_id，点的人是谁由事件给。"),
+    el("div", { class: "field" }, input));
+}
+
+// 一条提案一张卡：人话在上，凭证（id / 时间 / 客体）在下，按钮在最底下。
+function pendingCard(v: ApprovalView, p: ApprovalPending): HTMLElement {
+  const title = (p.title ?? "").trim();
+  const subject = [p.domain, p.project].map((x) => (x ?? "").trim()).filter((x) => x !== "").join(" / ");
+  return el("div", { class: "card prop" },
+    el("h3", {}, title === "" ? "（提案没写标题）" : title, chip(dash(p.id), true)),
+    el("dl", {},
+      el("dt", {}, "该谁批"),
+      el("dd", {}, (p.to ?? "").trim() === "" ? cannot("域表里没写 who —— 不知道该谁批") : p.to),
+      el("dt", {}, "谁提的"), el("dd", {}, dash(p.who)),
+      el("dt", {}, "客体"), el("dd", {}, subject === "" ? "—" : subject),
+      el("dt", {}, "进队"),
+      el("dd", {}, localTime(p.enqueued) + "（" + sinceText(p.enqueued) + "）"),
+      el("dt", {}, "当前态"), el("dd", {}, dash(p.status))),
+    el("p", { class: "body" }, (p.body ?? "").trim() === "" ? cannot("提案没有正文") : p.body),
+    actsRow(v, p));
+}
+
+// 三个按钮来自服务端给的 signals —— 前端不写死信号词，加一个词只改服务端。
+function actsRow(v: ApprovalView, p: ApprovalPending): HTMLElement {
+  const why = el("input", { class: "why", type: "text", placeholder: "为什么这么批（可空；驳回最好写一句）" });
+  const row = el("div", { class: "acts" });
+  for (const sig of v.signals) {
+    const b = el("button", { class: "act " + sig.value, type: "button" },
+      sig.label === "" ? sig.value : sig.label);
+    b.addEventListener("click", () => {
+      void decide(v, p, sig, why as HTMLInputElement, row);
+    });
+    row.append(b);
+  }
+  if (v.signals.length === 0) row.append(cannot("服务没给可点的信号 —— 这一版点不了"));
+  return el("div", {}, why, row);
+}
+
+// 点一次头：发一次信号，成功就整页重取（队列真的变了）。
+async function decide(
+  v: ApprovalView, p: ApprovalPending, sig: ApprovalSignal,
+  why: HTMLInputElement, row: HTMLElement,
+): Promise<void> {
+  lastDecideErr = "";
+  const who = byWho.trim();
+  if (who === "") {
+    // 后端也这么拒（「匿名点头等于没点头」）—— 这里先说，省一次往返。
+    lastDecideErr = "先在上面填「谁在点」：匿名点头等于没点头（后端也这么拒）。";
+    shell();
+    return;
+  }
+  if (v.write_path === "") {
+    lastDecideErr = "服务没给写口地址（write_path 是空的）—— 刷新看看，或看服务端日志。";
+    shell();
+    return;
+  }
+  // 点下去就先按住按钮：连着点两下 = 第二次必然「不在队列里」（那条已经结过账了）。
+  for (const b of Array.from(row.querySelectorAll("button"))) b.setAttribute("disabled", "disabled");
+  const res = await postJSON<DecideReply & { error?: string; hint?: string }>(v.write_path, {
+    id: p.id, by: who, signal: sig.value, why: why.value,
+  });
+  if (res.status === 200 && res.body && res.body.ok) {
+    lastReceipt = res.body;
+    await boot(true);
+    return;
+  }
+  const msg = res.body?.error ?? res.err;
+  const hint = res.body?.hint ?? "";
+  lastDecideErr = (msg === "" ? "HTTP " + res.status : msg) + (hint === "" ? "" : "（" + hint + "）");
+  shell();
+}
+
+function pendingSection(v: ApprovalView): Kid {
+  if (v.pending.length === 0) {
+    return section("队列", "进队时间从早到晚 —— 早提的先办",
+      emptyNote("队列是空的：现在没有等点头的提案。"));
+  }
+  return section("队列", "一共 " + v.count + " 条 —— 早提的排前面",
+    el("div", { class: "grid props" }, ...v.pending.map((p) => pendingCard(v, p))));
+}
+
+function signalsSection(v: ApprovalView): Kid {
+  const legend = v.signals.length === 0
+    ? emptyNote("服务没给信号表 —— 这一版点不了。")
+    : el("p", { class: "legend" }, ...v.signals.map((sig) => el("span", { class: "st" },
+        chip(sig.value, true),
+        el("span", {}, sig.label === "" ? "（服务没给人话）" : sig.label))));
+  return section("这一页只认三个字", "别的写法一律不认，也不猜 —— 判据永远只看这三个字",
+    legend,
+    el("p", { class: "empty" },
+      "点完头，ANC 只做三件事：收提案、送给该批的人、留痕 —— 不替人判断该不该给；",
+      "也不动真相源（grants/ 那个文件由人侧的管理者 bot 写）。"));
+}
+
+function renderApprovals(d: Data): Kid[] {
+  const v = d.approvals;
+  if (!v) {
+    return [banner("bad", "读不到待批队列", [
+      el("span", {}, d.approvalsErr === "" ? "服务没回 anc.approvals/v1" : d.approvalsErr),
+    ])];
+  }
+  const out: Kid[] = [];
+  if (lastReceipt) out.push(receiptBanner(lastReceipt));
+  if (lastDecideErr !== "") out.push(banner("bad", "上一次点头没成功", [el("span", {}, lastDecideErr)]));
+  if ((v.error ?? "") !== "") out.push(banner("bad", "热层读不动", [el("span", {}, dash(v.error))]));
+  if (!v.wired) {
+    out.push(banner("warn", "待批队列还没接上", [
+      el("span", {}, dash(v.why)),
+      el("br"),
+      el("span", {}, "接不上不代表「没人提」—— 这一页宁可不显示，也不拿一份空队列冒充它。"),
+    ]));
+  }
+  out.push(bySection());
+  if (v.wired) out.push(pendingSection(v));
+  out.push(signalsSection(v));
+  return out;
+}
+
 // 时间线 —— 读者：跟进的人 / 老板。数据源是人和 agent 用 `anc timeline add` 写下的留存记录。
 //
 // 这一页的纪律（与后端 timeline 包同一条口径）：
@@ -940,6 +1163,12 @@ const overviewPage: Page = {
   id: "overview", label: "总览", wired: true,
   question: "现在有没有事？", view: renderOverview,
 };
+// 待批 —— 读者：该点头的人。它是全看板唯一能写的一页，所以排在最靠前：
+// 整块看板只有它等着人动手，而「有没有卡在等我」正是「现在有没有事」的下一句。
+const approvalsPage: Page = {
+  id: "approvals", label: "待批", wired: true,
+  question: "哪几件事在等人点头、该谁点？", view: renderApprovals,
+};
 const orgPage: Page = {
   id: "org", label: "组织", wired: true,
   question: "公司长什么样、边界在哪？", view: renderOrg,
@@ -963,7 +1192,7 @@ const assetsPage: Page = {
   question: "原料有哪些、多久没动了？", view: renderAssets,
 };
 
-const PAGES: Page[] = [overviewPage, orgPage, projectsPage, timelinePage, auditPage, runtimePage, dataflowPage, assetsPage];
+const PAGES: Page[] = [overviewPage, approvalsPage, orgPage, projectsPage, timelinePage, auditPage, runtimePage, dataflowPage, assetsPage];
 
 function pageFor(id: string): Page {
   for (const p of PAGES) if (p.id === id) return p;
@@ -1013,8 +1242,9 @@ function rail(page: Page, d: Data | null): HTMLElement {
 
 function footer(): HTMLElement {
   return el("footer", {},
-    el("div", {}, el("strong", {}, "本页只读"),
-      "：数据是真相源（vault）的实时投影，没有任何写入口；点「刷新」重取。"),
+    el("div", {}, el("strong", {}, "几乎只读"),
+      "：数据是真相源（vault）的实时投影，点「刷新」重取；全站唯一能写的一处是「待批」页的点头，",
+      "它只留痕（timeline + audit），不动真相源。"),
     el("div", {}, el("strong", {}, "校验发现"), " 与 ", el("span", { class: "mono" }, "anc org check"),
       " 同源：红档拦住落盘，非红档只回显；完整清单在「总览」。"),
     el("div", {}, el("strong", {}, "分页口径"),

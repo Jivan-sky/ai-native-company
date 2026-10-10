@@ -191,6 +191,39 @@
   .banner li { margin: 3px 0; }
   .banner.bad { background: #fdf4f1; border: 1px solid #eed3c9; color: #7d3226; }
   .banner.warn { background: #fdf8ed; border: 1px solid #ecdcbd; color: #6f5215; }
+  /* 点头回执：三档色的第四档，橄榄那一族（绿档已经用它，这里只是把 banner 补全） */
+  .banner.ok { background: #f4f8ef; border: 1px solid #d9e5cd; color: #40632c; }
+
+  /* 待批页：全站唯一能写的地方。输入框与按钮都按纸感来 —— 不用实心蓝按钮那一套。 */
+  .field { margin-top: 12px; }
+  input.by, input.why {
+    font: inherit; font-size: 13.5px; color: var(--ink);
+    padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--surface);
+  }
+  input.by { width: 100%; max-width: 420px; }
+  input.by:focus, input.why:focus {
+    outline: 2px solid rgba(217, 119, 87, 0.28); outline-offset: 1px; border-color: var(--clay);
+  }
+  .grid.props { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .card.prop .body {
+    margin: 12px 0 0; font-size: 13px; line-height: 1.7; color: var(--ink-2);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    border-left: 2px solid var(--line); padding-left: 12px;
+  }
+  .card.prop input.why { width: 100%; margin-top: 12px; }
+  .acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  button.act {
+    font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+    padding: 7px 14px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--surface); color: var(--ink);
+  }
+  button.act:hover { background: var(--surface-2); border-color: #dcd9cf; }
+  button.act:disabled { opacity: 0.45; cursor: default; }
+  /* 三个信号的配色跟着状态灯走；认不出的信号照点，只是不上色 */
+  button.act.approve { color: #40632c; border-color: #cfdfbe; background: #f6faf1; }
+  button.act.reject { color: #7d3226; border-color: #eed3c9; background: #fdf4f1; }
+  button.act.hold { color: #6f5215; border-color: #ecdcbd; background: #fdf8ed; }
   .empty { color: var(--ink-3); font-size: 13px; margin: 14px 0 0; }
   .pad { padding: 20px 24px; }
   footer { margin-top: 26px; color: var(--ink-3); font-size: 12.5px; line-height: 1.95; }
