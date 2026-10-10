@@ -121,6 +121,8 @@ func main() {
 		os.Exit(cmdEnvelope(args))
 	case "gate":
 		os.Exit(cmdGate(args))
+	case "gateway":
+		os.Exit(cmdGateway(args))
 	case "org":
 		if len(args) > 0 && args[0] == "check" {
 			os.Exit(cmdOrgCheck(args[1:]))
@@ -185,6 +187,8 @@ func usage() {
                                     接入面：harness 走 MCP 把信封递进来（无状态，默认只绑本机）
    anc gate <vault> [--rules <文件>] [--show-rules] [--json]
                                     交付链路的门：五道门的证据落痕了没有（只出结论，不设门禁）
+   anc gateway relay <vault> [--app-id <id>] [--patch print|off|cmd:<命令>]
+                                    第二条网关的收口环：吃一行一条的事件流（stdin），落痕 + 收口
   anc version
 
 三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：

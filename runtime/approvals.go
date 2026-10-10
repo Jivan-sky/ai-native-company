@@ -14,6 +14,7 @@ import (
 	"anc/internal/approvals"
 	"anc/internal/card"
 	"anc/internal/envelope"
+	"anc/internal/gateway"
 	"anc/internal/hot"
 	"anc/internal/org"
 )
@@ -397,6 +398,96 @@ func cmdApprovalsCard(args []string) int {
 //
 // 从 open_id 定位「谁点的 / 落在哪台 bot / 这个 agent 属于谁」用 org 那三条入口现查；
 // **认不出就不猜**（原样拿 open_id 当 by 留痕）—— 先留痕，判断交给 agent（2026-10-10 口径）。
+//
+// 判断与落痕那一整段收在 settleCardEvent 一处 —— `anc gateway relay` 吃事件流时走的是
+// **同一份**（runtime/gateway.go）：两条路进来，一条管道出去。
+
+// hotDown / hotOpFail 是热层那两种失败的标记 —— 分开喊的口径同 hot.go：
+// 「没连上」（先去看热层起来没）与「这次操作没成」是给人看的两句话，不能混成一句。
+type hotDown struct{ err error }
+
+func (e hotDown) Error() string { return e.err.Error() }
+func (e hotDown) Unwrap() error { return e.err }
+
+type hotOpFail struct{ err error }
+
+func (e hotOpFail) Error() string { return e.err.Error() }
+func (e hotOpFail) Unwrap() error { return e.err }
+
+// cardActionDone 是「一次按键回程」的全部成品 —— CLI 打印它（给人看），网关吃它（往外走）。
+type cardActionDone struct {
+	Click     card.Click
+	At        time.Time
+	Pending   approvals.Pending
+	Decision  approvals.Decision
+	Receipt   approvals.Receipt
+	Org       *org.Org
+	OrgErr    error
+	DoneCard  card.Card
+	DoneNotes []card.Note
+	DoneFrame string
+}
+
+// settleCardEvent 是「一次按键回程」的全部判断与落痕。判据一个字没加、也**只有这一份**：
+//
+//	两个键都在才算数 · 只认 approve / reject / hold · 没带 open_id 不算点头
+//	· 先落库再清热层 · 真相源一动不动
+//
+// 拒（认不出的信号 / 缺键 / 没带人 / 不在队列）返回 gateway.Reject —— 那是「判据说不」，
+// 不是故障；热层那两种失败各自打了标记；别的原样返回。
+func settleCardEvent(vault string, raw []byte, appID string, when time.Time, h *hotOpts, doneFrame string) (cardActionDone, error) {
+	var out cardActionDone
+	click, err := card.ParseClick(raw)
+	if err != nil {
+		return out, gateway.Reject{Reason: err.Error()}
+	}
+	id, sigWord, ok := click.Point()
+	if !ok {
+		return out, gateway.Reject{Reason: fmt.Sprintf(
+			"这条回调没带齐对哪一条、点的什么（要 %s 与 %s 两个键都在）—— 缺一个也不猜",
+			card.ClickIDKey, card.ClickSignalKey)}
+	}
+	sig, ok := approvals.ParseSignal(sigWord)
+	if !ok {
+		return out, gateway.Reject{Reason: fmt.Sprintf("认不出的信号 %q —— 只认 approve / reject / hold（不猜）", sigWord)}
+	}
+	if strings.TrimSpace(click.OpenID) == "" {
+		return out, gateway.Reject{Reason: "事件里没带 open_id —— 一次点不出人的头，等于没点头（不拿占位符顶上去）"}
+	}
+	out.Click, out.At = click, when
+	// 真相源加载不上也照收：先留痕（判断交给 agent），定位那几格如实说认不出。
+	o, oerr := org.Load(vault)
+	out.Org, out.OrgErr = o, oerr
+	by, via := locate(o, click.OpenID, appID)
+	d, err := approvals.New(id, by, sig, "", when)
+	if err != nil {
+		return out, err
+	}
+	d.Via = via
+	st, err := h.open()
+	if err != nil {
+		return out, hotDown{err}
+	}
+	defer st.Close()
+	r, err := approvals.Settle(st, vault, d)
+	if err != nil {
+		if errors.Is(err, approvals.ErrNotQueued) {
+			return out, gateway.Reject{Reason: err.Error(), Cause: err}
+		}
+		return out, hotOpFail{err}
+	}
+	out.Pending, out.Decision, out.Receipt = r.Pending, r.Decision, r
+	// 收口那一半：把终态帧渲染好交出去。**收口本身不在这儿** —— 那要连平台 API，是网关的事
+	// （§7.1.39 口径：我们不自己连飞书 API）。这一步只把数据与位置备齐。
+	doneF, doneWhere, derr := card.FindFrame("approval-done", doneFrame)
+	if derr != nil {
+		return out, fmt.Errorf("收口帧：%w", derr)
+	}
+	dc, dnotes := r.Pending.DoneCard(o, r.Decision, doneF)
+	out.DoneCard, out.DoneNotes, out.DoneFrame = dc, dnotes, doneWhere
+	return out, nil
+}
+
 func cmdApprovalsCardAction(args []string) int {
 	fs := flag.NewFlagSet("approvals card-action", flag.ContinueOnError)
 	h := addHotOpts(fs)
@@ -423,89 +514,57 @@ func cmdApprovalsCardAction(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
 	}
-	click, err := card.ParseClick(raw)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "拒绝：%v\n", err)
-		return 1
-	}
-	id, sigWord, ok := click.Point()
-	if !ok {
-		fmt.Fprintf(os.Stderr,
-			"拒绝：这条回调没带齐对哪一条、点的什么（要 %s 与 %s 两个键都在）—— 缺一个也不猜\n",
-			card.ClickIDKey, card.ClickSignalKey)
-		return 1
-	}
-	sig, ok := approvals.ParseSignal(sigWord)
-	if !ok {
-		fmt.Fprintf(os.Stderr, "拒绝：认不出的信号 %q —— 只认 approve / reject / hold（不猜）\n", sigWord)
-		return 1
-	}
-	if strings.TrimSpace(click.OpenID) == "" {
-		fmt.Fprintln(os.Stderr, "拒绝：事件里没带 open_id —— 一次点不出人的头，等于没点头（不拿占位符顶上去）")
-		return 1
-	}
 	when := time.Now()
-	if strings.TrimSpace(*at) != "" {
-		t, err := time.Parse(time.RFC3339, strings.TrimSpace(*at))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "错误：--at 必须是 RFC3339：%v\n", err)
+	if s := strings.TrimSpace(*at); s != "" {
+		tt, perr := time.Parse(time.RFC3339, s)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "错误：--at 必须是 RFC3339：%v\n", perr)
 			return 2
 		}
-		when = t
+		when = tt
 	}
-	// 真相源加载不上也照收：先留痕（判断交给 agent），定位那几格如实说认不出。
-	o, oerr := org.Load(vault)
-	by, via := locate(o, click.OpenID, *appID)
-	d, err := approvals.New(id, by, sig, "", when)
+	done, err := settleCardEvent(vault, raw, *appID, when, h, *doneFrame)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
-		return 2
-	}
-	d.Via = via
-	st, err := h.open()
-	if err != nil {
-		return hotUnreachable(err)
-	}
-	defer st.Close()
-	r, err := approvals.Settle(st, vault, d)
-	if err != nil {
-		if errors.Is(err, approvals.ErrNotQueued) {
+		var hd hotDown
+		var hf hotOpFail
+		switch {
+		case errors.As(err, &hd):
+			return hotUnreachable(hd.err)
+		case errors.As(err, &hf):
+			return hotFail(hf.err)
+		case gateway.IsReject(err):
 			fmt.Fprintf(os.Stderr, "拒绝：%v\n", err)
-			fmt.Fprintln(os.Stderr, "  · 队列里没有这条 = 要么没提过，要么已经结过账 —— 两个都别硬点。")
+			if errors.Is(err, approvals.ErrNotQueued) {
+				fmt.Fprintln(os.Stderr, "  · 队列里没有这条 = 要么没提过，要么已经结过账 —— 两个都别硬点。")
+			}
+			return 1
+		default:
+			fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 			return 1
 		}
-		return hotFail(err)
 	}
-	// 收口那一半：把终态帧渲染好交出去。**收口本身不在这儿** —— 那要连平台 API，是网关的事
-	// （§7.1.39 口径：我们不自己连飞书 API）。这一步只把数据与位置备齐。
-	doneF, doneWhere, derr := card.FindFrame("approval-done", *doneFrame)
-	if derr != nil {
-		fmt.Fprintf(os.Stderr, "错误：收口帧：%v\n", derr)
-		return 1
-	}
-	dc, dnotes := r.Pending.DoneCard(o, r.Decision, doneF)
-
+	r := done.Receipt
 	if *asJSON {
 		out := map[string]any{
 			"schema": "anc.approvals.card-action/v1", "ok": true,
 			"proposal": r.Pending.ID, "signal": string(r.Decision.Signal),
 			"by": r.Decision.By, "via": r.Decision.Via, "at": r.At,
 			"timeline": r.Timeline, "audit": r.Audit,
-			"org_loaded": oerr == nil, "org_error": errText(oerr),
+			"org_loaded": done.OrgErr == nil, "org_error": errText(done.OrgErr),
 			// 收口那一半：卡片是谁递出去的，谁拿这两样去收（同一条消息覆盖）—— ANC 不碰平台 API。
-			"chat_id": click.ChatID, "message_id": click.MessageID,
-			"done_frame": doneWhere,
+			"chat_id": done.Click.ChatID, "message_id": done.Click.MessageID,
+			"done_frame": done.DoneFrame,
 			"note":       "真相源没动：grants/ 那个文件由人侧的管理者 bot 写（ANC 只留痕）",
 		}
-		if b, err := dc.FeishuJSON(); err == nil {
+		if b, jerr := done.DoneCard.FeishuJSON(); jerr == nil {
 			var obj any
 			if err := json.Unmarshal(b, &obj); err == nil {
 				out["done_card"] = obj
 			}
 		}
-		if len(dnotes) > 0 {
-			notes := make([]map[string]string, 0, len(dnotes))
-			for _, n := range dnotes {
+		if len(done.DoneNotes) > 0 {
+			notes := make([]map[string]string, 0, len(done.DoneNotes))
+			for _, n := range done.DoneNotes {
 				notes = append(notes, map[string]string{"where": n.Where, "what": n.What})
 			}
 			out["done_notes"] = notes
@@ -521,8 +580,8 @@ func cmdApprovalsCardAction(args []string) int {
 	fmt.Println("anc approvals card-action —— 一次按键回程（与 CLI / 看板同一个信号入口）")
 	fmt.Printf("  谁点的    %s\n", r.Decision.By)
 	fmt.Printf("  怎么来的  %s\n", r.Decision.Via)
-	if oerr != nil {
-		fmt.Printf("  真相源    没加载上（%v）—— 上面那两行因此是「认不出」\n", oerr)
+	if done.OrgErr != nil {
+		fmt.Printf("  真相源    没加载上（%v）—— 上面那两行因此是「认不出」\n", done.OrgErr)
 	}
 	fmt.Printf("  提案      %s\n", r.Pending.ID)
 	fmt.Printf("  一句话    %s\n", r.Pending.Title)
@@ -530,8 +589,8 @@ func cmdApprovalsCardAction(args []string) int {
 	fmt.Printf("  落库      %s\n", r.Timeline)
 	fmt.Printf("  审计      %s\n", r.Audit)
 	fmt.Println("  队列      已清（热层里那条已删）")
-	fmt.Printf("  收口帧    %s\n", doneWhere)
-	for _, n := range dnotes {
+	fmt.Printf("  收口帧    %s\n", done.DoneFrame)
+	for _, n := range done.DoneNotes {
 		fmt.Printf("  !! %s：%s\n", n.Where, n.What)
 	}
 	fmt.Println("  下一步    grants/ 那个文件由人侧的管理者 bot 写 —— ANC 不写真相源。")

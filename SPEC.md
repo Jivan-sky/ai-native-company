@@ -465,6 +465,7 @@ ANC 这一侧哪几条是不变量、哪几条由对方适配。判据一句话�
 |---|---|
 | G1–G4 | 在 cc-connect 上**已落并实测**（`runtime/DESIGN.md` §7.1.6 / §7.1.8 / §7.1.10）。**形态层已抽**（2026-10-09 第一刀）：`internal/gateway` 把「装 / 重启 / 日志落点 / 会话落点 / 凭据键名空间 / 认哪些枚举」收成**一张表**（`gateway.CCConnect`），apply / probe / trail / notify / startup / org 六个消费方改成从表里取 —— 换一家网关 = 加一行表，不改调用点。**仍未抽**：G1 的**产物正文**（`config.toml` 各段怎么写）还在 `internal/render`；两家的 harness 腿仍各写一份 |
 | H1 / H2 / H4 | 已落（H4 的表已按「加条目」的形状写，codex / openclaw 的工具名已进表）。**H3 的「记录可读 + 可归集」已实测（2026-10-10）**：`trail` 四家读取器都填 `Acts`（一次调用的原始事实），`audit collect` 改成「枚举分片 → 该家 reader 读 Acts → 工具表分类」，**自己那份 jsonl 解析删掉**；口径表新增成对的 `shard_dir` / `shard_glob`（分片堆在一层、目录从项目名推不出来的家：全量枚举 + 按记录里的 `cwd` 认领）。真数据判据：`--harness codex` 84 分片 / 9 次行使 / 9 条记录，`--harness claude` 1 / 1 / 1，两边 `--write` 后重跑都是 0 条（幂等）（`runtime/DESIGN.md` §7.1.30）。**仍未实测**：第二条腿在业务 agent 上**回话**（H2）—— 这一轮验的是记录可读与可归集 |
+| 第二条网关（relay） | **已落并实测（2026-10-11）**：上游 `origin/main` **没有**「卡片事件进来」的公开口（`/send` 只出、`:9111/hook` 是反向下发、bridge 的入站 `card_action` 不带 operator）—— relay 因此长在 ANC 这一侧：**事件从 stdin 进、收口从 stdout 出**，两端都是适配器，这一层不碰平台 API。`internal/gateway` 出判断与幂等（五个结局、两个 `Sink` 方法），`runtime/gateway.go` 出 CLI（`anc gateway relay`）。**仍未做**：长连接本体（还在 `lark-cli` 那条腿）、`print` 出来那一行的执行方、上游 PR（站在 #1828 上补 operator —— 要 fork 授权）。见 `runtime/DESIGN.md` §7.1.44 |
 | ③ 业务 agent 独立账号 | **已实测（2026-10-10）** —— `agents.md` 落点（加 `role` / `app_id` 两列，§13 Q23 已拍：表里加列，persona 复用 `roles/<role>/` 那套）+ `render.Build` 为每个 agent 产一个 `[[projects]]`（cwd 走 `--agent-home`）+ 10 条规则 + 19 条用例（`runtime/DESIGN.md` §7.1.27 / §7.1.28）。沙箱侧**换 OS 账号、非 root、用户级 systemd 装载 + 真回话**都验过（凭据桥 / harness / 平台连接 / 产物只含它该有的 / 账号隔离 / 入站一问一答，§7.1.29）；顺带把 apply 第 7 步的就绪判据修正了（原来把 `unwired` 的 project 也算进期望值，同一份部署既会假绿也会假红）。同机同 app 只允许一条长连接，是**串行**验的。**仍未验**：同机同 app 并发、第二条腿（codex / openclaw）在业务 agent 上回话 |
 
 **⑤ 本节新增的待拍** → §13 Q20 / Q21 / Q23。
@@ -692,14 +693,19 @@ cc-connect v1.3.4 的对外口（unix socket `POST /send`）只有文本与附�
 所以这不是「ANC 没接」，是**上游没有这个面** —— 上游 PR 记在 §7.1.39，我们不自己连飞书 API
 （换平台是网关的事，SPEC §4.7 ①）。
 
+**这一格现在补上了（2026-10-11，§4.7 ④「第二条网关」）**：既然上游没有那个口，relay 就长在 ANC 这一侧 ——
+`anc gateway relay` 吃一行一条的事件流（stdin）、落痕（走与 CLI / 看板同一个信号入口）、收口（`print` 打到 stdout，
+交给部署侧那个适配器）。**口径没变**：ANC 自己仍然不连飞书 API。见 `runtime/DESIGN.md` §7.1.44。
+
 **回程那一半已对齐真事件（2026-10-11 实测拓到）**：人真点出来的那份回调是**扁平**形状（顶层 `operator_id` / `chat_id` / `message_id`，
 按键在 `action_value` 里而且是**一串 JSON 文本**），与事件订阅那份嵌套形状**不是一份**。
 `anc approvals card-action` 现已**宽进严出**：两种形状都收，但只认 `anc_id` / `anc_signal` 两个键。
 点完之后的**收口**那一格见下一段。见 `runtime/DESIGN.md` §7.1.41。
 
-**收口那一半已备好（2026-10-11）**：点完之后那张卡该换成**终态帧**（出厂 `approval-done`：帧是数据、`--done-frame` 可换、**没有按钮**），
+**收口那一半已备好（2026-10-11）**：点完之后那张卡该换成**终态帧**（出厂 `approval-done`：帧是数据、`--done-frame` 可换、
+三个按键**都留着、都 `disabled`** —— 收口的样子是「变暗」不是「撕掉」，按键留着自己才看得出原来有哪几个选项），
 `anc approvals card-action --json` 把终态卡（`done_card`）与位置（`chat_id` / `message_id`）一起交出去 ——
-**收口这一步不归 ANC**（网关当回调应答返回，或按同一条 `message_id` 覆盖）。见 `runtime/DESIGN.md` §7.1.42。
+**收口这一步不归 ANC**（网关当回调应答返回，或按同一条 `message_id` 覆盖）。见 `runtime/DESIGN.md` §7.1.42 / §7.1.43。
 
 **读路径同样只有一条（2026-10-07 已实现）**：**真相源 → 只读投影（`anc org export`，`anc.board/v1`）
 → 看板 / 前端**。投影是**纯函数、只读、不含凭据面字段** —— 不导出 `open_id` / `app_id`。

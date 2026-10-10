@@ -82,10 +82,13 @@ type Item struct {
 //   - Signal：**原样回程**的那个信号。它不查表、不校验 —— 认不认是回调那一侧的事
 //     （同 approvals：只认三个字，别的拒，但拒在收的那一头，不在这里猜）
 //   - Style：primary / default / danger（飞书那三个）
+//   - Disabled：这一个**只给看不给点**（true = 变暗）。它是**帧说的一句**，不是判据 ——
+//     为什么变暗由帧自己说（出厂收口帧就是三键全禁），「该不该他点」那类判断不在这里
 type Button struct {
-	Label  string `json:"label"`
-	Signal string `json:"signal"`
-	Style  string `json:"style,omitempty"`
+	Label    string `json:"label"`
+	Signal   string `json:"signal"`
+	Style    string `json:"style,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
 }
 
 // Default 是**出厂帧**：粗糙的骨架 —— 一句标题 + 一段正文 + 几列字 + 一排按键。
@@ -155,10 +158,14 @@ type Element struct {
 }
 
 // CardButton 是一个已经绑好的按键：点它会把 Payload 原样送回。
+//
+// Disabled 跟着帧来（帧说禁就禁）—— 渲染这一层只管把这句话带到出口，
+// 它**不负责让按键失效**：真正点不动是平台那一侧的事（见 FeishuJSON）。
 type CardButton struct {
-	Label   string
-	Style   string
-	Payload map[string]string
+	Label    string
+	Style    string
+	Disabled bool
+	Payload  map[string]string
 }
 
 // Render 把帧渲染成卡片：**值由调用方现算**，这里只负责把槽位填上。
@@ -204,9 +211,10 @@ func (f Frame) Render(values map[string]string) (Card, []Note) {
 					notes = append(notes, Note{Where: bw, What: "槽位 id 是空的 —— 点了这一下回不到任何一条（回调那一侧会拒）"})
 				}
 				el.Buttons = append(el.Buttons, CardButton{
-					Label:   f.fill(btn.Label, values, bw, &notes),
-					Style:   strings.TrimSpace(btn.Style),
-					Payload: payload,
+					Label:    f.fill(btn.Label, values, bw, &notes),
+					Style:    strings.TrimSpace(btn.Style),
+					Disabled: btn.Disabled,
+					Payload:  payload,
 				})
 			}
 			if len(el.Buttons) == 0 {
@@ -336,12 +344,18 @@ func (c Card) FeishuJSON() ([]byte, error) {
 				if style == "" {
 					style = "default"
 				}
-				as = append(as, map[string]any{
+				one := map[string]any{
 					"tag":   "button",
 					"text":  map[string]any{"tag": "plain_text", "content": btn.Label},
 					"type":  style,
 					"value": btn.Payload,
-				})
+				}
+				if btn.Disabled {
+					// 飞书 interactive v1 的按钮认这一个字段：true = 变暗，平台不再回传点击。
+					// 这只是**渲染**；真正点不动还有 ANC 自己那一层（那条提案已经不在队里）。
+					one["disabled"] = true
+				}
+				as = append(as, one)
 			}
 			if len(as) > 0 {
 				els = append(els, map[string]any{"tag": "action", "actions": as})
@@ -359,9 +373,15 @@ func (c Card) FeishuJSON() ([]byte, error) {
 // DefaultDone 是**出厂收口帧**：一条待批被点掉之后，那张卡换成它。
 //
 // 与待批帧一样是**数据**（一个 Frame 字面量，不是分支）：一句结论 + 提案原文
-// + 谁点的 / 怎么来的 / 什么时候。
+// + 谁点的 / 怎么来的 / 什么时候 + **那一排按键（全禁）**。
 //
-// **没有按键** —— 收口的意思就是不能再点。（帧里不出按键是帧说的；“不该他点”那类判据不在这里。）
+// **收口的样子是「变暗」，不是「撕掉」**（2026-10-11 human 拍板，见 DESIGN §7.1.43）：
+// 三个按键都留着、都 disabled —— 留着才看得出这张卡原来有哪几个选项，变暗才点不动；
+// 把按键撕掉反而把「有哪几个选项」从卡面上抹掉了。
+//
+// 真正回不了头的是两处，都不在这一层：① 平台侧 disabled 之后不再回传点击（这一句由
+// FeishuJSON 带出去）；② ANC 侧那条提案已经不在队列里（重复点本来就拒，ErrNotQueued）。
+// 帧只管把「变暗」说出来 ——「该不该他点」那类判据不在这里。
 func DefaultDone() Frame {
 	return Frame{
 		Schema: Schema,
@@ -373,6 +393,11 @@ func DefaultDone() Frame {
 				{Label: "谁点的", Value: "{{by}}"},
 				{Label: "怎么来的", Value: "{{via}}"},
 				{Label: "什么时候", Value: "{{at}}"},
+			}},
+			{Kind: KindButtons, Buttons: []Button{
+				{Label: "同意", Signal: "approve", Style: "primary", Disabled: true},
+				{Label: "驳回", Signal: "reject", Style: "danger", Disabled: true},
+				{Label: "挂起", Signal: "hold", Style: "default", Disabled: true},
 			}},
 		},
 	}

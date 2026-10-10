@@ -2427,6 +2427,92 @@ human 原话：「这个同意的话…我点完之后它还是可以再点击�
 demo 里这条路是靠我们自己的长连接消费者跑通的，所以卡片真正「点完就灭」要等网关那个口。
 判据一条没改：卡片这一层从不读写真相源，也不判该不该他点。
 
+### 7.1.43 收口的样子是「变暗」，不是「撕掉」（2026-10-11，收 §7.1.42 的尾）
+
+§7.1.42 把收口落成「终态帧里没有 `buttons` 那一块」—— 按键**直接消失**。human 在飞书上真点之后这条被否了，
+原话：
+
+> 「它没有变暗，我点击选项框之后，这应该是一次性点击的东西。那么三个选项框都应该变暗才对。
+> 之后再再也点击不了才是正确的方式。但是这里我们没有实现，就会造成信息错误失真。」
+
+**为什么「撕掉」是错的**：收口卡本来就是给人回看的（谁点的 / 怎么来的 / 什么时候），
+把按键撕掉之后，卡面上再也看不出**原来有哪几个选项** —— 等于从证据里抹掉一层。
+**变暗**把这一层留住，同时把「还能再点」关掉。
+
+**改了什么**（只加语法与出厂数据，判据一个字没加）：
+
+| 那一格 | 改成 |
+|---|---|
+| 帧语法 | `card.Button` 加 `Disabled bool`（`json:"disabled"`）—— **帧说的一句**，不是判据；`CardButton` 同步带上 |
+| 出口 | `FeishuJSON` 把 `disabled: true` 写进那份 JSON（飞书 v1 的按钮认这个字段：变暗 ＋ 平台不再回传点击） |
+| 出厂收口帧 | `DefaultDone()` 加回 `buttons` 那一块：三键**都在**、都 `Disabled: true` |
+
+**回不了头仍有两处，都不在卡片这一层**：① 平台侧 `disabled` 之后不再回传点击；② ANC 侧那条提案已经不在队列里
+（重复点本来就拒，`ErrNotQueued`）。§7.1.42 那条口径没变：**递出去 / 覆盖那条消息不归 ANC**（那个口在议题 #65）。
+
+**实测**（沙箱 Ubuntu，真事件 `e2e/evt-real-flat.ndjson`）：
+
+| 判据 | 结果 |
+|---|---|
+| `--json` 回执 | ✅ `done_card` 里三个 `actions[]` 都带 `"disabled": true`（`header.template` 仍是绿、标题带结论） |
+| 平台上真变暗 | ✅ 拿这份 `done_card` 手工 `PATCH /open-apis/im/v1/messages/:message_id` 就地更新那条测试卡，平台回 `ok:true` —— **手工一次、验渲染**，不是产品代码自己连飞书 API |
+| 用例 | ✅ `internal/card`：原「出厂收口帧没有按键」换成「三键都在但全禁用」；新增「禁用按键带 `disabled`」（钉出口）；`internal/approvals/card_test.go`：原「没有按键」换成「三键全禁用」 |
+| 质量门 | ✅ `gofmt -l` 空 · `go vet` 空 · `go test ./... -count=1` **18 包全绿** |
+
+**这一刀没做的**：「生成终态卡 → 覆盖消息」这一串还没**自动**跑起来 —— 网关那一侧见议题 #65。
+
+### 7.1.44 第二条网关：relay 长在 ANC 这一侧（2026-10-11，收 §7.1.39 / 议题 #65 的尾）
+
+human 拍了「先做第二条网关（仓库正式件），上游 PR 并行推」。第一件事是把**上游那一侧到底有没有这个口**核死 ——
+不是读文档，是对着 `chenhg5/cc-connect` 的 `origin/main`（`dfad1941`）源码逐条看：
+
+| 找什么 | 结论 | 证据 |
+|---|---|---|
+| 把**卡片**递出去 | 没有这个口 | `core/api.go:50` 的 `SendRequest` 只有 `message` / `images` / `files` / `audios` / `videos` / `at_*` |
+| 把**卡片事件**收进来 | 没有这个口 | `core/webhook.go` 的 `POST :9111/hook` 是**反向下发**：`{project, session_key, prompt\|exec, payload}` 往某个会话里塞一条 prompt 或一条命令 —— 能下发，**换不了卡** |
+| bridge 那条协议 | 入站 `card_action` **不带 operator** | `core/bridge.go:122` 的 `bridgeCardAction`：`{type, session_key, action, reply_ctx, project}` |
+| 上游有没有人在做 | 有，但没合 | open PR #1828（`card_hook_dir`：按键带 `hook`，点击时**同步跑一个本地脚本**，stdout 当替卡）—— 它缺的正是 operator |
+
+**所以 relay 长在 ANC 这一侧**：事件从 stdin 进、收口从 stdout 出，**两端都是适配器**，
+这一层不碰平台 API（SPEC §4.7 ① / §7.1.39 口径没变）。形状：
+
+| 住哪 | 是什么 |
+|---|---|
+| `internal/gateway/relay.go` | 判断与顺序：五个结局（`settled` / `duplicate` / `rejected` / `ignored` / `error`）、两个 Sink 方法（`Settle` / `Patch`）、一个 `Config`（`NoPatch` / `Capacity` / `TTL`）。碰外面那两步是接口，所以核心能整份被测试对着比 |
+| `runtime/gateway.go` | CLI：`anc gateway relay <vault> [--app-id <id>] [--patch print\|off\|cmd:<命令>]` |
+
+**判断只有一份**：relay 的 `Settle` 调的是 `settleCardEvent` —— 与 `anc approvals card-action` 同一个函数，
+判据一个字没加（两个键都在才算数 · 只认三个字 · 没带 open_id 不算点头 · 先落库再清热层 · 真相源一动不动）。
+它是从 `cmdApprovalsCardAction` 里**原样抽出来**的，不是新写的一份。
+
+**幂等怎么算账**（这条得说清楚，不然容易被当成假保证）：
+键优先 `event_id`，没有就退到一枚指纹（哪条消息 + 谁点的 + 点的什么）；
+但那张表是**进程内**的 —— 换个进程就没了。跨进程的真闸从来不是它，是**队列本身**：
+同一条点第二次，`approvals.Settle` 报 `ErrNotQueued`。所以幂等表是**减噪器**（同进程内少喊一声），
+不是正确性的闸。实测就是这么表现的：第二次跑是新进程，答的是 `rejected` 不是 `duplicate`。
+
+**收口三档**（都是数据，配置里给）：`print`（默认）把「该盖什么」按 NDJSON 打到 stdout 交给部署侧；
+`off` 只落痕（调用方自己就是应答方时用得上，比如上游那个 hook）；`cmd:<命令>` 跑一条配置里的命令去收。
+
+#### 实测（沙箱 Ubuntu + 真 Redis 7.0.15，`~/anc-vm2`，vault `vault`）
+
+| 判据 | 结果 |
+|---|---|
+| 已经结过账的那一条（`e2e/evt-real-flat.ndjson`，`prop-card-1`） | ✅ `rejected` `e:e041e2cb…`，理由是判据原话「待批队列里没有这条提案」——**不是** error |
+| 新提案 + 合成真事件，`--patch print` | ✅ `settled` `e:gw-selftest-e1` → stdout 一行 `anc.gateway.patch/v1`：`om_selftest_1` / `oc_1837…` / `done_card`（三键 `disabled:true`、`header.template=green`） |
+| 同一条再递一次（新进程） | ✅ `rejected`（跨进程的闸是队列，见上） |
+| 队列 | ✅ 2 条 → 1 条（只有那一条自测提案被结掉） |
+| 一样本坏一行（不是按键 / 缺键） | ✅ 用例钉着 `ignored` 与 `rejected` 分得开；流本身不断 |
+| 用例 | ✅ `internal/gateway` 13 条（钥匙 / 幂等 / 五种结局 / 收口失败不回退 / 容量与保鲜期 / 那一行话） |
+| 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **18 包全绿** |
+
+#### 这一刀没做的
+
+① 长连接**本体**还不在这一条腿里（现在由 `lark-cli event consume` 那条腿把 NDJSON 喂进来；
+将来换飞书官方 SDK 那条腿，写的是适配器，relay 一个字不用改）；
+② `print` 出来那一行**谁来盖** —— demo 里是 `lark-cli` 打 `PATCH`，产品里是部署侧那个适配器；
+③ 上游 PR（站在 #1828 上补 operator）—— 要 fork 授权，还没提。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
