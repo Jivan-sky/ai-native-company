@@ -26,6 +26,7 @@ const auditUsage = `anc audit —— 行使的流水：谁在什么时候、对�
   anc audit add <vault> [选项]        显式补记一条（归集不到的那一类）
   anc audit collect <vault> [选项]    从 harness 原生记录归集（默认 dry-run）
   anc audit tools                     打印生效的工具表
+  anc audit rules                     打印生效的脱敏表（加了一栏：带上了几条已知密钥值）
 
 log 选项：
   --actor <名字>      只看一个人
@@ -55,6 +56,10 @@ collect 选项：
   --json              机器读的出口
 
 四条口径：
+  · **落盘前强制脱敏**。why / object / detail 里夹带的密钥值一律抹成 「已脱敏:规则名」的占位符
+    （不是抹成空白 —— 要让人看出这里有过东西、是哪一类）。规则是**数据**（见 anc audit rules），
+    并且**没有关掉它的开关**：它不是一个门禁，是无条件的内容变换。
+    这一条对应 SPEC「config / 备份 / diff 全程无明文」。
   · **只记不拦**。审计是「先记下来」，不是「先拦住」—— 拦住是授权层的事。
     它判错了，代价应该只是一行话，不是「一件本该发生的事没发生」。
   · **离线**。ANC 不在行使路径上，所以流水靠两条腿凑：事后归集 + 显式补记。
@@ -81,6 +86,8 @@ func cmdAudit(args []string) int {
 		return cmdAuditCollect(args[1:])
 	case "tools":
 		return cmdAuditTools(args[1:])
+	case "rules":
+		return cmdAuditRules(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, auditUsage)
 		return 2
@@ -213,6 +220,18 @@ func printAuditLog(abs string, doc audit.Doc, all []audit.EntryView, matched int
 	}
 	if matched > len(shown) {
 		fmt.Printf("\n  还有 %d 条更早的 —— 加 --limit，或按 --actor / --result / --action / --cross 筛。\n", matched-len(shown))
+	}
+	if len(doc.Tainted) > 0 {
+		shown := doc.Tainted
+		more := ""
+		if len(shown) > 8 {
+			more = fmt.Sprintf("…等 %d 行", len(shown))
+			shown = shown[:8]
+		}
+		fmt.Printf("\n  ⚠️  有 %d 行**落盘时就是明文**（这条流水是脱敏落地之前写的）：%s%s\n",
+			len(doc.Tainted), strings.Join(shown, "、"), more)
+		fmt.Printf("     读出来是干净的（读口也过了一遍脱敏），但**磁盘上还躺着明文** ——\n")
+		fmt.Printf("     处置是轮换那些密钥 + 清理那些文件，那是人做的事；这里只把位置指出来。\n")
 	}
 	if len(doc.Bad) > 0 {
 		fmt.Printf("\n  ⚠️  有 %d 行读不懂（少一行就可能让一次行使看起来没发生）：%s\n",
@@ -528,6 +547,50 @@ func cmdAuditTools(args []string) int {
 		fmt.Printf("  %-16s %-8s %s\n", r.Tool, r.Action, target)
 	}
 	fmt.Printf("\n  不在表里的工具**不会静默丢掉**：归集时计入 Problems 报出来。\n")
+	return 0
+}
+
+// ---------- rules ----------
+
+func cmdAuditRules(args []string) int {
+	fs := flag.NewFlagSet("audit rules", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "JSON 出口")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	red := audit.Effective()
+	rules := red.Rules()
+	if *asJSON {
+		// 已知密钥值**只出条数，不出值** —— 这一份出口可能被重定向到文件里。
+		out := map[string]any{
+			"schema":       auditSchema,
+			"rules":        rules,
+			"known_count":  red.KnownCount(),
+			"secrets_file": secretsFileForRedact(),
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(out); err != nil {
+			fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		}
+		return 0
+	}
+	fmt.Printf("anc audit —— 生效的脱敏表（%d 条规则 ＋ %d 条已知密钥值）\n\n",
+		len(rules), red.KnownCount())
+	fmt.Printf("  %-22s %-6s %s\n", "规则名", "档", "匹配")
+	for _, r := range rules {
+		kind := "键名"
+		if r.Kind == audit.RedactKindForm {
+			kind = "形态"
+		}
+		fmt.Printf("  %-22s %-6s %s\n", r.Name, kind, r.Match)
+	}
+	fmt.Printf("\n  命中之后写的是 `«已脱敏:<规则名>»`，**不是空白** —— 要让读的人还能看出\n")
+	fmt.Printf("  「这里有过一个东西、它是哪一类」。\n")
+	fmt.Printf("\n  这一层**没有开关**：脱敏不是门禁，是无条件的内容变换。\n")
+	fmt.Printf("  已知密钥值来自 %s（只报条数，不打印值）。\n", dashOf(secretsFileForRedact()))
+	fmt.Printf("  规则是**数据**：要加键名 / 形态，改 internal/audit/redact.go 的出厂表，\n")
+	fmt.Printf("  或把客户自己的键名写进凭据文件（那是规则的第二处来源）。\n")
 	return 0
 }
 

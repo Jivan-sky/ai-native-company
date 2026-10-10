@@ -337,6 +337,7 @@ anc audit add <vault> -actor <谁> -action <read|write|invoke> -result <ok|denie
                        [-why <原话>] [-at <RFC3339>] [-on-behalf-of X] [-tool X] [-source X] [-ref X] [-detail X]
 anc audit collect <vault> [--dir <会话记录目录>] [--since <RFC3339>] [--write] [--json]
 anc audit tools [--json]
+anc audit rules [--json]           打印生效的脱敏表（不打印已知密钥值，只报条数）
 ```
 
 「谁在什么时候、对谁、行使了什么 —— 含**被拦下的**和**失败的**」。真相源是
@@ -348,6 +349,13 @@ anc audit tools [--json]
 - **一条必须写在明面上的边界**：「**本可以行使但没行使**」**永远不可能自动归集** —— 它没有发生，就没有记录；
   只有人补记的那一类才答得了。
 - **只记不拦**：不设门禁、不自己发明一套读权限（读权限归 #32/#34，留存期归 #27/#25）；`add` 不校验「谁能写」。
+- **落盘前强制脱敏**：`object` / `why` / `detail` 里夹带的密钥值，一律抹成
+  `«已脱敏:<规则名>»`（**不是抹成空白**）。落点是全项目唯一的写口，
+  所以归集 / 补记 / 信封关卡 / 读出口 / 审批留痕五条路都过它。规则是**数据**
+  （`anc audit rules`），来自三处：出厂表 + 凭据文件里的已知值（`~/.anc/secrets.env`）
+  + 凭据文件自己的键名。**这一层没有开关** —— 脱敏不是门禁，是无条件的内容变换。
+  读口也过一遍（兜底），并把「**落盘时就是明文**」的行如实报出来。
+  设计记录见 `DESIGN.md` §7.1.36。
 - **结果四档，`denied` 与 `failed` 是两件事**：「被拦下」去查授权，「做了没成」去查环境；词表不锁死。
 - **不存派生值**：流水存当时的事实（`object` 原样）；「在哪个域、算不算跨域」按**当前**域表算 ——
   域表改了，历史记录跟着重判，而不是留一堆变假的旧结论。落点四类：域内 / 跨域 / **域外** / **vault 内非域**
@@ -709,7 +717,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `internal/timeline/` | 决策与执行留存的读写与折叠（纯 Go 标准库；按作者分片、词表不锁死） |
 | `internal/board/timeline.go` | 时间线的只读出口（`/api/timeline`，`anc.timeline/v1`） |
 | `internal/board/approvals.go` | 待批的只读出口（`/api/approvals`）+ 看板**唯一写口**（`/api/approvals/decide`） |
-| `audit.go` | `anc audit` 的 CLI：`log` / `add` / `collect` / `tools`（事后归集 + 显式补记） |
+| `audit.go` | `anc audit` 的 CLI：`log` / `add` / `collect` / `tools` / `rules`（事后归集 + 显式补记） |
+| `internal/audit/redact.go` | 审计落盘前的强制脱敏（规则是数据；三条腿；抹成指针；没有开关） |
 | `internal/audit/` | 行使的流水的读写 + 派生（落点 / 跨域）+ 归集（工具表是数据，不是代码；纯 Go 标准库） |
 | `internal/board/audit.go` | 审计的只读出口（`/api/audit`，`anc.audit/v1`；自由文本不出门） |
 | `envelope.go` | `anc envelope check` / `serve` 的 CLI（解析 + 绑真相源；接入面走 MCP） |

@@ -141,6 +141,13 @@ func (r Record) Time() (time.Time, bool) {
 type Doc struct {
 	Records []Record
 	Bad     []string // "<文件名>:<行号>"
+
+	// Tainted 是「**落盘时就是明文**」的那些行（"<文件名>:<行号>"）。
+	//
+	// 读口也会过一遍脱敏（兜底），所以这些行读出来是干净的；但**磁盘上还躺着明文** ——
+	// 那是这份代码落地之前写进去的。它必须被报出来，不能因为「显示干净」就当它不存在：
+	// 处置是轮换那个密钥 + 清理那些文件，那是人做的事，代码只能把位置指出来。
+	Tainted []string
 }
 
 // Len 方便调用方判空。
@@ -210,6 +217,11 @@ func readShard(path, name string, doc *Doc) ([]string, error) {
 			bad = append(bad, fmt.Sprintf("%s:%d（缺 id）", name, ln))
 			continue
 		}
+		// 读口兜底：老文件里可能躺着明文（写口脱敏是这份代码之后才有的事）。
+		// 抹掉的是**显示**，不是文件 —— 所以同时把位置记进 Tainted，如实报出来。
+		if hits := Effective().CleanRecord(&r); len(hits) > 0 {
+			doc.Tainted = append(doc.Tainted, fmt.Sprintf("%s:%d", name, ln))
+		}
 		doc.Records = append(doc.Records, r)
 	}
 	return bad, sc.Err()
@@ -246,6 +258,10 @@ func Append(vault string, r Record) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, t.Format("2006-01")+"."+actor+".jsonl")
+	// **落盘前**那一道（SPEC「config / 备份 / diff 全程无明文」）。
+	// 位置刻意选在 Append：这是全项目唯一的审计写口 —— 归集、补记、信封关卡、
+	// 读出口、审批留痕五条路都从这里过，漏不掉。见 redact.go。
+	Effective().CleanRecord(&r)
 	b, err := json.Marshal(r)
 	if err != nil {
 		return "", err
