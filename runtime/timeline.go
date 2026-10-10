@@ -231,6 +231,12 @@ func cmdTimelineList(args []string) int {
 	if next != "" {
 		fmt.Printf("  下一页   --before %s\n", next)
 	}
+	if len(doc.Tainted) > 0 {
+		fmt.Printf("  ⚠️  有 %d 行**落盘时就是明文**（这条流水是脱敏落地之前写的）：%s\n",
+			len(doc.Tainted), strings.Join(doc.Tainted, "、"))
+		fmt.Println("       读出来是干净的（读口也过了一遍脱敏），但**磁盘上还躺着明文** ——")
+		fmt.Println("       处置是轮换那些密钥 + 清理那些文件，那是人做的事；这里只把位置指出来。")
+	}
 	if len(doc.Bad) > 0 {
 		fmt.Printf("  ⚠️  读不懂的行 %d 条：%s\n", len(doc.Bad), strings.Join(doc.Bad, "、"))
 		fmt.Println("       （时间线是拿来做判断的，少一行就可能把「卡住」看成「没事」—— 去看一眼）")

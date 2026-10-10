@@ -2082,7 +2082,7 @@ bot 读了 `~/.claude/settings.json`，当时在用的 `ANTHROPIC_AUTH_TOKEN` �
 **轮换 `ANTHROPIC_AUTH_TOKEN`** —— 轮换之后归档件里那串就是死凭据。归档件要不要进一步抹／删，等轮换后再说。
 
 **这一刀没做的**：① 已知值的来源只有 ANC 自己的凭据文件，客户别处的明文靠形态档与键名档兜；
-② 脱敏只覆盖 `audit` 这一条流水 —— `timeline` / `envelope` 日志没有同类变换，要不要做另开议题（#64）。
+② 脱敏原本只覆盖 `audit` 这一条流水 —— `timeline` / `envelope` 日志没有同类变换。**已经补上（2026-10-10，议题 #64）**，见 §7.1.40。
 
 **踩到并记下的两个坑**（都是「重建时把原文拆成捕获组再拼回去」这一类）：
 
@@ -2301,6 +2301,47 @@ prompt 或一条命令，`payload` 会作为上下文拼进 prompt）。它就�
 现在是按钮点了就走，`why` 留给后面（要看客户真怎么用）；③ 卡片里嵌「提案原文之外」的活数据
 （比如让 agent 把当时的上下文塞进去）—— 那要等上下文资产那一块，现在不焊。
 ④ 用例：本轮**只跑了实测**，`internal/card` 还没有测试文件（加测试要先跟 human 定判据，见 AGENTS.md 第 2 条）。
+
+### 7.1.40 脱敏横向铺开：两条流水吃同一张表（2026-10-10 夜，议题 #64）
+
+**§7.1.36 留下的那一格**：脱敏当时只落在审计写口。可“夹带原话”不止一处 ——
+时间线的 `title` / `detail` 写的就是“当时说了一句什么”，信封日志的 `body` 是投递正文、`refs` 是带查询串的链接。
+同一台机器上，一条流水抹了、另一条留着，等于没抹。
+
+**不另造一套正则**：`internal/audit` 露出 `Scrub(s string) (string, []string)` —— 薄薄一层，
+走的就是 `Effective().Apply`。理由：三条流水必须吃**同一张表、同一个占位符形状**（`«已脱敏:<规则名>»`）。
+占位符的名字取决于**当地那张表**（出厂表 ＋ `~/.anc/secrets.env` 的已知值 ＋ 凭据文件的键名），这是设计。
+
+**抹哪几格（口径）**：
+
+| 流水 | 抹 | 不抹（为什么） |
+|---|---|---|
+| `timeline` | `title` / `detail` / `refs` | `case` / `by` / `role` / `to` / `domain` / `project` / `kind` / `status` / `id` / `at` —— 标识与词表（按 case 折叠、按人按域筛全靠它们），抹了就看不出“谁在推进哪一格” |
+| `envelope` 日志 | `body` / `refs` / `needs` / `findings[].msg` | `id` / `ts` / `who` / `on_behalf_of` / `scope` / `kind` —— 标识与词表。`findings[].msg` 之所以算“可能夹带内容”：它是**判据文案**，而判据文案会把字段值原样引一遍（`domain="nope" 不在 domains.md 里`） |
+
+**落点都选在写口**（与审计同一条理由：写口是承诺的兑现处）：
+`timeline.Append` 落盘前 `scrub(&e)`；`envelope.Append` 落盘前 `scrub(&rec)`。
+
+**读口只兜底，不改历史**：`timeline.Load` 也过一遍，但**文件一个字节都不动**（append-only 是这条流水的性质），
+并把“**磁盘上这行就是明文**”的行如实报出来（`Doc.Tainted`）—— `anc timeline list` 照 `anc audit log` 的文案打出来。
+这是 §7.1.36 的同一条口径：判错要能看见，不许画成没事。
+
+**实测**（沙箱 Ubuntu，真 Linux 二进制 `anc64`，vault 副本）：
+
+| 判据 | 结果 |
+|---|---|
+| 时间线写口：title / detail / refs 带 `sk-ant-api03-…` | ✅ 落盘后磁盘 **0 命中**，抹成 `sk-«已脱敏:sk»` |
+| 时间线 `list` 不误报 | ✅ 刚落盘的行**不算**“落盘时就是明文” |
+| 时间线读口：手写一行老明文 | ✅ 读出来干净；如实报 `⚠️ 有 1 行落盘时就是明文：2026-10.alice.jsonl:4`；**文件 sha256 前后完全相同** |
+| 信封写口（真接入面 `envelope serve` ＋ `curl POST /mcp anc_send_envelope`） | ✅ 磁盘 **0 命中**；`body` / `refs` / `needs` 全抹成占位符 |
+| 用例 | `internal/timeline` 4 条 ＋ `internal/envelope` 3 条 |
+| 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **18 包全绿** |
+
+脚本：`_tmp/vm_rd64.sh`、`_tmp/vm_rd64mcp.sh`。
+
+**这一刀没做的**：信封日志**没有读口**（全项目只有 `envelope.Append` 一个入口，看板与 CLI 都不读它），
+所以那一侧没有“读口兜底”可做；真正的缺口只有“这份代码之前写下的行”，而那批行的时间线侧已经靠 `Tainted` 指出位置了。
+业务 agent 的会话原文（`trail` 几条腿读的上游记录）**不在这一刀的范围内** —— 那是“上下文资产”那一块的事。
 
 ---
 

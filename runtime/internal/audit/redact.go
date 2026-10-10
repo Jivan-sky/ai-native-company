@@ -385,6 +385,18 @@ func Effective() *Redactor {
 	return builtinRedactor
 }
 
+// Scrub 是**给别的流水用的那个口**：把一段自由文本过一遍当前生效的脱敏表。
+//
+// 为什么不让调用方各自 `Effective().Apply`：审计不是唯一一条会夹带原话的流水 ——
+// `timeline` 的 title / detail 与 `envelope` 的 body 是同一类东西（议题 #64）。
+// 三条流水吃**同一张表、同一个占位符形状**，才不会出现「一处抹了、另一处留着」。
+func Scrub(s string) (string, []string) {
+	if s == "" {
+		return s, nil
+	}
+	return Effective().Apply(s)
+}
+
 // SetRedactor 落定进程级脱敏表。调用方是 main（启动时一次），
 // 带上凭据文件里的已知值。传 nil 不生效 —— 不许出现「没有脱敏」这个状态。
 func SetRedactor(r *Redactor) {
