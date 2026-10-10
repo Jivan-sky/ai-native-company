@@ -264,8 +264,15 @@ func (r *Redactor) CleanRecord(rec *Record) []string {
 // 原文里写的是什么大小写，拼回去的就该是什么。
 //
 // 「前一个字符」那一条是**必须的**：没有它，`token` 会命中 `input_tokens`
-// （而那是用量口径，抹了它审计就瞎了）。值三种写法都要认：双引号串 / 单引号串 /
-// 裸串 —— JSON 的 `"k": "v"`、env 的 `K=v`、yaml 的 `k: v` 全在这三种里。
+// （而那是用量口径，抹了它审计就瞎了）。值四种写法都要认：双引号串 / 单引号串 /
+// **裸的 `${ENV}` 指针** / 裸串 —— JSON 的 `"k": "v"`、env 的 `K=v`、yaml 的 `k: v`
+// 全在这几种里。
+//
+// 指针那一支单列，是因为裸串那一支的字符集**排掉了 `}`**（不排掉它，`{"k":"v"}` 的
+// 收尾大括号会被当成值的一部分吃掉）。于是 `K=${VAR}` 会被截成 `${VAR`，`redactable`
+// 认不出它已经是个指针、照抹，还会留下一个孤零零的 `}`。命中顺序上指针支在裸串支之前，
+// 整条 `${VAR}` 才能完整地交给 `reEnvRef` 放行。
+// 实测踩到过：`token=${ANTHROPIC_AUTH_TOKEN}` → `token=「已脱敏:token」}`。
 func compileRule(rule RedactRule) *regexp.Regexp {
 	if rule.Kind == RedactKindForm {
 		// 前缀也要**捕成组**：下标数组的 sub[0] 是整段命中，
@@ -275,7 +282,7 @@ func compileRule(rule RedactRule) *regexp.Regexp {
 	}
 	return regexp.MustCompile(
 		`(?i)(^|[^A-Za-z0-9_])(["']?)(` + regexp.QuoteMeta(rule.Match) + `)` +
-			`(["']?[ \t]*[:=][ \t]*)("[^"\n]*"|'[^'\n]*'|[^\s"',;)\]}]*)`)
+			`(["']?[ \t]*[:=][ \t]*)("[^"\n]*"|'[^'\n]*'|\$\{[A-Za-z_][A-Za-z0-9_]*\}|[^\s"',;)\]}]*)`)
 }
 
 // replaceAll 用 re 扫一遍 s，逐处交给 render 决定换不换。

@@ -26,6 +26,30 @@ func scopeFor(vault string) *Scope {
 	})
 }
 
+// Owner 答「这个客体是不是域」，Declared 答「这个域此刻还在不在表上」——
+// 两件事分开，是为了域表改过之后老流水不至于被读成「域外 / vault 内非域」那种没事的样子。
+func TestOwnerTakesRefShapeSeparatelyFromWhetherTheSlugIsDeclared(t *testing.T) {
+	sc := scopeFor("/vault")
+	for _, want := range []string{"ops", "ghost"} {
+		slug, ok := sc.Owner("domain:" + want)
+		if !ok || slug != want {
+			t.Errorf("Owner(domain:%s) = %q,%v；形状上就是域，跟表里有没有无关", want, slug, ok)
+		}
+	}
+	if sc.Declared("ghost") {
+		t.Error("ghost 没在域表里宣过，Declared 该是 false")
+	}
+	if !sc.Declared("ops") {
+		t.Error("ops 在域表里，Declared 该是 true")
+	}
+	if _, ok := sc.Owner("ghost"); ok {
+		t.Error("裸 slug 只认表里有的 —— 表里没有的裸词不当作域")
+	}
+	if _, ok := sc.Owner("domain:"); ok {
+		t.Error("残缺的引用（空 slug）不算域 —— 那是读不懂，不该落进「域」那一格")
+	}
+}
+
 func rec(actor, object string) Record {
 	return Record{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: actor,
 		Action: ActionRead, Object: object, Result: ResultOK}
@@ -168,6 +192,16 @@ func TestDeriveZones(t *testing.T) {
 		{"目标抽不出", "alice", "", ZoneUnknown, "", false, false},
 		{"行使者没配域：跨域判不出来", "carol", v + "/10-knowledge/a.md", ZoneDomain, "business", false, false},
 		{"project 名也解得出来", "demo-alice", v + "/20-ops/b.md", ZoneDomain, "ops", true, true},
+
+		// 引用形状（授权层的客体写法，写口写的是「domain:<slug>」而不是路径）。
+		{"引用形状：自己域", "alice", "domain:business", ZoneDomain, "business", true, false},
+		{"引用形状：跨域", "alice", "domain:ops", ZoneDomain, "ops", true, true},
+		// 域表改过之后：老流水里指着一个已经不在表上的域 —— 是**判不出**，不是「没这回事」。
+		// 落进 vault/域外那两格就等于把它冒充成「没事」，这条用例就是钉住这一点。
+		{"引用形状：表里没这个域 → 跨域未判", "alice", "domain:ghost", ZoneDomain, "ghost", false, false},
+		// 裸 slug 兜底：出站读出口与审批留痕写的就是裸 slug，而目录名未必等于 slug
+		// （scopeFor 里 business→10-knowledge / ops→20-ops 正是这种「不相等」）。
+		{"裸 slug（目录名≠slug）", "alice", "ops", ZoneDomain, "ops", true, true},
 	}
 	for _, c := range cases {
 		d := Derive(rec(c.actor, c.object), sc)
