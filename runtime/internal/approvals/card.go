@@ -194,12 +194,62 @@ func humanWaited(enqueued string, now time.Time) string {
 //   - 帧里要的槽位值里有没有（这个在 card.fill 里就喊了）。
 func (p Pending) Card(f card.Frame, o *org.Org, now time.Time) (card.Card, []card.Note) {
 	c, notes := f.Render(Facts(o, p, now))
-	if !card.ToneOK(c.Header.Tone) {
-		notes = append(notes, card.Note{Where: "header",
-			What: fmt.Sprintf("颜色 %q 飞书不认 —— 它只认 %s；发出去可能被平台拒（这里不替你换成别的）",
-				c.Header.Tone, strings.Join(card.FeishuTones, " / "))})
+	return c, append(notes, toneCheck(c)...)
+}
+
+// DoneFacts 是**收口那一帧**的值：提案那几格与待批帧同一套（帧可以互换），
+// 外加这一次点头的结果：`verdict`（结论）/ `by` / `via` / `at` / `why`。
+//
+// 状态与颜色取**落库那一行写的那个**（`d.TimelineEntry`）—— 收口卡不另编一套色：
+// 库里那笔痕什么色，卡片就什么色（同“颜色只此一处说了算”）。
+func DoneFacts(o *org.Org, p Pending, d Decision) map[string]string {
+	entry := d.TimelineEntry(p)
+	f := map[string]string{
+		"id":      p.ID,
+		"title":   p.Title,
+		"body":    p.Body,
+		"status":  entry.Status,
+		"tone":    Tone(entry.Status),
+		"domain":  p.Domain,
+		"project": p.Project,
+		"target":  joinTarget(p.Domain, p.Project),
+		"company": companyOf(o),
+		"to":      p.To,
+		"verdict": d.Signal.Verdict(),
+		"by":      d.By,
+		"via":     d.Via,
+		"why":     d.Why,
+		"at":      d.At.Format(time.RFC3339),
 	}
-	return c, notes
+	f[SlotSubmitter], f[SlotSubmitterKind], f[SlotSubmitterOwner] = whoSlots(o, p.Who)
+	switch {
+	case strings.TrimSpace(p.To) == "":
+		f[SlotApprover] = "（没解出该谁批 —— 信封没写 scope.domain，或域表里没这个域）"
+	case o == nil:
+		f[SlotApprover] = "没加载到 org 真相源"
+	default:
+		f[SlotApprover] = p.To + " · " + o.WhoLabel(p.To)
+	}
+	return f
+}
+
+// DoneCard 把**一次点头之后**那张卡渲染出来（收口帧 + 现算的值）。
+//
+// 它只管渲染：**递出去、覆盖那一条消息不在这里** —— 那是网关那一侧的事（§7.1.39 口径：我们不自己连飞书 API）。
+func (p Pending) DoneCard(o *org.Org, d Decision, f card.Frame) (card.Card, []card.Note) {
+	c, notes := f.Render(DoneFacts(o, p, d))
+	return c, append(notes, toneCheck(c)...)
+}
+
+// toneCheck 是两张卡片共用的那一声喊：颜色名飞书不认就如实说，
+// **不替你换成蓝色** —— 悄悄改颜色比报错难查得多。
+func toneCheck(c card.Card) []card.Note {
+	if card.ToneOK(c.Header.Tone) {
+		return nil
+	}
+	return []card.Note{{Where: "header",
+		What: fmt.Sprintf("颜色 %q 飞书不认 —— 它只认 %s；发出去可能被平台拒（这里不替你换成别的）",
+			c.Header.Tone, strings.Join(card.FeishuTones, " / "))}}
 }
 
 // Find 按提案 id 从队列里取一条。**不在队里返回 ok=false** —— 那不一定是错：
@@ -221,6 +271,17 @@ func Find(q Queue, id string) (Pending, bool, error) {
 
 // SlotKeys 是给帧作者看的那张键表：**这一版有哪些槽位能用**。
 // 排序后返回（提示文案、--dump-frame 都照这一份，不各排一遍）。
+func DoneSlotKeys() []string {
+	keys := []string{
+		"id", "title", "body", "status", "tone", "company",
+		"domain", "project", "target", "to",
+		"verdict", "by", "via", "why", "at",
+		SlotSubmitter, SlotSubmitterOwner, SlotSubmitterKind, SlotApprover,
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func SlotKeys() []string {
 	keys := []string{
 		"id", "title", "body", "status", "enqueued", "waited", "tone", "company",

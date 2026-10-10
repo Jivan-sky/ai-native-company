@@ -404,6 +404,7 @@ func cmdApprovalsCardAction(args []string) int {
 	appID := fs.String("app-id", "", "这条回调落在哪个 app（网关那一侧知道）；给了就能定位是哪台 bot、它属于谁")
 	at := fs.String("at", "", "RFC3339，默认现在")
 	asJSON := fs.Bool("json", false, "打 JSON 回执")
+	doneFrame := fs.String("done-frame", "", "收口那一帧：名字（approval-done）或文件；不给就用出厂那份")
 	flagArgs, pos := splitArgs(args, map[string]bool{"json": true})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -475,6 +476,15 @@ func cmdApprovalsCardAction(args []string) int {
 		}
 		return hotFail(err)
 	}
+	// 收口那一半：把终态帧渲染好交出去。**收口本身不在这儿** —— 那要连平台 API，是网关的事
+	// （§7.1.39 口径：我们不自己连飞书 API）。这一步只把数据与位置备齐。
+	doneF, doneWhere, derr := card.FindFrame("approval-done", *doneFrame)
+	if derr != nil {
+		fmt.Fprintf(os.Stderr, "错误：收口帧：%v\n", derr)
+		return 1
+	}
+	dc, dnotes := r.Pending.DoneCard(o, r.Decision, doneF)
+
 	if *asJSON {
 		out := map[string]any{
 			"schema": "anc.approvals.card-action/v1", "ok": true,
@@ -482,7 +492,23 @@ func cmdApprovalsCardAction(args []string) int {
 			"by": r.Decision.By, "via": r.Decision.Via, "at": r.At,
 			"timeline": r.Timeline, "audit": r.Audit,
 			"org_loaded": oerr == nil, "org_error": errText(oerr),
-			"note": "真相源没动：grants/ 那个文件由人侧的管理者 bot 写（ANC 只留痕）",
+			// 收口那一半：卡片是谁递出去的，谁拿这两样去收（同一条消息覆盖）—— ANC 不碰平台 API。
+			"chat_id": click.ChatID, "message_id": click.MessageID,
+			"done_frame": doneWhere,
+			"note":       "真相源没动：grants/ 那个文件由人侧的管理者 bot 写（ANC 只留痕）",
+		}
+		if b, err := dc.FeishuJSON(); err == nil {
+			var obj any
+			if err := json.Unmarshal(b, &obj); err == nil {
+				out["done_card"] = obj
+			}
+		}
+		if len(dnotes) > 0 {
+			notes := make([]map[string]string, 0, len(dnotes))
+			for _, n := range dnotes {
+				notes = append(notes, map[string]string{"where": n.Where, "what": n.What})
+			}
+			out["done_notes"] = notes
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -504,7 +530,12 @@ func cmdApprovalsCardAction(args []string) int {
 	fmt.Printf("  落库      %s\n", r.Timeline)
 	fmt.Printf("  审计      %s\n", r.Audit)
 	fmt.Println("  队列      已清（热层里那条已删）")
+	fmt.Printf("  收口帧    %s\n", doneWhere)
+	for _, n := range dnotes {
+		fmt.Printf("  !! %s：%s\n", n.Where, n.What)
+	}
 	fmt.Println("  下一步    grants/ 那个文件由人侧的管理者 bot 写 —— ANC 不写真相源。")
+	fmt.Println("  收口      卡是谁递出去的，谁拿终态卡（--json 里的 done_card）按同一条 message_id 覆盖 —— ANC 不碰平台 API。")
 	return 0
 }
 

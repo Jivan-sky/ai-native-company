@@ -695,7 +695,11 @@ cc-connect v1.3.4 的对外口（unix socket `POST /send`）只有文本与附�
 **回程那一半已对齐真事件（2026-10-11 实测拓到）**：人真点出来的那份回调是**扁平**形状（顶层 `operator_id` / `chat_id` / `message_id`，
 按键在 `action_value` 里而且是**一串 JSON 文本**），与事件订阅那份嵌套形状**不是一份**。
 `anc approvals card-action` 现已**宽进严出**：两种形状都收，但只认 `anc_id` / `anc_signal` 两个键。
-仍缺一格：点完把卡片**收口**（patch 成终态帧）——它需要先定「谁有出站能力」。见 `runtime/DESIGN.md` §7.1.41。
+点完之后的**收口**那一格见下一段。见 `runtime/DESIGN.md` §7.1.41。
+
+**收口那一半已备好（2026-10-11）**：点完之后那张卡该换成**终态帧**（出厂 `approval-done`：帧是数据、`--done-frame` 可换、**没有按钮**），
+`anc approvals card-action --json` 把终态卡（`done_card`）与位置（`chat_id` / `message_id`）一起交出去 ——
+**收口这一步不归 ANC**（网关当回调应答返回，或按同一条 `message_id` 覆盖）。见 `runtime/DESIGN.md` §7.1.42。
 
 **读路径同样只有一条（2026-10-07 已实现）**：**真相源 → 只读投影（`anc org export`，`anc.board/v1`）
 → 看板 / 前端**。投影是**纯函数、只读、不含凭据面字段** —— 不导出 `open_id` / `app_id`。

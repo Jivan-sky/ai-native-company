@@ -2383,12 +2383,49 @@ prompt 或一条命令，`payload` 会作为上下文拼进 prompt）。它就�
 本轮 demo 是拿**我们自己**的长连接消费者（`lark-cli event consume card.action.trigger`）把这一节跑通的 ——
 它是**第二条网关**，只在上游那个口没有的时候临时顶着用，正式态不回退到它。
 
-**这一刀没做的**：点完把卡片**收口**（patch 成终态帧、按钮撕掉、连点幂等）。
-它要先把「**谁有出站能力**」定下来（网关那侧的口 / 我们自己拿 app 凭据 / 别的），所以没在原地焊死。
+**这一刀没做的**：点完把卡片**收口** —— 那一刀在 §7.1.42（ANC 只备数据与位置，不自己去 patch）。
 **用例**（判据先跟 human 对过再写，AGENTS.md 第 2 条）：`internal/card/card_test.go` **7 条** —— 3 条收形状
 （扁平文本 / 嵌套对象 / `action_value` 已是对象）、3 条认不出就拒（没 action / 串不是 JSON / 不是 JSON）、
 1 条只缺 `anc_id`（解析收下、`Point()` 点不出）。**只钉解析这一圈** —— 判据本身（该不该他批、信号认不认）不在这里测。
 样本住在 `runtime/testdata/card/`（**一处收着，不进正式文件**；真回调那份脱敏后原样保留键与值类型）。
+
+### 7.1.42 收口那一帧：帧还是数据，收口那一步不由 ANC 干（2026-10-11）
+
+human 原话：「这个同意的话…我点完之后它还是可以再点击的这就不行。」
+所以一次点头之后那张卡要**收口**：换成一张终态帧、按钮撕掉、连点幂等。
+这一刀只落 **ANC 这半边**：
+
+| 那一半 | 谁干 | 落在哪 |
+|---|---|---|
+| 终态帧长什么样 | **数据**：出厂 `approval-done`（`--done-frame` 可以换成客户的） | `internal/card.DefaultDone()` |
+| 终态帧的值 | 现算：提案那几格（与待批帧同一套键，帧可互换）＋ 这一次点头（`verdict` / `by` / `via` / `at`） | `approvals.DoneFacts()` |
+| 颜色 | **跟着落库那一行**（`Decision.TimelineEntry` 的 status → `timeline.Band`）—— 收口卡不另编一套色 | `approvals.Tone` |
+| 递出去 / 覆盖那条消息 | **不归 ANC** | `card-action --json` 里的 `done_card` ＋ `chat_id` / `message_id` |
+
+**「没有按键」是帧说的，不是代码判的**：出厂收口帧里根本就没有 `buttons` 那一块。
+（「不该他点」那类判据仍旧不在卡片这一层。）
+
+**为什么 ANC 不自己 patch**：§7.1.39 那条口径没变 —— 我们不自己连飞书 API（换平台是网关的事）。
+网关拿到这两样，两条路都能收口，而且都不用多一个凭据面：
+① 把 `done_card` 当**这一次回调的应答**返回（平台侧就地换卡 —— 上游 cc-connect 的 `perm:` / `cmd:` 分支就是这么换的，
+`platform/feishu/feishu.go:890-930`）；② 拿 `message_id` 覆盖同一条消息。
+**连点幂等归递出去那一侧**（同一条消息覆盖就是幂等）；ANC 这一侧重复点本来就拒（`ErrNotQueued`）。
+
+**实测**（沙箱 Ubuntu ＋ 真 Redis ＋ `vault`，**真回调原样**那份事件）：
+
+| 判据 | 结果 |
+|---|---|
+| 人话 | ✅ 多两行：`收口帧    出厂帧（编译进去的那一份）` ＋ `收口      卡是谁递出去的，谁拿终态卡…覆盖` |
+| `--json` 回执 | ✅ 多了 `chat_id` / `message_id` / `done_frame` / `done_card`（终态卡：`header.template=green`、标题 `同意 · member:alice 申请 trade 的权`、**没有 action 块**） |
+| 用例 | ✅ `internal/card` ＋3 条（收口帧没按键 · 出厂两份 · 按名字取得到）；`internal/approvals/card_test.go` **3 条**（颜色跟着落库那一行 / 结论进标题且没按键 / 槽位缺了要喊） |
+| 质量门 | ✅ `gofmt -l` 空 · `go vet` 空 · `go test ./... -count=1` **18 包全绿** |
+
+证据：`~/anc-vm2/bin/anc-done`（沙箱那份二进制）、`e2e/evt-real-flat.ndjson`。
+
+**这一刀没做的**：网关那一侧（把 `done_card` 当应答返回 / 覆盖消息）——
+上游 cc-connect 现在既不发卡也不领未知 `action`（§7.1.39 那个 PR 记着），
+demo 里这条路是靠我们自己的长连接消费者跑通的，所以卡片真正「点完就灭」要等网关那个口。
+判据一条没改：卡片这一层从不读写真相源，也不判该不该他点。
 
 ## 8. 与 SPEC 的映射
 

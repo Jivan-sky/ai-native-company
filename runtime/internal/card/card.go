@@ -356,6 +356,40 @@ func (c Card) FeishuJSON() ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
+// DefaultDone 是**出厂收口帧**：一条待批被点掉之后，那张卡换成它。
+//
+// 与待批帧一样是**数据**（一个 Frame 字面量，不是分支）：一句结论 + 提案原文
+// + 谁点的 / 怎么来的 / 什么时候。
+//
+// **没有按键** —— 收口的意思就是不能再点。（帧里不出按键是帧说的；“不该他点”那类判据不在这里。）
+func DefaultDone() Frame {
+	return Frame{
+		Schema: Schema,
+		Name:   "approval-done",
+		Header: Header{Title: "{{verdict}} · {{title}}", Tone: "{{tone}}"},
+		Blocks: []Block{
+			{Kind: KindText, Text: "{{body}}"},
+			{Kind: KindFields, Items: []Item{
+				{Label: "谁点的", Value: "{{by}}"},
+				{Label: "怎么来的", Value: "{{via}}"},
+				{Label: "什么时候", Value: "{{at}}"},
+			}},
+		},
+	}
+}
+
+// Builtin 按名字取出厂帧。名字对不上就说没有这一份（返回 false）——
+// 与「帧文件找不到就用出厂帧」是两件事：这一条只答「编译进去的有哪几份」。
+func Builtin(name string) (Frame, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "", "approval":
+		return Default(), true
+	case "approval-done", "done":
+		return DefaultDone(), true
+	}
+	return Frame{}, false
+}
+
 // --- 回程：一次按键 ---
 
 // Click 是一次按键回程 —— 从飞书 `card.action.trigger` 那件事里把我们要的几样挑出来。
@@ -518,6 +552,9 @@ func FindFrame(name, explicit string) (Frame, string, error) {
 			return Frame{}, "", fmt.Errorf("帧 %s：%w", abs, err)
 		}
 		return f, abs, nil
+	}
+	if f, ok := Builtin(name); ok {
+		return f, "出厂帧（编译进去的那一份）", nil
 	}
 	return Default(), "出厂帧（编译进去的那一份）", nil
 }
