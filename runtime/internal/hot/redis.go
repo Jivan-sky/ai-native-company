@@ -1,0 +1,325 @@
+package hot
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Config 是热层的**外置配置**（地址、前缀、TTL、超时全在这里，代码里不留死值）。
+type Config struct {
+	Addr    string        // 默认 DefaultAddr
+	Prefix  string        // 默认 DefaultPrefix
+	TTL     time.Duration // 状态条目存活时长；0 = 不失效（默认）
+	Timeout time.Duration // 连/读兜底超时；0 = DefaultTimeout
+}
+
+// Store 是热层的一个介质实现。它**不是**真相源（见包注释 1）。
+type Store struct {
+	conn   *respConn
+	prefix string
+	ttl    time.Duration
+	now    func() time.Time
+}
+
+// Open 连上一个热层，并**当场 PING 一次**：热层没起来要立刻报出来，
+// 不许静默降级成「假装没有这回事」。
+func Open(cfg Config) (*Store, error) {
+	addr := strings.TrimSpace(cfg.Addr)
+	if addr == "" {
+		addr = DefaultAddr
+	}
+	conn, err := dialResp(addr, cfg.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	st := newStore(conn, cfg)
+	if err := st.Ping(); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return st, nil
+}
+
+func newStore(rw io.ReadWriteCloser, cfg Config) *Store {
+	prefix := strings.TrimSpace(cfg.Prefix)
+	if prefix == "" {
+		prefix = DefaultPrefix
+	}
+	return &Store{
+		conn:   newRespConn(rw, cfg.Timeout),
+		prefix: prefix,
+		ttl:    cfg.TTL,
+		now:    time.Now,
+	}
+}
+
+// Prefix / TTL 回显实际生效的配置值 —— 别让人猜它连的是哪儿、TTL 是不是生效了。
+func (st *Store) Prefix() string     { return st.prefix }
+func (st *Store) TTL() time.Duration { return st.ttl }
+func (st *Store) Close() error       { return st.conn.Close() }
+
+// Ping 报「热层在不在」。
+func (st *Store) Ping() error {
+	rep, err := st.conn.do("PING")
+	if err != nil {
+		return err
+	}
+	s, ok := rep.(string)
+	if !ok || !strings.EqualFold(strings.TrimSpace(s), "PONG") {
+		return fmt.Errorf("hot: PING 的回复读不懂（%v）", rep)
+	}
+	return nil
+}
+
+// Now 是注入的时钟（测试用），生产就是 time.Now。
+func (st *Store) Now() time.Time { return st.now() }
+
+// Put 覆写一条当前态，并把 as_of 推到「现在」。
+// ttl 从 Config 来：> 0 才设过期，否则**显式**清掉上一次可能留下的过期时间 ——
+// 不然会出现「我明明没配 TTL，它几小时后自己没了」这种最难查的失真。
+func (st *Store) Put(s State) (State, error) {
+	id := strings.TrimSpace(s.ID)
+	if id == "" {
+		return State{}, errors.New("hot: put 需要 id")
+	}
+	s.ID = id
+	s.LeaseTo = ""
+	if strings.TrimSpace(s.AsOf) == "" {
+		s.AsOf = st.now().Format(time.RFC3339)
+	}
+	key := TaskKey(st.prefix, id)
+	args := []string{"HSET", key}
+	for k, v := range s.Fields() {
+		args = append(args, k, v)
+	}
+	if _, err := st.conn.do(args...); err != nil {
+		return State{}, err
+	}
+	if err := st.applyTTL(key); err != nil {
+		return State{}, err
+	}
+	return st.withLease(s)
+}
+
+// Get 读一条。第二个返回值是「有没有」—— 没有不算错：多半是已经达标清走了。
+func (st *Store) Get(id string) (State, bool, error) {
+	m, err := st.hash(TaskKey(st.prefix, id))
+	if err != nil {
+		return State{}, false, err
+	}
+	if len(m) == 0 {
+		return State{}, false, nil
+	}
+	s, err := st.withLease(StateFromFields(m))
+	if err != nil {
+		return State{}, false, err
+	}
+	return s, true, nil
+}
+
+// List 列举所有「进行中」的条目（最久没动的在前）。
+// 用 SCAN 而不是 KEYS：KEYS 在生产上会把整个 redis 卡住。
+func (st *Store) List() ([]State, error) {
+	keys, err := st.scan(scanPattern(st.prefix))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]State, 0, len(keys))
+	for _, k := range keys {
+		id := strings.TrimPrefix(k, st.prefix+":task:")
+		if id == "" || id == k {
+			continue
+		}
+		s, ok, err := st.Get(id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out = append(out, s)
+		}
+	}
+	SortByAge(out)
+	return out, nil
+}
+
+// Claim 是原子认领（SET NX）：抢不到就报 ErrOccupied，并说出现在是谁。
+// 「谁在做这件事」必须唯一 —— 两个 agent 同时以为自己在做同一件事，是最贵的错。
+//
+// lease > 0 = 租约到期自动放开（人或 agent 断了，事情不该被永远锁住）；
+// lease <= 0 = 不设到期（默认不纠缠，客户自己配）。
+func (st *Store) Claim(id, who string, lease time.Duration) (State, error) {
+	id = strings.TrimSpace(id)
+	who = strings.TrimSpace(who)
+	if id == "" {
+		return State{}, errors.New("hot: claim 需要 id")
+	}
+	if who == "" {
+		return State{}, errors.New("hot: claim 需要 --by —— 认领必须落在具体的人 / agent 头上")
+	}
+	args := []string{"SET", LeaseKey(st.prefix, id), who, "NX"}
+	if lease > 0 {
+		args = append(args, "PX", strconv.FormatInt(lease.Milliseconds(), 10))
+	}
+	rep, err := st.conn.do(args...)
+	if err != nil {
+		return State{}, err
+	}
+	if rep == nil { // NX 没抢到
+		owner, _, lerr := st.leaseOf(id)
+		if lerr != nil {
+			return State{}, lerr
+		}
+		return State{}, &ErrOccupied{ID: id, Owner: owner}
+	}
+	s, ok, err := st.Get(id)
+	if err != nil {
+		return State{}, err
+	}
+	if !ok {
+		s = State{ID: id}
+	}
+	s.By = who
+	if strings.TrimSpace(s.Status) == "" {
+		s.Status = "running"
+	}
+	s.AsOf = st.now().Format(time.RFC3339)
+	return st.Put(s)
+}
+
+// Release 放开认领。**只允许认领人自己放** —— 抢别人的锁这件事，不该由热层顺手允许。
+//
+// 注：比对与删除是两刀、不是原子的。我们单机单库、一个任务只有一个写者，
+// 没有要靠 fencing token 去防的僵尸写，所以不为此引 Lua。
+func (st *Store) Release(id, who string) error {
+	owner, _, err := st.leaseOf(id)
+	if err != nil {
+		return err
+	}
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return nil // 本来就没租约：当成功，别让人为了「已经放开」再跑一遍
+	}
+	if w := strings.TrimSpace(who); w != "" && w != owner {
+		return fmt.Errorf("hot: %s 的认领人是 %s，不是 %s —— 不能替别人放开", id, owner, w)
+	}
+	_, err = st.conn.do("DEL", LeaseKey(st.prefix, id))
+	return err
+}
+
+// Drop 把一条进行中的状态从热层清走（状态 + 租约）。
+// **只该在「已经落库」之后用**：清之前，真相源里没有的东西就真没了。
+func (st *Store) Drop(id string) error {
+	if _, err := st.conn.do("DEL", TaskKey(st.prefix, id)); err != nil {
+		return err
+	}
+	_, err := st.conn.do("DEL", LeaseKey(st.prefix, id))
+	return err
+}
+
+// ---------- 内部 ----------
+
+func (st *Store) applyTTL(key string) error {
+	if st.ttl > 0 {
+		ms := st.ttl.Milliseconds()
+		if ms < 1 {
+			ms = 1
+		}
+		_, err := st.conn.do("PEXPIRE", key, strconv.FormatInt(ms, 10))
+		return err
+	}
+	_, err := st.conn.do("PERSIST", key)
+	return err
+}
+
+func (st *Store) hash(key string) (map[string]string, error) {
+	rep, err := st.conn.do("HGETALL", key)
+	if err != nil {
+		return nil, err
+	}
+	items, ok := rep.([]any)
+	if !ok {
+		if rep == nil {
+			return map[string]string{}, nil
+		}
+		return nil, fmt.Errorf("hot: HGETALL 的回复读不懂（%v）", rep)
+	}
+	if len(items)%2 != 0 {
+		return nil, fmt.Errorf("hot: HGETALL 回了奇数个字段（%d）", len(items))
+	}
+	m := make(map[string]string, len(items)/2)
+	for i := 0; i < len(items); i += 2 {
+		k, _ := items[i].(string)
+		v, _ := items[i+1].(string)
+		m[k] = v
+	}
+	return m, nil
+}
+
+// leaseOf 回 (认领人, 剩余毫秒)。剩余 -1 = 没有过期时间（不到期），-2 = 没人认领。
+func (st *Store) leaseOf(id string) (string, int64, error) {
+	key := LeaseKey(st.prefix, id)
+	rep, err := st.conn.do("GET", key)
+	if err != nil {
+		return "", 0, err
+	}
+	owner, _ := rep.(string)
+	if strings.TrimSpace(owner) == "" {
+		return "", -2, nil
+	}
+	repTTL, err := st.conn.do("PTTL", key)
+	if err != nil {
+		return "", 0, err
+	}
+	ms, _ := repTTL.(int64)
+	return owner, ms, nil
+}
+
+// withLease 把租约折成「到期时刻」塞进返回值 —— 租约是「还有多久」，
+// 存下来立刻就成了旧值，不如回读一次算出来。
+func (st *Store) withLease(s State) (State, error) {
+	owner, ms, err := st.leaseOf(s.ID)
+	if err != nil {
+		return State{}, err
+	}
+	s.LeaseTo = ""
+	if strings.TrimSpace(owner) == "" {
+		return s, nil
+	}
+	if ms > 0 {
+		s.LeaseTo = st.now().Add(time.Duration(ms) * time.Millisecond).Format(time.RFC3339)
+	}
+	return s, nil
+}
+
+func (st *Store) scan(pattern string) ([]string, error) {
+	var keys []string
+	cursor := "0"
+	for {
+		rep, err := st.conn.do("SCAN", cursor, "MATCH", pattern, "COUNT", "200")
+		if err != nil {
+			return nil, err
+		}
+		items, ok := rep.([]any)
+		if !ok || len(items) != 2 {
+			return nil, fmt.Errorf("hot: SCAN 的回复读不懂（%v）", rep)
+		}
+		next, _ := items[0].(string)
+		page, ok := items[1].([]any)
+		if !ok {
+			return nil, errors.New("hot: SCAN 的 keys 读不懂")
+		}
+		for _, it := range page {
+			if s, ok := it.(string); ok {
+				keys = append(keys, s)
+			}
+		}
+		if next == "" || next == "0" {
+			return keys, nil
+		}
+		cursor = next
+	}
+}

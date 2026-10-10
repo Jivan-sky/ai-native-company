@@ -367,6 +367,31 @@ anc gate <vault> [--rules <文件>] [--show-rules] [--json]
   认不出的词画**空心虚线圈·灰**。灰不算绿也不算红 —— 把灰当绿，就会把「没人判过」看成「过了」
   （形状口径见 `DESIGN.md` §7.1.18）。
 
+### 进行中的状态（`anc hot`）
+
+```
+anc hot ping [--addr 127.0.0.1:6379] [--prefix anc] [--ttl 0]
+anc hot put <id> [-status <词>] [-by <谁>] [-to <谁>] [-domain <域>] [-project <项目>] [-title <一句话>] [-note <备注>]
+anc hot ls [--stale 24h] [--json]
+anc hot claim <id> -by <谁> [--lease 30m]
+anc hot release <id> [-by <谁>]
+anc hot drop <id>
+anc hot done <vault> <id> -by <谁> [-title <一句话>] [--kind execution] [--status done]
+```
+
+**达标的事落库，还在做的事实放热层。** 状态是「当前值」，不是「历史」：拿行文本承载当前值，
+写一百次就留一百行，最后没人说得出「现在谁在做、卡在哪」。历史与结论仍然归 `timeline/`（append-only）。
+
+- **介质是配置**：默认 Redis（一个独立小进程）；地址 / 前缀 / TTL / 超时全走 flag 或环境变量
+  （`ANC_HOT_ADDR` / `ANC_HOT_PREFIX`），代码里不留死值。
+- **TTL 不是新鲜度**：`--ttl` 是**删数据**，只给「授权 / 租约」那种「到点就该失效」的东西用；
+  新鲜度靠 `as_of` + `--stale` **打标记**、**过期不删**（`--ttl 0` = 不失效，是默认）。
+- **认领是原子的**（`SET NX`）：谁在做这件事只能有一个；`--lease` 到期自动放开，人 / agent 断了
+  不会把事情永远锁住；放开只认认领人自己（替别人放会被拒）。
+- **`done` 的顺序是「先落库、再清热层」**：往真相源写失败时热层一个字都不动 —— 反序就丢东西。
+- **客户端是手写的**：只用得到十几条命令，所以不引第三方 Redis 客户端（零依赖、单 exe、
+  `CGO_ENABLED=0`）。换回标准客户端只动 `internal/hot/resp.go` 一个文件。
+
 ### 接入面的信封（`anc envelope`）
 
 ```
@@ -607,7 +632,7 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | 路径 | 说明 |
 |---|---|
 | `DESIGN.md` | 运行层落地设计 v0.1（草案；D4/D5/D6 已拍板，D1/D2 未拍板） |
-| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `envelope` / `gate` / `board` / `org` / `version`） |
+| `main.go` | 装配器（`init` / `doctor` / `assets` / `render` / `apply` / `probe` / `notify` / `trail` / `timeline` / `hot` / `envelope` / `gate` / `board` / `org` / `version`） |
 | `render.go` | `anc render` / `anc org check` 的 CLI（dry-run 默认、原子写、两道差分门） |
 | `board.go` | `anc org export` 的 CLI（只读投影，无写操作） |
 | `internal/board/` | org 真相源 → 看板消费的只读 JSON（纯函数，不含凭据面字段） |
@@ -616,6 +641,8 @@ pwsh -File build.ps1 -Only local  # 只编本机 windows/amd64
 | `boardui/` | 看板前端**源码**（TS + esbuild；`npm run build` 出到 `internal/board/ui/`） |
 | `boardserve.go` | `anc board serve` 的 CLI（默认只绑本机、优雅退出） |
 | `timeline.go` | `anc timeline add` / `list` 的 CLI（append-only，不改旧行） |
+| `hot.go` | `anc hot ping` / `put` / `ls` / `claim` / `release` / `drop` / `done` 的 CLI（进行中的状态在热层，达标落库） |
+| `internal/hot/` | 「进行中」的热层：状态编解码 + 新鲜度判据 + 最小 RESP2 客户端（纯 Go 标准库，零第三方依赖） |
 | `internal/timeline/` | 决策与执行留存的读写与折叠（纯 Go 标准库；按作者分片、词表不锁死） |
 | `internal/board/timeline.go` | 时间线的只读出口（`/api/timeline`，`anc.timeline/v1`） |
 | `audit.go` | `anc audit` 的 CLI：`log` / `add` / `collect` / `tools`（事后归集 + 显式补记） |
