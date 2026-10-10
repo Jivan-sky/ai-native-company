@@ -1,0 +1,1 @@
+{"type":"card.action.trigger","operator_id":"ou_demo_bob","chat_id":"oc_demo_chat_2","message_id":"om_demo_card_2","action_tag":"button","action_value":{"anc_id":"prop-card-2","anc_signal":"reject"},"checked":false}
