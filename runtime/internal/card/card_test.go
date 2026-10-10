@@ -3,6 +3,7 @@ package card
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -75,5 +76,57 @@ func TestClickPoint_两个键都在才算数(t *testing.T) {
 	}
 	if _, _, ok := click.Point(); ok {
 		t.Fatal("只有 anc_signal 也算数了 —— 缺一个就不许猜")
+	}
+}
+
+// ---- 收口帧：出厂那份没有按键，名字认得出 ----
+
+func TestDefaultDone_出厂收口帧没有按键(t *testing.T) {
+	f := DefaultDone()
+	if f.Name != "approval-done" {
+		t.Errorf("name = %q，want approval-done", f.Name)
+	}
+	for _, b := range f.Blocks {
+		if strings.EqualFold(strings.TrimSpace(b.Kind), KindButtons) {
+			t.Fatal("收口帧里出现了按键 —— 收口的意思就是不能再点")
+		}
+	}
+	c, notes := f.Render(map[string]string{
+		"verdict": "同意", "title": "member:alice 申请 trade 的权", "tone": "green",
+		"body": "请开 trade 域的读权：import-q4 这批合同要对一下台账，只读，不写。",
+		"by":   "alice", "via": "飞书卡片", "at": "2026-10-11T00:20:12Z",
+	})
+	if len(notes) != 0 {
+		t.Errorf("槽位给齐了还喊：%v", notes)
+	}
+	if c.Header.Title != "同意 · member:alice 申请 trade 的权" {
+		t.Errorf("标题 = %q", c.Header.Title)
+	}
+	for _, el := range c.Elements {
+		if el.Kind == KindButtons {
+			t.Fatal("渲染出来还有按键")
+		}
+	}
+}
+
+func TestBuiltin_出厂帧有两份(t *testing.T) {
+	if f, ok := Builtin("approval"); !ok || f.Name != "approval" {
+		t.Errorf("approval：ok=%v name=%q", ok, f.Name)
+	}
+	if f, ok := Builtin("approval-done"); !ok || f.Name != "approval-done" {
+		t.Errorf("approval-done：ok=%v name=%q", ok, f.Name)
+	}
+	if _, ok := Builtin("没有这一份"); ok {
+		t.Error("名字对不上却说有 —— 出厂的那几份不许瞎认")
+	}
+}
+
+func TestFindFrame_收口帧按名字取得到(t *testing.T) {
+	f, where, err := FindFrame("approval-done", "")
+	if err != nil {
+		t.Fatalf("找帧出错：%v", err)
+	}
+	if f.Name != "approval-done" {
+		t.Errorf("取到的是 %q（%s）—— 按名字该拿到收口那份，不是待批那份", f.Name, where)
 	}
 }
