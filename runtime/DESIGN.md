@@ -2345,6 +2345,48 @@ prompt 或一条命令，`payload` 会作为上下文拼进 prompt）。它就�
 
 ---
 
+### 7.1.41 按键回程：真事件的形状与我们以为的形状不是一份（2026-10-11 凌晨，实测抓到的）
+
+§7.1.39 那一刀的实测，回程那几条**是拿手写事件喂进去的**（`e2e/evt.json`：`event.operator.open_id`、
+`event.action.value`（对象）、`event.context.open_chat_id`）—— 那是照**事件订阅**那份文档写的形状。
+2026-10-10 夜把**人真点出来的那一份**原样抓下来（`_tmp/card-event-2026-10-11.ndjson`），两份**不是一份**：
+
+| 找什么 | 事件订阅那份（我们原来认的） | 长连接递进来那份（**人真点出来的**） |
+|---|---|---|
+| 谁点的 | `event.operator.open_id` | 顶层 `operator_id` |
+| 点在哪 | `event.context.open_chat_id` / `open_message_id` | 顶层 `chat_id` / `message_id` |
+| 按键带了什么 | `event.action.value` —— **对象** | 顶层 `action_value` —— **一串 JSON 文本**（`"{\"anc_id\":\"…\",\"anc_signal\":\"approve\"}"`） |
+| 原始卡片 | — | `card_content`（也是**一串 JSON 文本**） |
+
+所以 §7.1.39 的回程**实测根本没跑通**：`ParseClick` 认不出这一份，`anc approvals card-action`
+第一句就「这份事件里没有 action.value」（exit 1）。**不是判据错，是收件口只开了一个方向。**
+
+**改法：宽进严出。** 进来的形状**两处都收**（外面那层 `event` 有就进去；顶层与 `context` 各认各的、谁空补谁；
+`action.value` 与扁平 `action_value` 都认，后者是文本就显式解一次 JSON）
+—— 出去那一步**一步不让**：仍旧**只认 `anc_id` / `anc_signal` 两个键**
+（`Point()`），别的键一律当没带，认不出的信号仍旧拒在 `approvals.ParseSignal`。判据里一个字都没加：
+宽的是「同一件事的几种写法」，严的是「点的是什么」。
+
+**实测**（沙箱 Ubuntu ＋ 真 Redis 127.0.0.1:6379 ＋ `~/anc-vm2/vault`）：
+
+| 判据 | 结果 |
+|---|---|
+| 人真点出来的那一份（扁平、原样，`e2e/evt-real-flat.ndjson`） | ✅ 收：`谁点的 alice`（真 `ou_8759…abb0` 现查定位）、`落在 alice（成员 bot）`、提案 `prop-card-1`、`决定 同意` |
+| 痕两笔 | ✅ `timeline/2026-10.alice.jsonl` 一条 `decision`（`case=prop-card-1`）＋ `audit/2026-10.alice.jsonl` 一条 `invoke`（`detail` 带 `· 经 飞书卡片 · …`） |
+| 重复点同一条 | ✅ 拒（`exit 1`，`ErrNotQueued`），不再落痕 |
+| 老那条路没被弄坏 | ✅ `e2e/evt.json`（嵌套形状）照收；`evt-badsig.json` 照旧拒在「认不出的信号 yes」 |
+| 形状矩阵 | ✅ 扁平文本 / 嵌套对象 / `action_value` 已是对象 —— 三种都收；两个键不齐、串不是 JSON、不是 JSON —— 三种都拒 |
+| 质量门 | ✅ `gofmt -l` 无输出 · `go vet ./...` 无输出 · `go test ./... -count=1` **18 包全绿** |
+
+**顺带坐实的一条**（本来只是读源码的推断：认不出的 `action` 值被丢掉）—— 它仍旧是上游那个 PR 的立论根据：
+`/send` 要加一个可选的 `card` 字段、`onCardAction` 要把认不出的 action 与 `Operator` 转出来（§7.1.39 已记）。
+本轮 demo 是拿**我们自己**的长连接消费者（`lark-cli event consume card.action.trigger`）把这一节跑通的 ——
+它是**第二条网关**，只在上游那个口没有的时候临时顶着用，正式态不回退到它。
+
+**这一刀没做的**：点完把卡片**收口**（patch 成终态帧、按钮撕掉、连点幂等）。
+它要先把「**谁有出站能力**」定下来（网关那侧的口 / 我们自己拿 app 凭据 / 别的），所以没在原地焊死。
+用例：`internal/card` 仍旧没有测试文件 —— 加测试先跟 human 定判据（AGENTS.md 第 2 条）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

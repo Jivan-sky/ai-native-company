@@ -368,8 +368,16 @@ type Click struct {
 
 // ParseClick 读一份 `card.action.trigger` 的事件体。
 //
-// 事件体是飞书的形状（外面那层 event 可以省：有的转发层只递里面那一份）——
-// **两处都收，别的一概不猜**。
+// **宽进严出**：一次按键从飞书那头到我们手上，隔着一层转发，形状不止一种
+// （2026-10-11 拿真回调实测抓到的，见 DESIGN §7.1.41）：
+//
+//	A. 长连接 / 网关递进来的**扁平**形状 —— operator_id / chat_id / message_id 在顶层，
+//	   按键带回来的东西是**一串 JSON 文本**（action_value），不是对象；
+//	B. 事件订阅那份**嵌套**形状 —— event.operator.open_id + event.action.value（对象）
+//	   + event.context.open_chat_id / open_message_id。
+//
+// 进来的形状两处都收（外面那层 event 有就进去；顶层与 context 各认各的，谁空补谁），
+// 出去的判断一步不让 —— **只认那两个键**（见 Point），别的键一律当没带。
 func ParseClick(raw []byte) (Click, error) {
 	var top map[string]any
 	if err := json.Unmarshal(raw, &top); err != nil {
@@ -382,9 +390,13 @@ func ParseClick(raw []byte) (Click, error) {
 	c := Click{Values: map[string]string{}}
 	if op, ok := body["operator"].(map[string]any); ok {
 		c.OpenID = str(op["open_id"])
+		if c.OpenID == "" {
+			c.OpenID = str(op["user_id"])
+		}
 	}
 	if c.OpenID == "" {
-		// 有的形状把点的人放在 message / sender 上（转发层照抄的写法不一）
+		// 扁平形状把点的人放在顶层（长连接那一份就叫 operator_id）；
+		// 转发层照抄成 open_id / user_id 的也认 —— 认不出就空着，不拿占位符顶上。
 		for _, k := range []string{"operator_id", "open_id", "user_id"} {
 			if v := str(body[k]); v != "" {
 				c.OpenID = v
@@ -396,17 +408,51 @@ func ParseClick(raw []byte) (Click, error) {
 		c.ChatID = str(ctx["open_chat_id"])
 		c.MessageID = str(ctx["open_message_id"])
 	}
-	if act, ok := body["action"].(map[string]any); ok {
-		if v, ok := act["value"].(map[string]any); ok {
-			for k, val := range v {
-				c.Values[k] = str(val)
-			}
-		}
+	if c.ChatID == "" {
+		c.ChatID = str(body["chat_id"])
 	}
+	if c.MessageID == "" {
+		c.MessageID = str(body["message_id"])
+	}
+	// 按键带回来的键值对：嵌套形状在 action.value，扁平形状在顶层 action_value。
+	var rawValues any
+	if act, ok := body["action"].(map[string]any); ok {
+		rawValues = act["value"]
+	}
+	if rawValues == nil {
+		rawValues = body["action_value"]
+	}
+	fillValues(c.Values, rawValues)
 	if len(c.Values) == 0 {
-		return Click{}, fmt.Errorf("这份事件里没有 action.value —— 不知道点的是哪个按键")
+		return Click{}, fmt.Errorf("这份事件里没有 action.value / action_value —— 不知道点的是哪个按键")
 	}
 	return c, nil
+}
+
+// fillValues 把「按键带回来的东西」铺进 map。
+//
+// 它可能已经是对象（事件订阅那份），也可能是**一串 JSON 文本**（长连接那份 ——
+// 实测：action_value 的值是 `{"anc_id":"…","anc_signal":"…"}` 这样的字符串，不是对象）；
+// 两种都认；文本解不出 JSON 就当没带（不猜里面是什么）。
+func fillValues(into map[string]string, v any) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, val := range x {
+			into[k] = str(val)
+		}
+	case string:
+		s := strings.TrimSpace(x)
+		if !strings.HasPrefix(s, "{") {
+			return
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			return
+		}
+		for k, val := range m {
+			into[k] = str(val)
+		}
+	}
 }
 
 // Point 是这次回程要对哪一条、点的是什么。
