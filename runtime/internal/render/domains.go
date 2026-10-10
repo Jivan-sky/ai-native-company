@@ -45,6 +45,15 @@ func VisibleDomains(o *org.Org, m org.Member) (mine []DomainRow, others []Domain
 	return visibleDomains(o, m.Domains)
 }
 
+// VisibleDomainsOf 是同一把尺子的另一个入口：喂它「这个主体看得见哪些域」。
+//
+// 为什么要有它（2026-10-10）：业务 agent 没有 members/ 那一行，它的域来自 agents.md 的
+// domain 列 —— 但判定必须与成员 bot **同一条**（下面 visibleDomains 的注写着
+// 「两类主体在这里没有区别」）。另开一份判定就是「各算各的」，那是本仓库反复付过学费的那类 bug。
+func VisibleDomainsOf(o *org.Org, domains []string) (mine []DomainRow, others []DomainBrief) {
+	return visibleDomains(o, domains)
+}
+
 // visibleDomains 是上面那把尺子的本体：**喂它的是「这个主体看得见哪些域」**，不是「它是谁」——
 // 成员 bot 代人、业务 agent 代岗位（SPEC §2.3），两类主体在这里没有区别。
 func visibleDomains(o *org.Org, domains []string) (mine []DomainRow, others []DomainBrief) {

@@ -32,7 +32,8 @@ import (
 
 // readContextOut 是 anc_read_context 回给 harness 的那一份。
 type readContextOut struct {
-	Who        string           `json:"who,omitempty"`          // 解出来的身份（成员名）
+	Who        string           `json:"who,omitempty"`          // 解出来的身份**编号**（成员名 / 业务 agent 的 slug）
+	Identity   *readIdentityOut `json:"identity,omitempty"`     // 你是谁 / 从哪来 / 干什么的 —— 光一个编号分辨不出来
 	OnBehalfOf string           `json:"on_behalf_of,omitempty"` // 署名（原样回，便于人核对）
 	Scope      string           `json:"scope,omitempty"`        // 实际答的域；空 = 你负责的全部
 	Domains    []readDomainOut  `json:"domains,omitempty"`      // 你负责的域：全行（拒的时候不出现）
@@ -43,6 +44,44 @@ type readContextOut struct {
 	Note       string           `json:"note,omitempty"`         // 只在「还没给你划域」时出现
 	Refused    *readRefusalOut  `json:"refused,omitempty"`      // 拒：不给数据，给理由（能指路就指路）
 	At         string           `json:"at"`                     // 回答时刻（RFC3339）
+}
+
+// readIdentityOut 是主体的**身份**：编号 + 归属 + 铭文。
+//
+// 为什么单列一块而不是只回一个名字：成员 bot 与业务 agent 接在同一张口上，
+// 光一个编号分辨不出「这是谁、替哪个部门干活、干什么的」。三格全部来自真相源
+// （编号不许自报这条纪律的延伸）：归属取域表的名字，铭文取 agents.md 的 description，
+// 并附一条**能回去核对**的出处指针。
+type readIdentityOut struct {
+	Kind        string        `json:"kind"`                  // member / agent（失败代价不同，回话里要能分开）
+	Ref         string        `json:"ref"`                   // **编号身份**：成员名 / 业务 agent 的 slug
+	Name        string        `json:"name,omitempty"`        // 显示名
+	Role        string        `json:"role,omitempty"`        // 代哪个岗位（persona / 技能从这一层来）
+	Domain      string        `json:"domain,omitempty"`      // **归属**：主域的 slug（业务 agent 就是它那一个）
+	DomainName  string        `json:"domain_name,omitempty"` // 归属：给人看的域名字
+	Inscription string        `json:"inscription,omitempty"` // **铭文**：干什么的 / 替谁干
+	Evidence    *readEvidence `json:"evidence,omitempty"`    // 铭文的出处（agents.md 第 n 行）；成员不出现
+}
+
+// identityOf 把解出来的主体摊成回话里那一块。铭文出处只给业务 agent —— 成员 bot 没有 agents.md 那一行。
+func identityOf(o *org.Org, idn org.Identity) *readIdentityOut {
+	out := &readIdentityOut{
+		Kind: idn.Kind, Ref: idn.Ref, Name: idn.Name, Role: idn.Role,
+		Inscription: idn.Inscription,
+	}
+	if len(idn.Domains) > 0 {
+		out.Domain = idn.Domains[0]
+		for _, d := range o.Domains {
+			if d.Slug == out.Domain {
+				out.DomainName = d.Name
+				break
+			}
+		}
+	}
+	if idn.Kind == org.KindAgent && idn.Line > 0 {
+		out.Evidence = &readEvidence{File: org.AgentsFile, Line: idn.Line}
+	}
+	return out
 }
 
 // readDomainOut 是「自己的域」那一行的全貌：域是什么 / 数据在哪 / 找谁 / 证据指针。
@@ -114,9 +153,9 @@ func (g *envelopeIngress) readContext(args map[string]any) (string, bool) {
 
 	// 身份：解不出（含压根没给）→ **当这个人不存在**。所以理由里不许出现「参数错误」
 	// 这类话 —— 那会把读的人引去改参数，而问题是他不在这家公司（envelope 包注释第 1 条）。
-	m, ok := o.Member(who)
+	subj, ok := o.Identity(who)
 	if !ok {
-		reason := "我们公司没有这个人 —— 身份不许自报：who 必须能在 members/ 里解出来"
+		reason := "我们公司没有这个人 —— 身份不许自报：who 必须能在 members/ 或 agents.md 里解出来"
 		g.auditRead(readActor(who), ask, audit.ResultDenied, reason, now)
 		return mustJSON(readContextOut{
 			Refused: &readRefusalOut{Reason: reason},
@@ -127,15 +166,15 @@ func (g *envelopeIngress) readContext(args map[string]any) (string, bool) {
 	// 署名（可选）：给了就必须解得出来 —— 同一套身份解析（envelope.Resolves），不另开一套。
 	if onBehalf != "" && !envelope.Resolves(o, onBehalf) {
 		reason := "on_behalf_of 解不出 —— 写 member:名字 | role:岗位 | domain:slug，或直接写名字"
-		g.auditRead(m.Name, ask, audit.ResultDenied, reason, now)
+		g.auditRead(subj.Ref, ask, audit.ResultDenied, reason, now)
 		return mustJSON(readContextOut{
-			Who: m.Name, OnBehalfOf: onBehalf,
+			Who: subj.Ref, OnBehalfOf: onBehalf,
 			Refused: &readRefusalOut{Reason: reason},
 			At:      now.Format(time.RFC3339),
 		}), true
 	}
 
-	mine, others := renderpkg.VisibleDomains(o, m)
+	mine, others := renderpkg.VisibleDomainsOf(o, subj.Domains)
 
 	// 不写 domain = 你负责的全部域（外加「找谁」目录）；写了 = 只要那一行。
 	var chosen []renderpkg.DomainRow
@@ -149,16 +188,16 @@ func (g *envelopeIngress) readContext(args map[string]any) (string, bool) {
 		}
 		if len(chosen) == 0 {
 			reason, helper := refuseDomain(o, ask)
-			g.auditRead(m.Name, ask, audit.ResultDenied, reason, now)
+			g.auditRead(subj.Ref, ask, audit.ResultDenied, reason, now)
 			return mustJSON(readContextOut{
-				Who: m.Name, OnBehalfOf: onBehalf,
+				Who: subj.Ref, OnBehalfOf: onBehalf,
 				Refused: &readRefusalOut{Reason: reason, Ask: helper},
 				At:      now.Format(time.RFC3339),
 			}), true
 		}
 	}
 
-	out := readContextOut{Who: m.Name, OnBehalfOf: onBehalf, At: now.Format(time.RFC3339)}
+	out := readContextOut{Who: subj.Ref, Identity: identityOf(o, subj), OnBehalfOf: onBehalf, At: now.Format(time.RFC3339)}
 	if ask != "" {
 		out.Scope = ask
 	}
@@ -166,13 +205,17 @@ func (g *envelopeIngress) readContext(args map[string]any) (string, bool) {
 	if ask == "" {
 		out.Directory = briefRows(others)
 		if len(chosen) == 0 {
-			out.Note = "还没给你划域（在 members/" + m.Name + "/persona.md 的 domains 里写）"
+			if subj.Kind == org.KindAgent {
+				out.Note = "这个业务 agent 还没有域（agents.md 的 domain 列指不到 domains.md 里的行）—— 没有域就没有数据视野"
+			} else {
+				out.Note = "还没给你划域（在 members/" + subj.Ref + "/persona.md 的 domains 里写）"
+			}
 		}
 	}
 
 	// 「工作上下文」的另两问：技能从哪来、在跟哪个项目。
 	// 都走已经算好的 chosen（可见范围）—— 项目按域过滤，域不在范围里就不出现。
-	out.Skills = skillsOf(o, m, g.Vault)
+	out.Skills = skillsOf(o, subj.Role, g.Vault)
 	out.Projects = projectRows(o, chosen)
 	// 报缺只在要「全部」时给：要单独一域的人不该被一段通用说明淹掉。
 	if ask == "" {
@@ -180,7 +223,7 @@ func (g *envelopeIngress) readContext(args map[string]any) (string, bool) {
 	}
 
 	// 给了也要留痕 —— 审计不是只记拒绝。
-	g.auditRead(m.Name, ask, audit.ResultOK, "", now)
+	g.auditRead(subj.Ref, ask, audit.ResultOK, "", now)
 	return mustJSON(out), false
 }
 
@@ -214,8 +257,8 @@ func domainRows(rows []renderpkg.DomainRow) []readDomainOut {
 
 // skillsOf 把这个成员**岗位**声明的技能摊出来，并逐条去看正文在不在。
 // 只有清单、没有正文 = missing：报缺，不编（同 persona 的诚实条款）。
-func skillsOf(o *org.Org, m org.Member, vault string) []readSkillOut {
-	role, ok := o.Roles[m.Role]
+func skillsOf(o *org.Org, roleSlug, vault string) []readSkillOut {
+	role, ok := o.Roles[roleSlug]
 	if !ok {
 		return nil
 	}

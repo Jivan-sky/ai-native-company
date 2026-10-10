@@ -27,11 +27,12 @@ func Bind(o *org.Org, e Envelope, p *org.Policy) []org.Issue {
 	// 并去掉逐字重复 —— 这两件事都不该在调用方各写一遍。
 	rep := &org.Report{}
 
-	// who：必须是真相源里的一个成员（含 bot）。身份不许自报 —— 这是 #44 的验收判据之一。
+	// who：必须是真相源里的一个主体 —— 成员（含 bot）**或**业务 agent。身份不许自报（#44 的验收判据之一）。
+	// 两类主体共用 o.Identity 这一支解析：出站读出口用的是同一支，免得一边认一边不认（2026-10-10）。
 	if w := strings.TrimSpace(e.Who); w != "" {
-		if _, ok := o.Member(w); !ok {
+		if _, ok := o.Identity(w); !ok {
 			rep.Add(p.Issue("envelope.who.unknown", where,
-				"who=%q 不是任何成员 —— 身份不许自报，必须能在 members/ 里解出来", w))
+				"who=%q 不是真相源里的成员或业务 agent —— 身份不许自报，必须能在 members/ 或 agents.md 里解出来", w))
 		}
 	}
 

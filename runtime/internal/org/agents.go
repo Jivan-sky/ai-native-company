@@ -17,8 +17,11 @@ import (
 // OS 账号、哪个目录 —— 全是**本机事实**，不进 git（SPEC §4.5：git = org 真相，
 // ~/.anc = 部署参数；vault_root 这类单机路径绝不写进 org 仓库）。
 type Agent struct {
-	Slug    string // ASCII 标识：进 project 名（<公司 id>-<slug>），也适合当 OS 账号名
-	Name    string // 中文显示名
+	Slug        string // ASCII 标识：进 project 名（<公司 id>-<slug>），也适合当 OS 账号名
+	Name        string // 中文显示名
+	Description string // **铭文**：这个 agent 干什么的 / 替谁干。
+	// 为什么要有它：业务 agent 与成员 bot 接在同一张口上，光一个编号分辨不出「这是谁」——
+	// 归属看 Domain，干什么的看这一格。人写的，不是agent自报。
 	Domain  string // 挂哪块业务（domains.md 的 slug）—— 数据视野那把尺子以域为单位
 	Harness string // 跑哪条腿：harness 表里的 agent type（claudecode / codex / …）；空 = 默认那家
 	Tools   string // allowed_tools（逗号分隔）—— **非空是红线**，见 agent.tools.empty
@@ -39,7 +42,8 @@ const AgentsFile = "agents.md"
 var knownAgentColumns = map[string]bool{
 	"slug": true, "name": true, "domain": true,
 	"harness": true, "tools": true, "model": true,
-	"role": true, "app_id": true,
+	"description": true,
+	"role":        true, "app_id": true,
 }
 
 // LoadAgents 读 agents.md。文件不存在 = 这家公司还没有业务 agent（向后兼容，不报错）。
@@ -74,6 +78,7 @@ func LoadAgents(root string, p *Policy) ([]Agent, []Issue, error) {
 		a := Agent{Line: i + 1}
 		get := rowReader(cols, cells)
 		a.Slug, a.Name, a.Domain = get("slug"), get("name"), get("domain")
+		a.Description = get("description")
 		a.Harness, a.Tools, a.Model = get("harness"), get("tools"), get("model")
 		a.Role, a.AppID = get("role"), get("app_id")
 		where := agentWhere(a.Line)
