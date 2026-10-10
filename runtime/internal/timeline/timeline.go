@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"anc/internal/audit"
 )
 
 // DirName 是 vault 下这一层的名字。它**不是** agent 的「数据来源」目录
@@ -105,10 +107,36 @@ func (e Entry) Time() (time.Time, bool) {
 type Doc struct {
 	Entries []Entry
 	Bad     []string // "<文件名>:<行号>"
+	// Tainted 是**磁盘上还躺着明文**的行（"<文件名>:<行号>"）—— 读口兜底（同 audit.Doc.Tainted）。
+	// 这份代码落地之前写下的行，读出来是干净的，但文件本身还是脏的：如实报出来，别当成没事。
+	Tainted []string
 }
 
 // Len 方便调用方判空。
 func (d Doc) Len() int { return len(d.Entries) }
+
+// scrub 把一条记录里**可能夹带原话**的那几格过一遍脱敏 —— 与审计吃同一张表（议题 #64）。
+//
+// 只碰 title / detail / refs 三格：
+//   - title / detail 是自由文本，「当时说了一句什么」就写在这里；
+//   - refs 是「文件 / 链接」，链接可以带查询串里的凭据；
+//   - `case` / `by` / `role` / `to` / `domain` / `project` / `kind` / `status` / `id` / `at`
+//     是**标识与词表**（按 case 折叠、按人按域筛，全靠它们），抹了就看不出「谁在推进哪一格」
+//     —— 同审计 `CleanRecord` 只碰 object / why / detail 那条理由。
+func scrub(e *Entry) []string {
+	var hits []string
+	for _, f := range []*string{&e.Title, &e.Detail} {
+		s, h := audit.Scrub(*f)
+		*f = s
+		hits = append(hits, h...)
+	}
+	for i, r := range e.Refs {
+		s, h := audit.Scrub(r)
+		e.Refs[i] = s
+		hits = append(hits, h...)
+	}
+	return hits
+}
 
 // Load 读整个 timeline 目录，按时间**升序**返回。
 //
@@ -150,6 +178,11 @@ func Load(vault string) (Doc, error) {
 				doc.Bad = append(doc.Bad, fmt.Sprintf("%s:%d", n.Name(), i+1))
 				continue
 			}
+			// 读口兜底：这份代码落地之前写下的行可能夹着明文。抹掉的那一份给调用方用，
+			// 但「磁盘上这行是脏的」要如实记下来（文件本身一个字节都不动 —— 它是 append-only 的）。
+			if len(scrub(&e)) > 0 {
+				doc.Tainted = append(doc.Tainted, fmt.Sprintf("%s:%d", n.Name(), i+1))
+			}
 			doc.Entries = append(doc.Entries, e)
 		}
 	}
@@ -183,6 +216,8 @@ func Append(vault string, e Entry) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, t.Format("2006-01")+"."+author+".jsonl")
+	// 落盘前过一遍脱敏（同 audit.Append 的位置与理由）：写口是承诺的兑现处。
+	scrub(&e)
 	b, err := json.Marshal(e)
 	if err != nil {
 		return "", err
