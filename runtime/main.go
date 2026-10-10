@@ -109,6 +109,8 @@ func main() {
 		os.Exit(cmdAudit(args))
 	case "timeline":
 		os.Exit(cmdTimeline(args))
+	case "hot":
+		os.Exit(cmdHot(args))
 	case "envelope":
 		os.Exit(cmdEnvelope(args))
 	case "gate":
@@ -162,6 +164,8 @@ func usage() {
    anc notify <vault> [选项]         把报红推到负责人面前（默认 dry-run，--send 才真发）
    anc trail <vault> [选项]          只读聚合：谁问了什么、agent 干了什么、花了多少
    anc timeline add|list <vault>      决策与执行的留存记录（红 / 黄 / 绿三档，append-only）
+   anc hot ping|put|ls|claim|release|drop|done
+                                     「进行中」的热层：状态是当前值，不是历史（达标落库，进行中放这里）
    anc audit log|add|collect <vault>  行使的流水：谁在什么时候、对谁、行使了什么（含被拒的）
    anc envelope check <vault> <信封.json>  接入面的信封：解析 + 绑真相源（只读）
    anc envelope serve <vault> [--addr 127.0.0.1:8791]
