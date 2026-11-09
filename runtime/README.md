@@ -20,7 +20,7 @@
 ```
 
 为什么收进容器：交付物是三平台单 exe，验证腿必须能复现「同一版 Go + Linux」；本机装的 Go 跑绿不代表 Linux 腿绿。
-详见 [`dev/README.md`](dev/README.md)，设计依据与实测记录见 `DESIGN.md` §7.1.70。
+详见 [`dev/README.md`](dev/README.md)，设计依据与实测记录见 `DESIGN.md` §7.1.76。
 
 ## 用法
 
@@ -203,7 +203,8 @@ vault/grants/<怎么分层随你>/<slug>.md
 ---
 grant:
   from: member:alice          # 谁给的：member:名字 | role:岗位 | 裸名字（按 成员 → 岗位 顺序解）
-  to: role:manager            # 给谁
+  to: member:bob              # 给谁：**只认成员 / 业务 agent**。写 `role:manager` 不展开成任何人
+                              #   —— 岗位不是主体（会报 grant.to.role），要按岗位发就给每个人各写一条
   action: read                # read | write | invoke（认不出的照收，只报）
   object: 10-knowledge        # 客体标识
   ttl: forever                # 期限：可选；不写 = 永久（2026-10-10 改口径）。要期限就配，如 30d
