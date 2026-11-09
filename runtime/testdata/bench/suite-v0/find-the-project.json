@@ -1,0 +1,17 @@
+{
+  "id": "find-the-project",
+  "title": "找到这件事挂在哪个项目上、卡住找谁",
+  "origin": "synthetic",
+  "as": ["alice", "bob", "opsbot"],
+  "needs": [
+    {
+      "kind": "domain",
+      "value": "trade"
+    },
+    {
+      "kind": "project",
+      "value": "trade-q3",
+      "why": "不知道挂哪个项目，就不知道这段活属于谁的目标、跟谁对齐"
+    }
+  ]
+}

@@ -145,6 +145,8 @@ func main() {
 		os.Exit(cmdContext(args))
 	case "search":
 		os.Exit(cmdSearch(args))
+	case "bench":
+		os.Exit(cmdBench(args))
 	case "ingest":
 		os.Exit(cmdIngest(args))
 	case "import":
@@ -234,6 +236,9 @@ func usage() {
                                     把这一份冻成副本落 vault 的 context/（快照；给交付与审计取证）
   anc search <vault> --q "要查什么" [--who <编号>] [--domain <slug>] [--limit 8]
                                     按域可见范围搜知识（默认 BM25；给指针 + 片段，查不到就说没入库）
+  anc bench <vault> --suite <目录|文件> [--k <视角数>] [--json] [--min <0..1>]
+                                    「不问人，能不能拿到」的测量器：每个任务开工要的东西有没有送到手上
+                                    （域 / 项目 / 技能 / 授权 / 工具；没送到的那条必须说清该问谁）
   anc version
 
 三层客户（九宫格判层，先判层再定打法，答错层＝后面全错）：
