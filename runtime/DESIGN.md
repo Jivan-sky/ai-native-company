@@ -4476,12 +4476,32 @@ trail 的 totals 是 0。这也暴露了一个待办：**读不到时 totals 仍
 
 夹具表里那组单价**明确标了 `source: fixture-not-a-real-price`** —— 这是机制验证，不是报价。
 
+**三家都算得动了**（2026-11-10 补）：Codex 的模型名不在 `session_meta`（那里只有 `model_provider`），
+在 `turn_context.payload.model` 里 —— 真 rollout 上找到 `turn_context` 8 条、`model=deepseek-flash`。
+补上之后同一份夹具表下三家各自 priced_by 说得清：
+
+| 腿 | model | cost | priced_by |
+|---|---|---|---|
+| Claude | deepseek-flash | 0.553592 | **record**（harness 自己的 cost-state 优先） |
+| Codex | deepseek-flash | 1.880665 | table |
+| DSH | deepseek-flash | 0.044697 | table |
+
+**人读输出不再把「无价格」打成 $0**（同一个毛病：0 会被读成「不花钱」）：
+
+```
+没给价格表   成本 无价格（1 段没有金额）
+给了价格表   成本 $0.044697
+```
+
+每段会话那一行也分三种：有金额 → `成本 $x · table/record`；harness 标了没价 → `成本 无价格（…）`；
+有用量但没条目 → `成本 无价格（没有价格表条目…）`。
+
 **没做的（照实列）**：
 
 - **没有真实价格数据**：这张表要客户或我们自己填（带生效日期与出处），填之前所有会话都「无价格」；
-- Codex 记录里没抓到模型名（`session_meta` 没有），所以 Codex 腿暂时算不了钱 —— 抓到之前不猜；
 - 没有「调价后重算历史」：表是**当前生效**的，历史会话用哪天的价还没定（要等真有人用再说）；
-- 看板的成本区没接（#25）。
+- **看板的成本区没接**（#25）：看板读的是真相源投影，而金额住在 trail 的会话账里 ——
+  要接得先定「看板读不读 trail」，不是加一个字段的事。
 
 ## 8. 与 SPEC 的映射
 

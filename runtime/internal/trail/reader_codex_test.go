@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"anc/internal/harness"
 )
 
 // 下面几个 helper 造的是 Codex rollout 的一行记录。
@@ -256,5 +258,26 @@ func TestScanCodexPromptKeepsUnknownTags(t *testing.T) {
 	}
 	if !strings.HasPrefix(s.Turns[0].Prompt, "<some-other-block>") {
 		t.Errorf("没见过的记号该原样留着，拿到 %q", s.Turns[0].Prompt)
+	}
+}
+
+// 模型名在 turn_context 里（session_meta 只有 model_provider）—— 算钱要靠它。
+// 2026-11-10 在本机真 rollout 上找到的：turn_context ×8，model=deepseek-flash。
+func TestScanCodexPicksUpModelFromTurnContext(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "rollout-x.jsonl")
+	lines := []string{
+		cxMeta("2026-10-22T11:57:57Z", cxSession),
+		cxLine("2026-10-22T11:57:58Z", "turn_context", `{"turn_id":"t1","model":"deepseek-flash","model_context_window":258400}`),
+		cxUser("t1", "2026-10-22T11:57:59Z", "看看这个仓库"),
+	}
+	writeLines(t, p, lines...)
+	fam, ok := harness.Default().Lookup("codex")
+	if !ok {
+		t.Fatal("口径表里没有 codex")
+	}
+	s := ReadShard(fam, p)
+	if s.Model != "deepseek-flash" {
+		t.Fatalf("模型名没读到：%q（session_meta 只有 model_provider，真名在 turn_context）", s.Model)
 	}
 }

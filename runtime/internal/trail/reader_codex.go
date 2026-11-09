@@ -228,9 +228,26 @@ func (c *codexScan) line(raw []byte) {
 		c.onItem(l.Payload, ts)
 	case "token_usage_record":
 		c.onUsage(l.Payload, ts)
+	case "turn_context":
+		c.onTurnContext(l.Payload, ts)
 	default:
 		c.observe(ts)
 	}
+}
+
+// onTurnContext 取这一轮用的模型 —— 算钱靠它查价格表。
+//
+// `session_meta` 只有 `model_provider`（`custom` 这种，不是模型名），模型名在
+// `turn_context.payload.model` 里（2026-11-10 在本机真 rollout 上找到的：
+// `turn_context` 8 条，model=deepseek-flash）。
+func (c *codexScan) onTurnContext(payload json.RawMessage, ts time.Time) {
+	var t struct {
+		Model string `json:"model"`
+	}
+	if json.Unmarshal(payload, &t) == nil && c.ses.Model == "" {
+		c.ses.Model = strings.TrimSpace(t.Model)
+	}
+	c.observe(ts)
 }
 
 func (c *codexScan) onMeta(payload json.RawMessage, ts time.Time) {
