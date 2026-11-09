@@ -129,6 +129,9 @@ func scanDSH(path string, s *Session) (map[string]int, error) {
 				Msg   dshMsg   `json:"message"`
 			}
 			_ = json.Unmarshal(e.Data, &d)
+			if s.Model == "" {
+				s.Model = strings.TrimSpace(d.Msg.Source.Model)
+			}
 			u := Usage{In: d.Usage.InputTokens, Out: d.Usage.OutputTokens,
 				CacheRead: d.Usage.CacheReadTokens, CacheWrite: d.Usage.CacheWriteTokens}
 			s.Usage = s.Usage.Add(u)

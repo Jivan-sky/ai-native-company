@@ -13,6 +13,7 @@ import (
 	"anc/internal/gateway"
 	"anc/internal/harness"
 	"anc/internal/judge"
+	"anc/internal/pricing"
 	renderpkg "anc/internal/render"
 	"anc/internal/trail"
 )
@@ -60,6 +61,7 @@ func cmdTrail(args []string) int {
 	rulesFile := fs.String("rules", "", "判据表文件（整份替换内置的）")
 	noJudge := fs.Bool("no-judge", false, "只看事实，不要判断层")
 	asJSON := fs.Bool("json", false, "输出 JSON")
+	pricesFile := fs.String("prices", "", "价格表文件（给了才按表算钱；默认不算）")
 	vault := fs.String("vault", "", "vault 目录（也可用位置参数）")
 
 	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true, "no-judge": true})
@@ -110,6 +112,14 @@ func cmdTrail(args []string) int {
 		return r
 	}
 
+	if strings.TrimSpace(*pricesFile) != "" {
+		t, err := pricing.Load(*pricesFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误: 价格表读不动：%v\n", err)
+			return 2
+		}
+		pricing.Arm(t)
+	}
 	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: 读不到 config %s（先跑 anc render）\n", cfgPath)

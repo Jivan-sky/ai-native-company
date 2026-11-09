@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"anc/internal/harness"
+	"anc/internal/pricing"
 )
 
 // Schema 是 JSON 出口的版本。
@@ -195,6 +196,12 @@ type Session struct {
 
 	CostUSD     float64 `json:"cost_usd,omitempty"`
 	UnknownCost bool    `json:"unknown_cost,omitempty"` // harness 自己标的「有模型没价格」
+
+	// Model 是记录里自报的模型（各家写法不同，读取器负责填）；算钱靠它查价格表。
+	Model string `json:"model,omitempty"`
+	// PricedBy 说清 CostUSD 从哪来：record（harness 给的）/ table（按价格表算的）/
+	// 空 = 没有金额（那就**不许**读成 0 元）。混口径是成本账最不能犯的错。
+	PricedBy string `json:"priced_by,omitempty"`
 
 	TotalDuration time.Duration `json:"total_duration_ns,omitempty"`
 	APIDuration   time.Duration `json:"api_duration_ns,omitempty"`
@@ -394,6 +401,7 @@ func ReadSessionIn(fam harness.Family, root, project, slot string, historic bool
 	}
 	sortCounts(s.Tools)
 	sortCounts(s.Denials)
+	PriceSession(&s)
 	return s
 }
 
@@ -428,6 +436,7 @@ func ReadShard(fam harness.Family, path string) Session {
 	if _, err := scanWith(fam.Reader, path, &s); err != nil {
 		s.Problems = append(s.Problems, "记录读不动："+err.Error())
 	}
+	PriceSession(&s)
 	return s
 }
 
@@ -482,6 +491,9 @@ type claudeLine struct {
 }
 
 // usageOf 从一条 assistant 行里取用量。
+// modelOf 取这一行自报的模型（算钱用；空就是不写）。
+func (l claudeLine) modelOf() string { return strings.TrimSpace(l.Message.Model) }
+
 func (l claudeLine) usageOf() Usage {
 	u := l.Message.Usage
 	return Usage{In: u.In, Out: u.Out, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite}
@@ -639,6 +651,9 @@ func scanClaude(path string, s *Session) (map[string]int, error) {
 			cur = len(turns) - 1
 
 		case "assistant":
+			if s.Model == "" {
+				s.Model = l.modelOf()
+			}
 			id := l.Message.ID
 			if id == "" {
 				id = "ts:" + l.Timestamp
@@ -675,6 +690,9 @@ func scanClaude(path string, s *Session) (map[string]int, error) {
 		case "cost-state":
 			// 累计快照：最后一次写的才是全量。前面的是中途快照，不能相加。
 			s.CostUSD = l.TotalCostUSD
+			if s.CostUSD != 0 {
+				s.PricedBy = "record"
+			}
 			s.UnknownCost = l.HasUnknownModelCost
 			s.TotalDuration = ms(l.TotalDuration)
 			s.APIDuration = ms(l.TotalAPIDuration)
@@ -1043,4 +1061,31 @@ func head(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// PriceSession 在读取器跑完之后补一层：harness 没给金额、但记录里有模型名时，
+// 按**生效的价格表**算一遍。
+//
+// 三条不许：
+//   - 不许用「相似模型」的价估（估算混进实测账 = 整份账不可信）；
+//   - 不许把「没有价」写成 0 元（0 会被读成「不花钱」）；
+//   - 不许覆盖 harness 自己给的金额（那是它的账本，比我们算的可信）。
+func PriceSession(s *Session) {
+	if s == nil || s.CostUSD != 0 || s.PricedBy == "record" {
+		return
+	}
+	t := pricing.Active()
+	if t == nil {
+		return
+	}
+	e, ok := t.Lookup(s.Model)
+	if !ok {
+		if s.Model != "" && s.Usage.Total() > 0 {
+			s.Problems = append(s.Problems, fmt.Sprintf(
+				"没有价格表条目（model=%q）：只出用量、不算钱 —— 编一个价不如没有", s.Model))
+		}
+		return
+	}
+	s.CostUSD = e.Cost(s.Usage.In, s.Usage.Out, s.Usage.CacheRead, s.Usage.CacheWrite)
+	s.PricedBy = "table"
 }
