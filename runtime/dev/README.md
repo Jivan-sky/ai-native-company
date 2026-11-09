@@ -25,6 +25,19 @@
 | `./dev/dev.sh clean` | 删 `.devbox/`（二进制 / 沙箱 vault / 日志） |
 | `./dev/dev.sh sh` | 进容器交互 shell |
 
+## 改前端（看板）
+
+镜像里只有 Go，**没有 node** —— 跑测试不受影响（`app.js` 是入库的构建产物），
+但改了 `boardui/src/` 就必须在宿主上重建一次产物再重编二进制：
+
+```bash
+cd runtime/boardui && npm ci && npm run build   # 产物落到 internal/board/ui/（入库）
+cd .. && ./dev/dev.sh build                     # 把新产物嵌进二进制
+```
+
+`npm ci` 装的是 `package-lock.json` 钉住的版本；实测同一份源码重建出的 `app.js`
+与入库那份逐字节一致（只有行尾差异），所以「产物与源码漂移」当场看得出来。
+
 ## 三个服务
 
 - `dev` —— 一次性命令执行器。**源码只读挂载**（`..:/src:ro`），产出全落 `.devbox/`，
