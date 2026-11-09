@@ -1,0 +1,13 @@
+{"type":"session","version":4,"id":"calib-1","createdAt":1794129600000,"cwd":"/Users/x/acme"}
+{"type":"turn/start","seq":1,"time":1794129600000,"data":{"turn":1}}
+{"type":"user/message","seq":2,"time":1794129600100,"data":{"role":"user","content":[{"type":"text","text":"把结算口径找出来"}],"id":"u1"}}
+{"type":"assistant/message","seq":3,"time":1794129601000,"data":{"turn":1,"step":1,"usage":{"inputTokens":100,"outputTokens":20,"cacheReadTokens":50,"cacheWriteTokens":0},"message":{"role":"assistant","content":[{"type":"reasoning","text":"先读文件"}]}}}
+{"type":"tool/call","seq":4,"time":1794129601100,"data":{"turn":1,"step":1,"callId":"c1","name":"read","arguments":"{\"file_path\":\"10-knowledge/settle.md\"}"}}
+{"type":"tool/result","seq":5,"time":1794129601200,"data":{"turn":1,"step":1,"message":{"toolCallId":"c1","content":[{"type":"text","text":"结算周期按自然月"}],"isError":false},"meta":{"cwd":"/Users/x/acme"}}}
+{"type":"turn/end","seq":6,"time":1794129603000,"data":{"turn":1,"reason":{"kind":"completed"}}}
+{"type":"turn/start","seq":7,"time":1794129610000,"data":{"turn":2}}
+{"type":"user/message","seq":8,"time":1794129610100,"data":{"role":"user","content":[{"type":"text","text":"再看一眼不存在的文件"}],"id":"u2"}}
+{"type":"assistant/message","seq":9,"time":1794129611000,"data":{"turn":2,"step":1,"usage":{"inputTokens":40,"outputTokens":10,"cacheReadTokens":0,"cacheWriteTokens":0},"message":{"role":"assistant","content":[{"type":"text","text":"试试"}]}}}
+{"type":"tool/call","seq":10,"time":1794129611100,"data":{"turn":2,"step":1,"callId":"c2","name":"bash","arguments":"{\"command\":\"cat nope.md\"}"}}
+{"type":"tool/result","seq":11,"time":1794129611200,"data":{"turn":2,"step":1,"message":{"toolCallId":"c2","content":[{"type":"text","text":"No such file or directory"}],"isError":true},"meta":{}}}
+{"type":"turn/end","seq":12,"time":1794129613000,"data":{"turn":2,"reason":{"kind":"completed"}}}
