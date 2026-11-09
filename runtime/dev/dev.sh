@@ -27,6 +27,7 @@ anc 开发验证入口（容器里跑，宿主只装 docker）
   ./dev.sh smoke     端到端烟测：init → org init → render → 投影 → 热层 → 看板
   ./dev.sh bench     「不问人能不能拿到」的测量：在沙箱 vault + suite-v0 上跑一遍
   ./dev.sh negctl    负控：把 vault 每次弄坏一处，分数必须掉（证明它会说「不」）
+  ./dev.sh calib     标定：黄金样本（sha256 + 期望值）+ 故障注入，读取器一漂就红
   ./dev.sh all       fmt + vet + test + cross + smoke（交付前跑这一条）
   ./dev.sh board     起常驻看板（redis + board），地址打在下面
   ./dev.sh down      停掉 redis / board
@@ -96,6 +97,12 @@ bench)
 	;;
 negctl)
 	in_dev 'sh /src/dev/negctl.sh'
+	;;
+calib)
+	in_dev 'go test -count=1 -run "Calib|Fault" ./internal/trail'
+	printf '\n真记录对拍（可选，需要本机有记录与 zstd）：\n'
+	printf '  dev/calib/compare.sh <vault> <config> <harness> <记录根> <anc 二进制>\n'
+	printf '  dev/calib/invariance.py <vault> <config> <harness> <记录根> <anc 二进制>\n'
 	;;
 all)
 	"$0" fmt

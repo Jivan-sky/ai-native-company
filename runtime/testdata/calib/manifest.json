@@ -1,0 +1,22 @@
+{
+  "schema": "anc.calib/v1",
+  "note": "标定的黄金样本：期望值由独立神谕（dev/calib/*.py，另一套实现）算出，不是跑 anc 抄下来的。校验见 internal/trail/calib_test.go；改了这份样本就要同时改 sha256 与期望值，并在提交里说明为什么。",
+  "fixtures": [
+    {
+      "path": "dsh-session.v4.jsonl",
+      "sha256": "8174a4f764272518e34761014a41692df616043e7275d084b319be9fd0cba350",
+      "family": "dsh"
+    }
+  ],
+  "expected": {
+    "dsh-session.v4.jsonl": {
+      "turns": 2,
+      "usage": { "in": 140, "out": 30, "cache_read": 50, "cache_write": 0 },
+      "acts": 2,
+      "tools": { "bash": 1, "read": 1 },
+      "failures": 1,
+      "cwd": "/Users/x/acme",
+      "id": "calib-1"
+    }
+  }
+}
