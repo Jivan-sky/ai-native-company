@@ -4216,6 +4216,54 @@ PLAN M2 里挂着一条「`anc audit [--fix]` 第一版（默认值、密钥权�
 - 明文扫描只扫 `gateway/config.toml`，不扫整个 vault —— 文档里出现 `sk-` 这类示例是正常的，
   全库扫会把设计文档全标成泄漏，那种误报会让人很快不再看这条输出。
 
+### 7.1.81 浏览器实测：13 条路由零 JS 错误，抓到首屏标题的「假绿」（2026-11-09，ego-browser × 容器里的看板）
+
+2026-11-09 用 ego lite（Chromium）对**跑在容器里的**看板做了一次真浏览器回归 ——
+不是 curl 打端点，是真的渲染、真的点、真的读 DOM。这是 §7.1.76 那条容器腿缺的最后一环：
+此前只验到「HTTP 200 + JSON schema 对」，界面有没有画错、JS 有没有炸，一直是空白。
+
+**环境**：`./dev/dev.sh board`（redis + board 在容器里，端口只发到 `127.0.0.1:8787`），
+浏览器在宿主，走真实 HTTP。数据是 `./dev/dev.sh bench` 种出来的沙箱 vault（3 成员 + 1 域 + 1 项目 + 1 授权）。
+
+**跑法**：一条脚本把 13 条路由走一遍（`#/overview` `#/approvals` `#/projects` `#/context` `#/graph`
+`#/members` `#/domains` `#/timeline` `#/cases` `#/system?tab=runtime|dataflow|hot|gateway|grants`
+`#/assets` `#/search`），逐页读 `document.title` / `h1` / 正文，且**先装错误钩子再走 SPA 路由**
+（hash 导航不重载文档，所以 `error` + `unhandledrejection` 能全程收集）。
+
+| 判据 | 结果 |
+|---|---|
+| 13 条路由全部渲染出正确 `h1` 与 `document.title` | ✅ 13/13 |
+| 正文里出现 `undefined` / `NaN` / `[object Object]` / 未替换的 `{{` | ✅ 0 处 |
+| SPA 路由切换期间的 JS 错误（error + unhandledrejection） | ✅ **0 条** |
+| 检索：输入「结算」→ 点检索 | ✅ 命中 `10-knowledge/settle.md`，带片段与 score 1.3134 |
+| 成员详情抽屉（点「打开 Bob 的详情」） | ✅ 身份 / 业域 / 项目 / 我的 Agent / 汇报与指向 / 授权摘要六块齐全 |
+| 上下文页：点「Alice · alice」 | ✅ URL 变成 `#/context?who=alice`（可分享），域表带 `domains.md:15` 证据指针 |
+| 深色模式切换 | ✅ `data-theme=dark` 生效，布局与对比度正常（截图见下） |
+
+**抓到的问题（已修）**：真相源干净、待批为空、**运行态三个 bot 全红**，而首屏标题照旧写着
+「现在没有异常」——同一屏右边的环写着「3 卡点」，两块自相矛盾。
+
+根因在 `boardui/src/pages/overview.ts`：标题只按「投影错误 / 校验红档 / 待批 / 非红档」分支，
+**从没看过运行态**（`red` 只进了右边的环和 KPI）。这与本项目「红是唯一要求人动手的颜色」那条纪律相冲：
+标题是这页最大的一行字，它说「没事」，下面却有 3 个要人动手的红。
+
+改法：在待批之后、非红档之前插一支 `red > 0`，标题变成「现在有 N 个 bot 回不了话」，
+lead 明写「这一格优先于『校验干净』：格式对不等于跑得动」。修完同一屏重测：
+
+```
+标题  有 3 个 bot 回不了话        ← 修前：现在没有异常
+环    3 卡点                      ← 两块现在说的是同一件事
+```
+
+**重建链路**（这一步以前没记过，踩了才知道）：`dev` 镜像里只有 Go，没有 node ——
+改了 `boardui/src/` 必须在宿主上 `npm ci && npm run build` 重建 `internal/board/ui/app.js`（入库产物），
+再 `./dev/dev.sh build` 把新产物嵌进二进制。已写进 `dev/README.md`「改前端」一节。
+实测同一份源码重建的 `app.js` 与入库那份**逐字节一致**（只有行尾差异），所以「产物与源码漂移」当场可见。
+
+**没做的**：交互回归仍是**人工触发的一次性脚本**，没进 CI（未办清单里 R-15 说的「先做关键页 smoke」，
+这一节就是那份 smoke 的第一次真跑）；写口（待批点头 / 任务归档）没有在浏览器里点过 ——
+它们会改 timeline 与热层，值得单独一刀带负例。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
