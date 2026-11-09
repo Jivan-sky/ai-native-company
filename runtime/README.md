@@ -10,6 +10,18 @@
   同一份模板**又用 `go:embed` 编进 exe**（议题 #19）——三处磁盘都找不到时落到内嵌那一份，代价是 exe 大 **38.5 KB**（实测，见 `DESIGN.md` §7.1.58）。
 - 只用标准库，无第三方依赖 → 交叉编译零障碍。
 
+## 开发与验证（Docker，开发期用，不进交付物）
+
+宿主不需要装 Go：
+
+```bash
+./dev/dev.sh all     # gofmt + vet + test（25 包）+ 六目标交叉编译 + 端到端烟测
+./dev/dev.sh board   # 起看板（含热层 redis）：http://127.0.0.1:8787/
+```
+
+为什么收进容器：交付物是三平台单 exe，验证腿必须能复现「同一版 Go + Linux」；本机装的 Go 跑绿不代表 Linux 腿绿。
+详见 [`dev/README.md`](dev/README.md)，设计依据与实测记录见 `DESIGN.md` §7.1.70。
+
 ## 用法
 
 ```bash
