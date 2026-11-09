@@ -169,6 +169,13 @@ func (o *Org) validateGrants(p *Policy, rep *Report) {
 			rep.Add(p.Issue("grant.from.unknown", g.Path,
 				"from=%q 解不出成员或岗位（写法：member:名字 | role:岗位 | 裸名字）—— 授权者不存在，这条链是断的", g.From))
 		}
+		// 写给岗位的授权：`role:` 从不当主体（见 IdentityForRef 的注释），所以这条不会命中任何一个人，
+		// 渲染那边也没有展开（internal/render 里没有 grants 的代码）。不点出来，人就以为给过了。
+		if kind, _ := SplitRef(g.To); kind == "role" {
+			rep.Add(p.Issue("grant.to.role", g.Path,
+				"to=%q 是**岗位**：岗位不是主体，这条授权不命中任何人的「与我相关」，渲染也不展开它 —— 等于谁都没给。"+
+					"要按岗位发，就给这个岗位上的每个人各写一条", g.To))
+		}
 	}
 }
 

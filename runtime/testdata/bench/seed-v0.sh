@@ -27,7 +27,7 @@ fi
 #
 # 这一条不是夹具的凑数：`anc org init` 生成的成员 persona **没有 domains 字段**，
 # 于是骨架刚生成时，每个成员的工作上下文都是空的（只有一句「还没给你划域」），
-# 而 `anc org check` 仍然是绿的 —— 这是 2026-11-09 跑基线时抓到的假绿，记在 DESIGN §7.1.71。
+# 而 `anc org check` 仍然是绿的 —— 这是 2026-11-09 跑基线时抓到的假绿，记在 DESIGN §7.1.77。
 # 量「配置正确之后装配能不能送到」之前，先把域划上。
 for m in alice bob; do
 	p="$VAULT/members/$m/persona.md"

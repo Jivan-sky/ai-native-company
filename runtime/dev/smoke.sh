@@ -79,6 +79,13 @@ grep -qF 'allowed_tools: [Read, Grep, Glob]' "$ROOT/roles/manager/persona.md" ||
 	fail "allowed_tools 没填上（模板是不是改过了？）"
 ok "roles/manager 与 roles/devbot 已预授权"
 
+step "填红线：成员要划域（不划域 = 拿不到任何一块业务，2026-11-09 起是红档）"
+for m in alice bob; do
+	sed -i '/^role: /a domains: [trade]' "$ROOT/members/$m/persona.md"
+done
+grep -qF 'domains: [trade]' "$ROOT/members/alice/persona.md" || fail "成员划域没写进去"
+ok "alice / bob 划到 trade（devbot 与管理员豁免）"
+
 step "划一块业务域 + 一个业务 agent + 一篇知识"
 sed -i '/^|---/a | trade | 大宗贸易 | 合同签订与执行 | manager | 10-knowledge | 邮件 | 保留英文：pipeline |' \
 	"$ROOT/domains.md"

@@ -151,6 +151,24 @@ func (o *Org) validateDomains(p *Policy, rep *Report) {
 			}
 		}
 	}
+	// 一块业务都没划的人：连得上、能说话，但拿不到任何一块业务（persona 段 8、上下文里的
+	// 「自己的域」、项目、授权作用域全都落不到他身上）。2026-11-09 之前这只是一句 note，
+	// 校验照样绿 —— 那正是「假绿」（DESIGN §7.1.77）。只在公司**有域表**时才判：
+	// 一张域表都没有时，成员当然没得划，那是另一件事。
+	if len(o.Domains) == 0 {
+		return
+	}
+	for _, m := range o.Members {
+		// 豁免只有两类：devbot（干装配运维，不是业务）与停用的人（本来就不在跑）。
+		// **管理员不豁免**：权限层的「全量视野」是检索/看板那条口径，而工作上下文
+		// （ctxpack）只按 domains 装配 —— 没划域的管理员打开上下文一样是空的（见 DESIGN §7.1.78）。
+		if m.Disabled || m.Role == "devbot" || len(m.Domains) > 0 {
+			continue
+		}
+		rep.Add(p.Issue("member.domains.empty", "members/"+m.Name+"/persona.md",
+			"这个人一块业务都没划（domains 为空）：段 8、工作上下文里的「自己的域」、项目与授权作用域全都落不到他身上 —— 连得上却拿不到活。"+
+				"写 domains: [<slug>]（见 %s），或把这条降档：company.md 的 policy 段写 member.domains.empty = warn", DomainsFile))
+	}
 }
 
 // roleNames / routingDirs 给报错文案用（排序，保证同输入同输出）。
