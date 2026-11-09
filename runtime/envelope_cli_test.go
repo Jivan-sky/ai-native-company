@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeEnvelope(t *testing.T, body string) string {
@@ -130,7 +131,12 @@ func logFiles(t *testing.T, dataDir string) []string {
 func TestIngressAnswersSixAndLogs(t *testing.T) {
 	vault := copyFixture(t, "domains")
 	data := t.TempDir()
-	g := &envelopeIngress{Vault: vault, DataDir: data}
+	// 日志分片按**信封的 ts** 分月（internal/envelope/log.go），而 ts 由 g.now() 补。
+	// 所以这里必须把时钟钉住：不钉的话，断言里的月份就成了「测试跑在几月」的复印件，
+	// 到下个月自己红（2026-11-09 实际踩到：期望 2026-10，实际落到 2026-11）。
+	g := &envelopeIngress{Vault: vault, DataDir: data, Now: func() time.Time {
+		return time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC)
+	}}
 	text, isErr := g.sendEnvelope(map[string]any{
 		"who": "alice", "on_behalf_of": "member:alice", "kind": "ask",
 		"body": "帮我看下", "scope_domain": "trade", "needs": []any{"human-approval"},

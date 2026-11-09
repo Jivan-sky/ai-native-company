@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"anc/internal/org"
 )
@@ -201,7 +202,14 @@ func TestIngestLandsFilesAndAudit(t *testing.T) {
 		t.Fatalf("落完之后这棵树不合法：%v", err)
 	}
 	// 审计：谁、什么时候、写了什么。这是「写真相源必须留痕」那一条的落点。
-	auditPath := filepath.Join(vault, "audit", "2026-10.张三.jsonl")
+	//
+	// 分片按**落盘那一刻**的月份（ingest.go 用 time.Now()，没有注入口），所以期望值要现算：
+	// 写死 "2026-10" 等于把测试绑在日历上（2026-11-09 实际红过）。
+	// 跨月那一瞬由「退到上一个月」兜住 —— 否则每月 1 号 00:00 跑就会假红。
+	auditPath := filepath.Join(vault, "audit", time.Now().Format("2006-01")+".张三.jsonl")
+	if _, err := os.Stat(auditPath); err != nil {
+		auditPath = filepath.Join(vault, "audit", time.Now().AddDate(0, -1, 0).Format("2006-01")+".张三.jsonl")
+	}
 	line := readFile(t, auditPath)
 	for _, want := range []string{`"actor":"张三"`, `"action":"write"`, `"source":"ingest"`, "members/赵四/persona.md"} {
 		if !strings.Contains(line, want) {
