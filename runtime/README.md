@@ -52,6 +52,9 @@ anc apply ./climax-vault --apply
 
 # 8. 哪些事已经闭环、技能还缺哪段正文（只读；不写 skills/）
 anc distill ls ./climax-vault
+
+# 9. 不问人能不能拿到：拿一份任务集，量「开工要的东西送到手上了没有」
+anc bench ./climax-vault --suite ./suite-v0     # 没送到的那条会指名道姓说该问谁
 ```
 
 `--tier` 就是九宫格判层：`1` 降本增效型（约 30 人，要省钱）/ `2` 进步型（约 200 人，要进步）/ `3` 战略型（国央企，要战略变革）。**答错层＝后面全错。**
