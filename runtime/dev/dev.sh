@@ -25,6 +25,8 @@ anc 开发验证入口（容器里跑，宿主只装 docker）
   ./dev.sh build     编译到 .devbox/bin/anc（Linux 二进制，宿主不执行）
   ./dev.sh cross     六个目标交叉编译（linux/darwin/windows × amd64/arm64）
   ./dev.sh smoke     端到端烟测：init → org init → render → 投影 → 热层 → 看板
+  ./dev.sh bench     「不问人能不能拿到」的测量：在沙箱 vault + suite-v0 上跑一遍
+  ./dev.sh negctl    负控：把 vault 每次弄坏一处，分数必须掉（证明它会说「不」）
   ./dev.sh all       fmt + vet + test + cross + smoke（交付前跑这一条）
   ./dev.sh board     起常驻看板（redis + board），地址打在下面
   ./dev.sh down      停掉 redis / board
@@ -82,6 +84,18 @@ cross)
 	;;
 smoke)
 	in_dev 'sh /src/dev/smoke.sh'
+	;;
+bench)
+	in_dev '
+    set -e
+    (cd /src && go build -trimpath -o /out/bin/anc .)
+    [ -d /out/sandbox/acme ] || { echo "还没有沙箱 vault —— 先跑 ./dev.sh smoke"; exit 1; }
+    sh /src/testdata/bench/seed-v0.sh /out/sandbox/acme
+    /out/bin/anc bench /out/sandbox/acme --suite /src/testdata/bench/suite-v0
+  '
+	;;
+negctl)
+	in_dev 'sh /src/dev/negctl.sh'
 	;;
 all)
 	"$0" fmt

@@ -18,6 +18,8 @@
 | `./dev/dev.sh build` | 编到 `.devbox/bin/anc`（**Linux 二进制，宿主不执行**） |
 | `./dev/dev.sh cross` | 六目标交叉编译：linux/darwin/windows × amd64/arm64 |
 | `./dev/dev.sh smoke` | 端到端：装配 → 真相源 → 渲染 → 投影 → 热层 → 看板 |
+| `./dev/dev.sh bench` | 「不问人能不能拿到」的测量：沙箱 vault + `testdata/bench/suite-v0` |
+| `./dev/dev.sh negctl` | 负控：把 vault 每次弄坏一处，分数必须掉（证明它会说「不」） |
 | `./dev/dev.sh board` | 起常驻看板（redis + board），地址 `http://127.0.0.1:8787/` |
 | `./dev/dev.sh down` | 停掉 redis / board |
 | `./dev/dev.sh clean` | 删 `.devbox/`（二进制 / 沙箱 vault / 日志） |

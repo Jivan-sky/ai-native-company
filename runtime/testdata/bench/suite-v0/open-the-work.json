@@ -1,0 +1,18 @@
+{
+  "id": "open-the-work",
+  "title": "接一件活：知道这块业务是什么、资料在哪、用什么打开",
+  "origin": "synthetic",
+  "as": ["alice", "bob", "opsbot"],
+  "needs": [
+    {
+      "kind": "domain",
+      "value": "trade",
+      "why": "不知道这块业务的资料在哪个目录，第一步就只能问人"
+    },
+    {
+      "kind": "tool",
+      "value": "Read",
+      "why": "dontAsk 下没预授权的工具一律被拒：连文件都打不开，等于没上下文"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "id": "full-context",
+  "title": "一次开工要的东西全给齐：域 / 项目 / 授权 / 工具",
+  "origin": "synthetic",
+  "as": [
+    "alice"
+  ],
+  "needs": [
+    {
+      "kind": "domain",
+      "value": "trade"
+    },
+    {
+      "kind": "project",
+      "value": "trade-q3"
+    },
+    {
+      "kind": "grant",
+      "value": "read:10-knowledge"
+    },
+    {
+      "kind": "tool",
+      "value": "Grep",
+      "why": "四样缺一样都得多问一个人，所以这条按「全到」才算过"
+    }
+  ],
+  "note": "四样缺一样都得多问一个人；授权逐主体，所以只列被授权的那个人。"
+}

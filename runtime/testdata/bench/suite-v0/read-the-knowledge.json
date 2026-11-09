@@ -1,0 +1,18 @@
+{
+  "id": "read-the-knowledge",
+  "title": "读业务资料：没有授权就是不通（SPEC §6 不变量 1）",
+  "origin": "synthetic",
+  "as": ["alice"],
+  "needs": [
+    {
+      "kind": "domain",
+      "value": "trade"
+    },
+    {
+      "kind": "grant",
+      "value": "read:10-knowledge",
+      "why": "没有覆盖到 10-knowledge 的读授权，就得开口请人开权限"
+    }
+  ],
+  "note": "授权是**逐主体**的（org.IdentityForRef 明确不把 role: 当主体），所以这一条只列被授权的那个人；跨视角的「换个人还成不成立」由另外三个任务承担。"
+}
