@@ -46,7 +46,9 @@
 
 - [ ] **onboarding skill**(SPEC §6 五阶段):访谈(语音友好)→ 名单 → 初始资料 → 装机 checklist(断点续走)→ 验证 + 自我介绍
 - [ ] **ingest 管线产品化**:inbox 目录约定、watcher sidecar、结构化入库(schema 校验 + diff 复核门,不 bypass)、publish、摘要通知
-- [ ] `anc audit [--fix]` 第一版(默认值、密钥权限、白名单、bypass 检查)
+- [~] `anc audit [--fix]` 第一版(默认值、密钥权限、白名单、bypass 检查)
+      —— 2026-11-09 落**只读那一半**：`anc audit config <vault>`（权限 / 产物明文 / 真相源里的秘密文件 / 越权模式，
+      七项、跳过与通过分开、不自动改），见 `runtime/DESIGN.md` §7.1.80。`--fix` 与白名单检查未做。
 - [ ] 验收:一个非 Climax 的真实小团队(找一家设计室/贸易行/俱乐部)完整走通 onboarding 并留存使用
 
 ## M3 — 第二平台与第二 harness
