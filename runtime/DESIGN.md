@@ -4350,6 +4350,53 @@ hermes 仍无读取器（口径表里 `reader` 为空，读不了就说读不了
 **没做的**：三家各自的用量没有互相「对拍」——同一段会话不会同时出现在三家记录里，
 真要对比只能拿同一道题分别跑一遍，那是烧钱的实验，不在这一节。
 
+### 7.1.84 两个消费面，一个看不见：`trail` 报 0 会话、`collect` 报 27 次行使（2026-11-10）
+
+一次标定演练（不是新功能）撞出来的：同一份 DSH 记录、同一个读取器，
+
+```
+anc audit collect --harness dsh → 27 次行使
+anc trail        --harness dsh → "sessions": []
+```
+
+**根因**：两个消费面对「有哪些会话」的判据不一样。`audit collect` 有分片枚举
+（`shard_dir` + 按记录自带的 `cwd` 认领），`trail` **只走 cc-connect 的桥**
+（`<data>/sessions/<project>_*.json`）。一台没装 gateway 的机器上桥一个都没有 ——
+于是 trail 报 0。这不是「没有会话」，是**看不见**；而 trail 说的「0 消费」会被当成事实读走。
+
+**改法**：桥为空时按同一把尺子兜底，两条路并按家族选：
+
+| 家族 | 兜底路径 |
+|---|---|
+| `shard_dir` 有值的（codex / openclaw / dsh） | `ShardSessions`：枚举分片 → 按记录自带 `cwd` 认领到项目 |
+| 按项目目录起名的（claude / codebuddy） | `DirSessions`：`<根>/<projects_dir>/<slug(work_dir)>/*.jsonl` |
+
+三条口径：**只在桥为空时兜底**（否则同一次会话被算两遍，比看不见更坏）；
+**归属靠记录自己说的 cwd**（Clean + ToSlash，Windows 折大小写，与 collect 同一把尺子）；
+**认不出归属也摆出来**（cwd 为空的分片带一条 `Problem` 返回，不静默丢）。
+
+**修完实测（同一台 Mac，三份真记录，只把 cwd 改到沙箱 homes/alice）**：
+
+| 家 | `audit collect` | `trail` | 一致？ |
+|---|---|---|---|
+| Claude Code | 9 次行使 | sessions=1 · acts=9 · usage in 23,940 / out 1,893 / cache_read 310,784 | ✅ |
+| Codex | 148 次 | sessions=1 · acts=148 · usage in 16,902,834 / out 114,831 / cache_read 16,741,504 | ✅ |
+| DSH | 27 次 | sessions=1 · acts=27 · usage in 80,086 / out 72,052 / cache_read 2,227,840 | ✅ |
+
+**同时落了标定的第一刀**：`dev/calib/oracle.py`（独立神谕，只认字节、不认 `anc` 的代码，
+按工具名数调用）+ `dev/calib/compare.sh`（神谕 vs `audit collect` 逐工具对拍，不一致就红）。
+三家各跑一次，**逐项一致**（9 / 148 / 27）。
+
+**这一节明确没做**（标定不是一次跑完的）：
+
+- 只对拍了**工具调用计数**；token 账、轮数、失败数还没进 `compare.sh`；
+- 没有故障注入矩阵（截断 zstd / 半行 / 重复 seq / 假 `usage=0` / 时钟倒流）；
+- 没有不变性验证（重压缩、重排、换架构）；
+- 没有语料统计（现在每家只有 1 份真记录）；
+- 没有第三方复跑清单（样本 + 期望值 + sha256 manifest）。
+
+按「标定」的口径：**这条链路现在能读、两面一致、计数对得上神谕；但它还没有被证明「错了会红」。**
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

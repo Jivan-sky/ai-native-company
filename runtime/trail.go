@@ -133,6 +133,15 @@ func cmdTrail(args []string) int {
 	incomplete := false
 	for _, p := range projects {
 		sessions := collectSessions(tb, fam, rootOf, p, workDirs[p], dataPath)
+		// 没有桥的机器（没装 gateway / 从没起过 cc-connect）也要读得出来：
+		// 桥一个都没有时，按记录自带的 cwd 认领分片。同一把尺子见 internal/trail/shards.go。
+		if len(sessions) == 0 {
+			if shard, ok := trail.ShardSessions(fam, rootOf(fam).Root, p, workDirs[p]); ok {
+				sessions = shard
+			} else if dirS, ok := trail.DirSessions(fam, rootOf(fam).Root, p, workDirs[p]); ok {
+				sessions = dirS
+			}
+		}
 		for _, s := range sessions {
 			if len(s.Problems) > 0 {
 				incomplete = true
