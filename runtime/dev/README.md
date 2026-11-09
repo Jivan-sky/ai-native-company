@@ -1,6 +1,6 @@
 # dev —— ANC 开发验证环境（Docker）
 
-宿主只需要 Docker，不需要装 Go。设计依据与实测记录见 `../DESIGN.md` §7.1.70。
+宿主只需要 Docker，不需要装 Go。设计依据与实测记录见 `../DESIGN.md` §7.1.76。
 
 ## 一条命令
 
