@@ -4,7 +4,10 @@
   "families": [
     {
       "id": "claude",
-      "agent_types": ["claudecode", "claude"],
+      "agent_types": [
+        "claudecode",
+        "claude"
+      ],
       "display": "Claude Code",
       "root_env": [
         "CLAUDE_CONFIG_DIR"
@@ -25,7 +28,10 @@
     },
     {
       "id": "codebuddy",
-      "agent_types": ["codebuddy", "workbuddy"],
+      "agent_types": [
+        "codebuddy",
+        "workbuddy"
+      ],
       "display": "CodeBuddy / WorkBuddy CLI",
       "root_env": [],
       "root_dir": ".codebuddy",
@@ -41,7 +47,9 @@
     },
     {
       "id": "codex",
-      "agent_types": ["codex"],
+      "agent_types": [
+        "codex"
+      ],
       "display": "OpenAI Codex CLI",
       "root_env": [
         "CODEX_HOME"
@@ -60,7 +68,9 @@
     },
     {
       "id": "openclaw",
-      "agent_types": ["openclaw"],
+      "agent_types": [
+        "openclaw"
+      ],
       "display": "OpenClaw",
       "root_env": [],
       "root_dir": ".openclaw",
@@ -76,7 +86,9 @@
     },
     {
       "id": "hermes",
-      "agent_types": ["hermes"],
+      "agent_types": [
+        "hermes"
+      ],
       "display": "Hermes",
       "root_env": [],
       "root_dir": "AppData/Local/hermes",
@@ -92,19 +104,23 @@
     },
     {
       "id": "dsh",
-      "agent_types": ["dsh"],
+      "agent_types": [
+        "dsh"
+      ],
       "display": "DSH",
       "root_env": [],
       "root_dir": ".dsh",
       "record_format": "jsonl-zstd",
       "session_handle": "parent-dir-name",
-      "reader": "",
+      "reader": "dsh-jsonl",
       "layout": {
         "dir_rule": "dash-wrapped-slug",
         "projects_dir": "sessions",
-        "main_file": "session-<id>/session.jsonl.zstd"
+        "main_file": "<id>/session.v4.jsonl.zstd",
+        "shard_dir": "sessions",
+        "shard_glob": "session.v*.jsonl.zstd"
       },
-      "note": "只登记了口径，**读不了**：主记录是 **zstd 压缩**的 jsonl（session.jsonl.zstd），当前二进制零第三方依赖（标准库没有 zstd 解压）。要读得引一个 zstd 解压实现，体积**未实测**；2026-10-09 拍板「零依赖优先」，所以先登记不读。目录名规则实测 7 例（示例 D:\\my_project → --D-my_project--：字母数字与 `_` `-` 原样保留，其余连续的一段 → 一个 '-'，两头各包一层 '--'）。记录内部形状**未验**（解不开就没看）。"
+      "note": "读取器 = dsh-jsonl（2026-11-09 在本机真记录上验过形状）。主记录是 **zstd 压缩**的 jsonl；本仓库零第三方依赖，所以**借宿主上的 `zstd -dc`** 流式解压，不落临时文件。找不到 zstd 就如实报「这条没读」，不返回 0 消耗。事件形状（实测）：头部 `type=session`（id/cwd/createdAt，字段在顶层）；`turn/start` / `user/message` / `assistant/message`（usage: inputTokens/outputTokens/cacheReadTokens/cacheWriteTokens）/ `tool/call`（callId、name、arguments 是**字符串套 JSON**）/ `tool/result`（message.isError + meta.cwd）/ `turn/end`（reason.kind）；时间戳是 epoch 毫秒。目录名规则实测 7 例（`D:\\my_project` → `--D-my_project--`）。**未覆盖**：记录里没有金额也没有价格表 → 只出用量（UnknownCost）；子 agent 是独立会话文件（parentSession 指回母会话），本读取器不做归属。"
     }
   ]
 }
