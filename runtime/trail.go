@@ -368,7 +368,7 @@ func printTrail(vault, data string, roots []familyRoot, rulesWhy string, all []t
 	cur := ""
 	var sum trail.Usage
 	var cost float64
-	unread := 0
+	unread, unpriced := 0, 0
 	for i, s := range all {
 		if s.Project != cur {
 			cur = s.Project
@@ -381,6 +381,9 @@ func printTrail(vault, data string, roots []familyRoot, rulesWhy string, all []t
 		}
 		sum = sum.Add(s.Usage)
 		cost += s.CostUSD
+		if s.CostUSD == 0 && s.Usage.Total() > 0 {
+			unpriced++
+		}
 		printSession(s, findings[i], turnLimit, withJudge)
 	}
 	// 有读不到的会话时，合计必须**说明它只算读到的那些** —— 否则这个 0
@@ -389,8 +392,15 @@ func printTrail(vault, data string, roots []familyRoot, rulesWhy string, all []t
 	if unread > 0 {
 		note = fmt.Sprintf("（其中 %d 段读不到，没算进来）", unread)
 	}
-	fmt.Printf("合计 %d 段会话%s · 输入 %d · 输出 %d · 缓存读 %d · 成本 $%.6f\n",
-		len(all), note, sum.In, sum.Out, sum.CacheRead, cost)
+	costCell := fmt.Sprintf("$%.6f", cost)
+	switch {
+	case unpriced > 0 && cost == 0:
+		costCell = fmt.Sprintf("无价格（%d 段没有金额）", unpriced)
+	case unpriced > 0:
+		costCell = fmt.Sprintf("$%.6f（另有 %d 段无价格）", cost, unpriced)
+	}
+	fmt.Printf("合计 %d 段会话%s · 输入 %d · 输出 %d · 缓存读 %d · 成本 %s\n",
+		len(all), note, sum.In, sum.Out, sum.CacheRead, costCell)
 }
 
 func printSession(s trail.Session, finds []judge.Finding, turnLimit int, withJudge bool) {
@@ -417,12 +427,22 @@ func printSession(s trail.Session, finds []judge.Finding, turnLimit int, withJud
 		len(s.Turns))
 	fmt.Printf("      账    输入 %d · 输出 %d · 缓存读 %d · 缓存写 %d\n",
 		s.Usage.In, s.Usage.Out, s.Usage.CacheRead, s.Usage.CacheWrite)
-	if s.CostUSD > 0 || s.UnknownCost {
+	switch {
+	case s.CostUSD > 0:
 		warn := ""
 		if s.UnknownCost {
 			warn = "（有模型没价格，harness 自己标的）"
 		}
-		fmt.Printf("      成本  $%.6f%s\n", s.CostUSD, warn)
+		src := ""
+		if s.PricedBy != "" {
+			src = " · " + s.PricedBy
+		}
+		fmt.Printf("      成本  $%.6f%s%s\n", s.CostUSD, src, warn)
+	case s.UnknownCost:
+		fmt.Printf("      成本  无价格（harness 自己标的有模型没价格）\n")
+	case s.Usage.Total() > 0:
+		// 有用量、没金额：**不许**打成 $0 —— 0 会被读成「不花钱」。
+		fmt.Printf("      成本  无价格（没有价格表条目；`anc trail --prices <文件>` 才算钱）\n")
 	}
 	if s.TotalDuration > 0 {
 		fmt.Printf("      耗时  总 %s · API %s · 工具 %s\n",
