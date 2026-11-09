@@ -145,6 +145,10 @@ func scanDSH(path string, s *Session) (map[string]int, error) {
 			}
 			_ = json.Unmarshal(e.Data, &d)
 			if d.Name == "" {
+				// 无名的调用**不能静默丢**：它是一次发生过、但读不出是什么的行使。
+				// 丢了就等于替记录说「没发生」——标定脚本正是靠这条差异发现两边的口径不同。
+				s.Problems = append(s.Problems, fmt.Sprintf(
+					"有一条 tool/call 没有 name（callId=%q）：算不出它是什么工具，没算进行使", d.CallID))
 				continue
 			}
 			// arguments 在记录里是**字符串**（JSON 再套一层）；解开成真 JSON 才好原样带走。

@@ -143,3 +143,24 @@ func TestFaultTruncatedZstd(t *testing.T) {
 		t.Fatal("截断的记录被安静吞掉了：既没报错、也没读到东西、也没有 Problem —— 那是假绿")
 	}
 }
+
+// 预测：一条没有 name 的 tool/call → 不算进行使，但必须报出来（静默丢 = 替记录说「没发生」）。
+func TestFaultNamelessCallIsReported(t *testing.T) {
+	body := dshFixture + `{"type":"tool/call","seq":99,"time":1794129609000,"data":{"turn":1,"step":9,"callId":"cx","name":"","arguments":"{}"}}` + "\n"
+	s, err := scanBroken(t, "noname.jsonl", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Acts) != 2 {
+		t.Fatalf("无名调用不该变成一次行使：%+v", s.Acts)
+	}
+	found := false
+	for _, p := range s.Problems {
+		if strings.Contains(p, "没有 name") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("无名调用必须报出来，实际 Problems=%v", s.Problems)
+	}
+}
