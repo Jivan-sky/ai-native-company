@@ -1,0 +1,63 @@
+# ANC 开发验证环境（宿主机只需要 docker）。
+#
+# 三个服务，各管一件事：
+#   dev    —— 一次性命令执行器：gofmt / vet / test / build / cross 都走它
+#   redis  —— 热层（internal/hot 说的那个独立小进程）；不接它，「待批 / 派给我的待办」两页只能报缺
+#   board  —— 常驻看板，跑在 /out/sandbox/acme 上
+#
+# 两个刻意的约束：
+#   · 源码目录 **只读挂载**：所有产出（二进制、vault、看板数据）都落 .devbox/，
+#     不让一次构建把产物写回仓库。
+#   · 看板只把端口发到 127.0.0.1：容器内绑 0.0.0.0 是因为容器有自己的一张网，
+#     宿主机这一侧仍然只有本机能连（对外要看请走 ssh 端口转发，同 SPEC §5 口径）。
+
+name: anc-dev
+
+x-dev: &dev
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: anc-dev:go1.25
+  working_dir: /src
+  volumes:
+    - ..:/src:ro
+    - ../.devbox:/out
+    - anc-gobuild:/root/.cache/go-build
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+    ANC_OUT: /out
+    ANC_SRC: /src
+    # 热层走服务名，不是 127.0.0.1 —— 两个容器有各自的回环口。
+    ANC_HOT_ADDR: redis:6379
+  depends_on:
+    redis:
+      condition: service_started
+
+services:
+  dev:
+    <<: *dev
+    command: ["go", "version"]
+
+  redis:
+    image: redis:7-alpine
+    # 不落盘：热层按定义**不是真相源**（internal/hot 包注释），丢了只该丢「进行中的即时状态」。
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+
+  board:
+    <<: *dev
+    ports:
+      - "127.0.0.1:${ANC_BOARD_PORT:-8787}:8787"
+    command:
+      - /out/bin/anc
+      - board
+      - serve
+      - /out/sandbox/acme
+      - --addr
+      - 0.0.0.0:8787
+      # 容器内的 0.0.0.0 是容器私有网络，不是宿主机的对外口 —— 但这一步仍然要显式写出来：
+      # 不写，service 就起不来（bindcheck 的规矩是对的，容器不例外）。
+      - --insecure-bind
+
+volumes:
+  anc-gobuild:
