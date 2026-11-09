@@ -73,6 +73,10 @@ var DefaultRules = []Rule{
 	{"member.feishu.open_id.duplicate", LevelFatal, false, "两个人共用一个 open_id，等于一个 bot 服务两个人"},
 	{"member.feishu.app_id.missing", LevelFatal, false, "没有 app_id 建不起平台连接"},
 	{"member.feishu.app_id.duplicate", LevelFatal, false, "同一个飞书应用被两个 project 抢连，消息归属不确定"},
+	// 2026-11-09：这条原来是「只在 context pack 里给一句 note」，check 照样绿 —— 首次跑基线时
+	// 12 条 need 全灭而校验报 OK（DESIGN §7.1.77）。「连得上却拿不到活」与 allowed_tools 空着
+	// 是同一类事故，所以同一档。豁免 devbot / admin / disabled；存量 vault 可降档。
+	{"member.domains.empty", LevelFatal, false, "启用中的成员一个域都没划，而公司有域表 —— 这个人在这家公司里没有一块业务：persona 段 8、工作上下文里的「自己的域」、项目与授权作用域全落不到他身上。豁免 devbot（干装配运维，不是业务）/ disabled（停用）；**管理员不豁免**（工作上下文只认 domains，全量视野是检索那条口径）。不锁死：存量 vault 可在 company.md 写 `policy: member.domains.empty = warn`"},
 	{"feishu.wildcard", LevelFatal, false, "SPEC §6-1：白名单默认关闭注册，星号等于对所有人开放"},
 
 	// —— 角色层 ——
@@ -164,6 +168,10 @@ var DefaultRules = []Rule{
 	{"grant.ttl.missing", LevelOff, false, "SPEC §6（2026-10-10 改口径）：期限可选、**不写 = 永久** —— 所以这条出厂档是 off，不是删掉：想要「授权必带期限」的客户在 company.md 里 `policy: grant.ttl.missing = warn` 把它开回来"},
 	{"grant.action.unknown", LevelWarn, false, "action 不在已知词表 —— 照收，只是执行层认不出来（词表不锁死）"},
 	{"grant.from.unknown", LevelWarn, false, "from 解不出成员或岗位 —— 授权者不存在，这条链是断的（域是客体，不能当授权者）"},
+	// 2026-11-09：这条以前不存在，于是 `to: role:xxx` 一声不吭地变成死配置（DESIGN §7.1.77 发现 2）。
+	// 为什么只 warn 不拦：它失败的方向是**保守**的（谁都拿不到），不是多给了权；
+	// 真正的不可逆损失是「以为给了、其实没给」被当成已交付 —— 这条 warn 就是防那个。
+	{"grant.to.role", LevelWarn, false, "to 写的是岗位（role:...）：岗位不是主体，这条授权不命中任何一个人的「与我相关」，渲染也不展开它 —— 等于谁都没给。要按岗位发，就得给这个岗位上的每个人各写一条"},
 	{"grant.match.missing", LevelFatal, false, "SPEC §6 不变量 1「默认拒」：跨域信封没有被 grants/ 里任何一条覆盖 —— 没有 grant 就是不通（跨业务域、跨 bot、看板分区同理）。**与上面九条结构校验不同**：那九条是「新能力先看见不先拦」，这一条是**执行层**，出厂就拦。不锁死 —— 存量客户在 company.md 写 `policy: grant.match.missing = warn` 就能先看见不先拦"},
 
 	// —— 策略层（策略自己也要被校验，否则拼错规则名 = 你以为关了其实没关）——

@@ -9,7 +9,7 @@ import (
 const grantOK = `---
 grant:
   from: member:alice
-  to: role:ops
+  to: member:bob
   action: read
   object: shipments
   ttl: 30d
@@ -39,7 +39,7 @@ func TestScanGrants(t *testing.T) {
 	if g.Slug != "read-shipments" || g.Path != "grants/read-shipments.md" {
 		t.Fatalf("slug / path 不对：%q / %q", g.Slug, g.Path)
 	}
-	if g.From != "member:alice" || g.To != "role:ops" || g.Action != "read" ||
+	if g.From != "member:alice" || g.To != "member:bob" || g.Action != "read" ||
 		g.Object != "shipments" || g.TTL != "30d" || g.Reason != "物流看板要对读数" {
 		t.Fatalf("字段没读全：%+v", g)
 	}
@@ -80,7 +80,7 @@ func TestGrantMissingFieldsWarn(t *testing.T) {
 // 期限可选：不写 = 永久。所以「另四个字段齐了」就是一条干净授权，出厂零发现。
 func TestGrantWithoutTTLIsCleanByDefault(t *testing.T) {
 	v := copyVault(t, "domains")
-	writeGrant(t, v, "forever", "---\ngrant:\n  from: member:alice\n  to: role:ops\n  action: read\n  object: shipments\n---\n")
+	writeGrant(t, v, "forever", "---\ngrant:\n  from: member:alice\n  to: member:bob\n  action: read\n  object: shipments\n---\n")
 	o, err := Load(v)
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestGrantWithoutTTLIsCleanByDefault(t *testing.T) {
 // 出厂档 off ≠ 这条规则没了：客户想要「授权必带期限」，在 company.md 里开一下就到。
 func TestGrantTTLMissingCanBeTurnedOn(t *testing.T) {
 	v := copyVault(t, "domains")
-	writeGrant(t, v, "forever", "---\ngrant:\n  from: member:alice\n  to: role:ops\n  action: read\n  object: shipments\n---\n")
+	writeGrant(t, v, "forever", "---\ngrant:\n  from: member:alice\n  to: member:bob\n  action: read\n  object: shipments\n---\n")
 	addPolicy(t, v, "grant.ttl.missing: warn")
 	o, err := Load(v)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestGrantFromMustBeActor(t *testing.T) {
 		{"认不出的前缀", "team:alice", []string{"grant.from.unknown"}},
 	} {
 		v := copyVault(t, "domains")
-		writeGrant(t, v, "g", "---\ngrant:\n  from: "+tc.from+"\n  to: role:ops\n  action: read\n  object: shipments\n  ttl: 30d\n---\n")
+		writeGrant(t, v, "g", "---\ngrant:\n  from: "+tc.from+"\n  to: member:bob\n  action: read\n  object: shipments\n  ttl: 30d\n---\n")
 		o, err := Load(v)
 		if err != nil {
 			t.Fatalf("%s：不该拦：%v", tc.name, err)
@@ -133,7 +133,7 @@ func TestGrantFromMustBeActor(t *testing.T) {
 // 认不出的 action 照收、只报（词表不锁死，同 envelope.kind）。
 func TestGrantActionUnknownWarnsOnly(t *testing.T) {
 	v := copyVault(t, "domains")
-	writeGrant(t, v, "g", "---\ngrant:\n  from: member:alice\n  to: role:ops\n  action: bless\n  object: shipments\n  ttl: 30d\n---\n")
+	writeGrant(t, v, "g", "---\ngrant:\n  from: member:alice\n  to: member:bob\n  action: bless\n  object: shipments\n  ttl: 30d\n---\n")
 	o, err := Load(v)
 	if err != nil {
 		t.Fatal(err)

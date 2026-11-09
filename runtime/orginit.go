@@ -200,7 +200,11 @@ func cmdOrgInit(args []string) int {
 
 	// 自检：骨架里「故意留白」的红档是预期内的（留给人填），其余红档 = 我模板写错了。
 	// 两者必须分开 —— 否则每次 init 都会把「请你填」误报成「模板 bug，请报给我」。
-	blanks := map[string]bool{"role.allowed_tools.empty": true}
+	// 两类「故意留白」：工具清单要人填；成员划域也要人填（骨架不知道谁做哪块业务）。
+	blanks := map[string]bool{
+		"role.allowed_tools.empty": true,
+		"member.domains.empty":     true,
+	}
 	var expectedFatal []org.Issue
 	o, loadErr := org.Load(abs)
 	if loadErr == nil {
@@ -228,7 +232,7 @@ func cmdOrgInit(args []string) int {
 	}
 	fmt.Println()
 	if len(expectedFatal) > 0 {
-		fmt.Printf("   骨架里 %d 条红档是**故意**的（第 2 条要你填的就是它）：\n", len(expectedFatal))
+		fmt.Printf("   骨架里 %d 条红档是**故意**的（下面这些就是要你填的）：\n", len(expectedFatal))
 		for _, i := range expectedFatal {
 			fmt.Printf("     - %s\n", i)
 		}
@@ -239,12 +243,16 @@ func cmdOrgInit(args []string) int {
 	fmt.Println("   2) roles/*/persona.md 的 allowed_tools 是故意留空的，所以校验现在是红的：")
 	fmt.Println("      实测 dontAsk 下没预授权的工具会被自动拒绝，空着 = bot 连得上却干不了活。")
 	fmt.Println("      填上这个角色真正需要的工具名，红档才会消，anc render 也才会放行。")
-	fmt.Println("   3) 每个数据目录的 CLAUDE.md 首句会进 persona 路由表，写清楚它才找得着路。")
-	fmt.Println("   4) 立项书副本放 charters/<slug>/（目录名 = projects.md 的 slug）；")
+	fmt.Println("   3) members/*/persona.md 的 domains 也是空的：不划域，这个人就拿不到任何一块业务")
+	fmt.Println("      （persona 段 8、上下文的「自己的域」、项目与授权作用域全都落不到他身上）。")
+	fmt.Println("      domains.md 每加一行，就把负责这块业务的人写进他的 domains: [<slug>]。")
+	fmt.Println("      devbot 与停用的人例外；管理员不例外（工作上下文只认 domains）。")
+	fmt.Println("   4) 每个数据目录的 CLAUDE.md 首句会进 persona 路由表，写清楚它才找得着路。")
+	fmt.Println("   5) 立项书副本放 charters/<slug>/（目录名 = projects.md 的 slug）；")
 	fmt.Println("      真源在客户侧，projects.md 的 source 列指向它。")
-	fmt.Println("   5) 工作上下文要冻一份存档就落 context/：anc context freeze <vault> --who <编号>；")
+	fmt.Println("   6) 工作上下文要冻一份存档就落 context/：anc context freeze <vault> --who <编号>；")
 	fmt.Println("      只是要看一眼就去看板的「上下文」页（同一份装配，换一个摆法）。")
-	fmt.Printf("   6) anc org check %s\n", abs)
+	fmt.Printf("   7) anc org check %s\n", abs)
 
 	if *doGit {
 		if _, err := exec.LookPath("git"); err != nil {

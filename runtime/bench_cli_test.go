@@ -11,7 +11,7 @@ import (
 
 // benchGrant 是测试夹具用的一条逐主体授权（to: member:alice）。
 // 为什么不写 role:manager：`org.IdentityForRef` 明确**不把岗位当主体**，
-// 于是一条岗位授权不命中任何一个人的「与我相关」（见 DESIGN §7.1.71 的发现 2）。
+// 于是一条岗位授权不命中任何一个人的「与我相关」（见 DESIGN §7.1.77 的发现 2）。
 const benchGrant = `---
 grant:
   from: member:bob

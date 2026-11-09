@@ -19,14 +19,21 @@ rm -rf "$BASE"
 mkdir -p "$BASE"
 
 # 跑一轮，只读四个数：pass^k 率、送达率、要问人几处、任务数。
+# 有一种「坏」是量不到分数的：校验层直接把它拦了（比如成员不划域，2026-11-09 起是红档）。
+# 那也是一种合格的结果 —— 说清它是被哪条拦住的，比打印一个问号有用。
 measure() {
 	name=$1
 	vault=$2
-	out=$("$BIN" bench "$vault" --suite "$SUITE" --json 2>/dev/null || true)
+	out=$("$BIN" bench "$vault" --suite "$SUITE" --json 2>&1 || true)
 	rate=$(printf '%s' "$out" | sed -n 's/.*"pass_k_rate": \([0-9.]*\).*/\1/p' | head -1)
+	if [ -z "$rate" ]; then
+		rule=$(printf '%s' "$out" | sed -n 's/.*\[\([a-z][a-z0-9._]*\)\].*/\1/p' | head -1)
+		printf '  %-18s 拦在校验层（%s）—— 连分数都出不来\n' "$name" "${rule:-未知原因}"
+		return 0
+	fi
 	deliv=$(printf '%s' "$out" | sed -n 's/.*"delivery_rate": \([0-9.]*\).*/\1/p' | head -1)
 	ask=$(printf '%s' "$out" | sed -n 's/.*"asks": \([0-9]*\).*/\1/p' | tail -1)
-	printf '  %-18s pass^k=%-6s 送达率=%-6s 要问人=%s\n' "$name" "${rate:-?}" "${deliv:-?}" "${ask:-?}"
+	printf '  %-18s pass^k=%-6s 送达率=%-6s 要问人=%s\n' "$name" "$rate" "$deliv" "${ask:-?}"
 }
 
 # 拷一份 → 弄坏一处 → 用同一份 suite 量。破坏命令里 $1 是那份 vault 的路径。
