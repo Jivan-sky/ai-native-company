@@ -3897,6 +3897,85 @@ timeline + 102 条待办入队 + 31 条被后文覆盖/收口；3 份只有散�
 
 **没做什么**：`ListAgents()` 仍逐条读（agent 数量级小，等真变多再改）；
 没有给 timeline 做索引 / 分片（那是另一条风险 R-04）。
+
+### 7.1.70 Docker 验证腿：把 Linux 腿收成一条可复现的命令（2026-11-09，议题 #23 的一半）
+
+**为什么现在做**：2026-10-19 拍板「macOS 暂不支持，等有机器再验」，而开发机已经换成 MacBook ——
+宿主没有 Go，Linux 腿原来靠 WSL2 / 沙箱 VM 现搭，换机器就等于这条腿断了。验证腿断了以后，
+`go test` 绿不绿全凭记忆，那已经不是证据。
+
+**做了什么**：`runtime/dev/` 一个目录四件东西，只在开发期用，**不进交付物**（zip 里没有它）：
+
+| 文件 | 管什么 |
+|---|---|
+| `Dockerfile` | 钉版本：`golang:1.25` + `CGO_ENABLED=0` + `GOTOOLCHAIN=local`（不许镜像偷偷换工具链） |
+| `compose.yaml` | 三个服务：`dev`（一次性命令）· `redis`（热层）· `board`（常驻看板） |
+| `dev.sh` | 宿主入口：`fmt / vet / test / build / cross / smoke / all / board / down / clean / sh` |
+| `smoke.sh` | 端到端烟测（在容器里跑）：装配 → 真相源 → 渲染 → 投影 → 热层 → 看板 |
+
+**三条刻意的约束**：
+
+1. **源码只读挂载**（`..:/src:ro`）：产出全落 `.devbox/`，一次构建不会把二进制或沙箱 vault 写回仓库。
+2. **看板只把端口发到 `127.0.0.1`**：容器内仍要写 `--insecure-bind` 才起得来（`bindcheck` 的规矩不因容器而破），
+   但宿主机一侧只有本机能连 —— 与 SPEC §5「默认只绑回环」同口径，不是绕过它。
+3. **热层走服务名 `redis:6379`**，不是 `127.0.0.1`：两个容器各有自己的回环口。不接它，
+   「待批 / 派给我的待办」两页按设计如实报「没接上」（`wired:false`），不拿空清单冒充「没人派给你」。
+
+**实测（2026-11-09，Apple Silicon + Docker Desktop 29.9.2，容器内 `linux/arm64` / Go 1.25.14 / Debian 13）**：
+
+| 判据 | 命令 | 结果 |
+|---|---|---|
+| 格式 | `./dev.sh fmt` | ✅ `gofmt` 干净 |
+| 静态检查 | `./dev.sh vet` | ✅ 通过 |
+| 单测 | `./dev.sh test` | ✅ **25 包全绿**（根包 + 24 个内部包） |
+| 交叉编译 | `./dev.sh cross` | ✅ **6/6**（linux/darwin/windows × amd64/arm64） |
+| 端到端 | `./dev.sh smoke` | ✅ 见下 |
+| 看板 | `./dev.sh board` + 宿主 `curl` | ✅ 首页 200（1594B）· `app.js` 200 · `/api/board` schema v3 · `/api/hot` **`wired:true`** |
+
+烟测逐步（每一步都断言具体字样或文件，不过就当场红）：
+
+```
+anc version            → anc 0.1.0
+anc doctor             → 全部通过（模板 / git / 可写 / 代理 / 飞书 / 钉钉 / 企微 / goproxy）
+anc init               → 树骨架 + 8 份模板（判层卡 / 七连接件都在）
+anc org init --force   → company.md + roles + members（进同一棵树，D5 口径）
+填 allowed_tools       → roles/{manager,devbot} 预授权后 org check 才绿
+anc org check          → OK（devbot, manager）
+anc render             → dry-run 报「未落盘」→ --apply 落 gateway/config.toml
+anc org export         → anc.board/v3
+anc context pack       → alice 的上下文（身份 / 可见域 / 缺口各一段）
+anc search             → BM25 命中 10-knowledge/settle.md
+anc hot ping           → PONG
+anc task               → add → pull(fence=1) → ack done → ls stage=done 闭环
+anc gate               → 五道门出结论，退出码 0
+anc board serve        → 首页 / app.js / /api/board / /api/runtime 全 200
+```
+
+**顺手修掉的两条时钟依赖用例**（生产代码一行没动，只改了断言为什么这么写）：
+
+| 用例 | 原来的红 | 改法 |
+|---|---|---|
+| `TestIngressAnswersSixAndLogs` | 断言写死 `2026-10.alice.jsonl`，11 月一到就红 | 用既有的 `envelopeIngress.Now` 注入口把时钟钉在 2026-10-15 —— 分片本来就按**信封 ts** 走，钉住之后这条断言才是「按 ts 分月」而不是「今天是几月」 |
+| `TestIngestLandsFilesAndAudit` | 读死路径 `audit/2026-10.张三.jsonl` | 期望月份现算（`time.Now()`，ingest 那边没有注入口），跨月那一瞬退到上一个月兜住 |
+
+这两条**不是新引入的破**：2026-11-01 起它们就已经红了，只是没人再跑过 Linux 腿。
+「验证腿断掉之后，红的东西会静悄悄地红」—— 这正是这一节要收掉的那类风险。
+
+**没做 / 没解决（照实列）**：
+
+1. **这不算 macOS 腿。** 容器跑的是 `linux/arm64`，只证明「Mac 硬件上的 Linux 腿绿」，
+   daemon 装载（launchd / FileVault / 自动登录）一件都没验 —— 议题 #23 只关掉了一半。
+2. **没验真 cc-connect 装载、真飞书收发**：`anc apply` 在容器里没有上游 daemon，`anc notify` 没有真 app。
+   这两条仍以 §7.1.8 / §7.1.5 的 Windows/Linux 实测为准。
+3. **跑出来的三个缺口，没动代码，留作待办**：
+   - `anc org init` 的「目录非空就拒」守卫是两棵树时代的，D5 合成一棵树之后，正常流程必须加 `--force`；
+     而 `--force` 会**无条件重写**它自己生成的那几份文件（`company.md` / `domains.md` / `projects.md` /
+     `roles/*` / `members/*`），二次跑会抹掉人工填的内容。守卫与拍板口径现在是对不上的。
+   - 骨架不生成 `agents.md`，于是每次 `org check` / `render` / 起看板都带一条 `agent.table.missing`；
+     而 `anc task add --to <agent>` 在 `agents.md` 里没有那个 slug 时直接报「查无此人」。
+     机器入口只有 `anc ingest`（白名单含 `agents.md`），没有引导式的一条。
+   - `gateway/config.toml` 落在 vault 的**兄弟目录**，不在树里。这可能是故意的（生成物不入真相源仓），
+     但 D5「一个仓库根 = 一个公司」没写这一条，读的人会以为是漏的。
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
