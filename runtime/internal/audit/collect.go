@@ -81,9 +81,14 @@ func BuiltinTools() []ToolRule {
 		{Tool: "anc__anc_send_envelope", Action: ActionWrite, Target: []string{"who"}},
 
 		// ---- OpenClaw（同一批实测；工具名带 MCP 命名空间前缀时原样搬）----
-		{Tool: "read", Action: ActionRead, Target: []string{"path"}},
+		//
+		// 2026-11-09 起 read / write 的目标键多认一个 `file_path`：**DSH 用的就是它**
+		// （在真记录里实测：read 的入参是 {"file_path"}，write 是 {"file_path","content"}）。
+		// 同一张小写工具名在两家记录里长得不一样 —— 所以键是**候选列表**，按顺序取第一个非空的，
+		// 这正是 ToolRule.Target 的设计意图（不是两套规则、也不是猜）。
+		{Tool: "read", Action: ActionRead, Target: []string{"path", "file_path"}},
 		{Tool: "memory_get", Action: ActionRead, Target: []string{"path"}},
-		{Tool: "write", Action: ActionWrite, Target: []string{"path"}},
+		{Tool: "write", Action: ActionWrite, Target: []string{"path", "file_path"}},
 		{Tool: "edit", Action: ActionWrite, Target: []string{"path"}},
 		{Tool: "web_fetch", Action: ActionRead, Target: []string{"url"}},
 		// `gateway` 也有 path 这个键，但那是它自己的配置路径、不是被行使的文件 ——
@@ -91,6 +96,11 @@ func BuiltinTools() []ToolRule {
 		{Tool: "gateway", Action: ActionInvoke},
 		{Tool: "exec", Action: ActionInvoke},
 		{Tool: "process", Action: ActionInvoke},
+		// ---- DSH（2026-11-09 在一份真记录上按出现次数排的：bash 19 / read 6 / write 1 / send_message 1）----
+		// bash 的入参是 {"command","description"} —— 自由文本，抽不出「对谁」，所以不登记目标键。
+		{Tool: "bash", Action: ActionInvoke},
+		// 给另一个 agent 发消息 = 一次行使；客体就是收件人。
+		{Tool: "send_message", Action: ActionInvoke, Target: []string{"agent_id"}},
 		{Tool: "message", Action: ActionInvoke},
 		{Tool: "sessions_history", Action: ActionInvoke},
 		{Tool: "session_status", Action: ActionInvoke},

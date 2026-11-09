@@ -499,6 +499,7 @@ var readers = map[string]readerFunc{
 	ReaderOpenClaw:  scanOpenClaw,
 	"claude-jsonl":  scanClaude,
 	ReaderCodeBuddy: scanCodeBuddy,
+	ReaderDSH:       scanDSH,
 }
 
 // scanWith 按口径表里的 reader 名字分派。
