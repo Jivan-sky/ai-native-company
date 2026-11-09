@@ -938,8 +938,11 @@ anc apply ./climax-vault --apply            # 真做
 systemd drop-in（`<单元名>.d/anc-secrets.conf`，上游不碰它，天然幂等），写完必须自己跑一次
 `systemctl --user daemon-reload` —— 实测上游 `daemon restart` 不认新写的 drop-in。
 
-**平台**：Windows 与 Linux 两腿都落了（Linux 腿实测见 `DESIGN.md` §7.1.10）。macOS 零覆盖（议题 #23）：
-launchd 包装脚本**未实现即报错** —— 不许「装一半、留个读不到凭据的 daemon」。
+**平台**：Windows 与 Linux 两腿都落了（Linux 腿实测见 `DESIGN.md` §7.1.10）。macOS 分两半（议题 #23）：
+**`anc` 本体**（init / org / check / render / export / context / search / bench / board）已于 2026-11-09
+在 Apple M5 + macOS 26.7.2 上**原生 arm64 跑过**，与 Linux 腿逐条对拍（`DESIGN.md` §7.1.79）；
+**装载层**（cc-connect / launchd / 凭据桥）仍零实现 —— launchd 包装脚本**未实现即报错**，
+`anc apply` 在 darwin 上直接拒绝，`anc doctor` 会把这条显式标出来（不再是沉默）。
 
 **断电之后靠谁起来**：上游单元是 `WantedBy=default.target` 且已 `enable`，配上 `Linger=yes`，
 Linux 上开机就自己拉起（进程暴死 / 软重启 / **硬断电**三层都实测过，见 `DESIGN.md` §7.1.11）。
