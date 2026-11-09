@@ -4387,7 +4387,20 @@ anc trail        --harness dsh → "sessions": []
 按工具名数调用）+ `dev/calib/compare.sh`（神谕 vs `audit collect` 逐工具对拍，不一致就红）。
 三家各跑一次，**逐项一致**（9 / 148 / 27）。
 
-**故障注入矩阵（6 类，`internal/trail/dsh_faults_test.go`）** —— 每类先写预测，再看实际，
+**token 账也对上了**（`dev/calib/usage.py`，第二套独立实现：DSH 逐条求和、Claude 按 `message.id`
+合并、Codex 按 `turn_token_usage` 每轮取最后一个再相加 —— 都不是我们的读取器那条路）：
+
+| 家 | 神谕 in / out / cache_read / cache_write | `anc trail` totals | 一致 |
+|---|---|---|---|
+| Claude | 23,940 / 1,893 / 310,784 / 0 | 同左 | ✅ |
+| Codex | 16,902,834 / 114,831 / 16,741,504 / 0 | 同左 | ✅ |
+| DSH | 80,086 / 72,052 / 2,227,840 / 0 | 同左 | ✅ |
+
+**对拍脚本自己也验了会红**：往一份记录里塞一条 `name` 为空的 `tool/call`，神谕数 1 次、台账 0 次
+→ `compare.sh` 打印差异并 `exit 1`；好样本 `exit 0`。这条顺手暴露了一个静默丢弃：读取器原来
+对无名调用 `continue`，等于替记录说「没发生」—— 现在记一条 `Problem` 再跳过。
+
+**故障注入矩阵（7 类，`internal/trail/dsh_faults_test.go`）** —— 每类先写预测，再看实际，
 读取器一回归它就红：
 
 | 注入 | 预测 | 实际 |
@@ -4401,7 +4414,7 @@ anc trail        --harness dsh → "sessions": []
 
 **这一节明确没做**（标定不是一次跑完的）：
 
-- 只对拍了**工具调用计数**；token 账、轮数、失败数还没进 `compare.sh`；
+- 轮数、失败数还没进 `compare.sh`（计数与 token 账已进）；
 - 没有不变性验证（重压缩、重排、换架构）；
 - 没有语料统计（现在每家只有 1 份真记录）；
 - 没有第三方复跑清单（样本 + 期望值 + sha256 manifest）。
