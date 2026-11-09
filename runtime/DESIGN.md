@@ -4264,6 +4264,58 @@ lead 明写「这一格优先于『校验干净』：格式对不等于跑得动
 这一节就是那份 smoke 的第一次真跑）；写口（待批点头 / 任务归档）没有在浏览器里点过 ——
 它们会改 timeline 与热层，值得单独一刀带负例。
 
+### 7.1.82 DSH 记录能读了：借宿主的 `zstd`，不动「零第三方依赖」（2026-11-09）
+
+口径表里 `dsh` 那一行从 2026-10-09 起就挂着「**只登记、读不了**」：主记录是 zstd 压缩的 jsonl，
+而本仓库钉死零第三方依赖、单 exe、`CGO_ENABLED=0` —— 标准库没有 zstd 解压，引一个实现就是往交付物里
+塞几 MB，所以才先登记不读。今天（2026-11-09，本机真实记录上）把这条补上。
+
+**怎么解 zstd 的**：不引 Go 依赖，**借宿主上的 `zstd -dc`**，管道流式解压（不落临时文件 ——
+记录里是客户会话，不该在盘上多留一份）。三条口径写进代码：
+
+1. 找得到 `zstd` 就读；找不到就**明确报错**（带一句怎么装），不返回 0 消耗 ——
+   「读不到」装成「没有」是这个项目最怕的假绿。
+2. 解压失败要说**真正的**原因：第一版把解码错误吞了，一条坏记录被报成「空文件」；
+   现在先 `Wait()` 再看 stderr，解压半路死掉会带着 zstd 的原话出来。
+3. 记录读一半断了（会话被中断）→ 读到的部分照算，缺的那截写进 `Problems`。
+
+**记录形状是实测的，不是照文档猜的**：`session`（头部，`createdAt` 是 **epoch 毫秒数字**）/
+`turn/start` / `user/message` / `assistant/message`（`usage.inputTokens|outputTokens|cacheReadTokens|cacheWriteTokens`）/
+`tool/call`（`callId`、`name`、`arguments` 是**字符串套 JSON**）/ `tool/result`（`message.isError` + `meta.cwd`）/
+`turn/end`（`reason.kind`）；时间戳一律 epoch 毫秒。
+
+真记录用例（`ANC_DSH_REAL=<路径>` 才跑，否则跳过）第一次执行就抓到一处**照文档写会错**的地方：
+`createdAt` 声明成 `string` 直接解析失败（真记录里是数字）。这就是留这个口子的理由 ——
+合成样本只能证明「按我理解的形状读得对」，证明不了「DSH 真写出来的形状就是这个」。
+
+**归集也通了**：口径表补了 `shard_dir: sessions` + `shard_glob: session.v*.jsonl.zstd`
+（DSH 按 cwd 分目录，从项目名推不出来），于是 `anc audit collect` 能把分片枚举出来、按记录自带的
+`cwd` 认领到项目。
+
+**实测（一台 Mac，`~/.dsh` 里的一份真会话，548 KB 压缩）**：
+
+```
+环境   darwin/arm64 原生二进制 + 宿主 zstd 1.5.7
+读取   1 轮 · 用量 In 80,086 / Out 72,052 / CacheRead 2,227,840 · 工具 4 种 · 动作 27 次
+归集   27 次行使 → 27 条记录（cwd 指向沙箱 homes/alice 的那份夹具）
+```
+
+**顺手补的两处数据（工具表本来就是数据，加条目不改代码）**：
+
+- 小写 `read` / `write` 的目标键加上 `file_path`：OpenClaw 用 `path`、**DSH 用 `file_path`**
+  （真记录实测），`Target` 本来就是候选列表、按顺序取第一个非空 —— 不是两套规则。
+- 新增 `bash`（invoke，无目标键：入参是 `{"command","description"}` 自由文本）与
+  `send_message`（invoke，客体 `agent_id`）。
+
+补之前：27 次调用只落 7 条（`read`/`write` 记成「目标为空」、`bash`/`send_message` 不认）；
+补之后 27 次全落。剩下两条 `Problems` 都是**如实报缺**，不是缺陷：
+
+1. DSH 记录里没有金额、ANC 也没有它的价格表 → **只出用量，不算钱**（`UnknownCost`，不写 0）；
+2. `bash` 的「对谁」永远是空的 —— 自由文本抽不出客体，看板上按「未归属」显示。
+
+**没做的**：子 agent 是独立会话文件（`parentSession` 指回母会话），本读取器不做归属；
+hermes 仍无读取器（口径表里 `reader` 为空，读不了就说读不了）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
