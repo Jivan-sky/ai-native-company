@@ -117,8 +117,26 @@ func startupChecks() []check {
 		return windowsStartupChecks()
 	case "linux":
 		return linuxStartupChecks()
+	case "darwin":
+		return darwinStartupChecks()
 	}
 	return nil
+}
+
+// darwinStartupChecks：macOS 的装载**还没实现**（凭据桥零实现，`anc apply` 在 darwin 直接拒绝）。
+//
+// 这里刻意返回一条 **不通过**，而不是空切片：空切片等于 doctor 在 macOS 上对「自启兜底」
+// 一个字不说，结论照样打「全部通过」——那正是议题 #23 要记的那笔账
+// （「必须被记成已知未覆盖，而不是大概没问题」）。2026-11-09 原生 arm64 实测时抓到的。
+//
+// 什么时候改成真检查：上游 `cc-connect daemon install` 在 macOS 上落了 launchd 单元之后，
+// 那时按 Linux 那支的写法读 plist + `launchctl print`，判据同「装了没 / 会自己起吗」。
+func darwinStartupChecks() []check {
+	return []check{{
+		"自启兜底", false,
+		"macOS 的装载还没实现（`anc apply` 在 darwin 直接拒绝）—— 这一层**不存在**，不是「装好了」；" +
+			"零中级（`anc init` / `render`）不受影响，但「重启后自己回来」这件事在 Mac 上还没法验（议题 #23）",
+	}}
 }
 
 // windowsTaskFacts 读一次计划任务定义。第二个返回值是「装没装」：

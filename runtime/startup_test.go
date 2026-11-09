@@ -104,10 +104,31 @@ func TestStartupChecksOnThisPlatform(t *testing.T) {
 				t.Errorf("自检项缺名字：%+v", c)
 			}
 		}
+	case "darwin":
+		// macOS 的装载零实现 —— 但**不许沉默**（2026-11-09 原生 arm64 实测时抓到：
+		// 原来这里返回 nil，doctor 在 Mac 上对自启兜底一个字不说，结论照样「全部通过」）。
+		if len(cs) != 1 || cs[0].OK {
+			t.Fatalf("darwin 上必须是一条**不通过**的「自启兜底」，实际 %+v", cs)
+		}
 	default:
 		if cs != nil {
 			t.Errorf("%s 上该返回 nil，实际 %v", runtime.GOOS, cs)
 		}
+	}
+}
+
+// darwinStartupChecks 是纯函数，任何平台都能直接调 —— 这条用例守的是「别再把沉默改回去」。
+func TestDarwinStartupNeverSilent(t *testing.T) {
+	cs := darwinStartupChecks()
+	if len(cs) != 1 {
+		t.Fatalf("darwin 上必须恰好一条自检项，实际 %d 条：%+v", len(cs), cs)
+	}
+	c := cs[0]
+	if c.OK {
+		t.Fatalf("「装载未实现」不许打勾 —— 那等于说这台机器装好了：%+v", c)
+	}
+	if !strings.Contains(c.Info, "还没实现") && !strings.Contains(c.Info, "#23") {
+		t.Fatalf("说清楚是平台缺口，别让人以为是本机坏了：%q", c.Info)
 	}
 }
 
