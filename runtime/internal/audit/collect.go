@@ -44,6 +44,10 @@ func BuiltinTools() []ToolRule {
 		{Tool: "BashOutput", Action: ActionInvoke},
 		{Tool: "Agent", Action: ActionInvoke},
 		{Tool: "Task", Action: ActionInvoke},
+		// 2026-11-09 在真记录上补的两条：Claude Code 2.1.x 多出来的两个工具。
+		// WebFetch 是「读一个 URL」——客体是 url；ToolSearch 是「找工具」，抽不出客体。
+		{Tool: "WebFetch", Action: ActionRead, Target: []string{"url"}},
+		{Tool: "ToolSearch", Action: ActionInvoke},
 
 		// ---- Codex CLI（2026-10-10 在真记录上按出现次数排的，84 份 rollout）----
 		// 入参的键是 `cmd`（**不是** command）—— 实测。
