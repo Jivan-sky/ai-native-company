@@ -196,7 +196,14 @@ func scanDSH(path string, s *Session) (map[string]int, error) {
 			}
 			_ = json.Unmarshal(e.Data, &d)
 			if turnIdx >= 0 && !s.Turns[turnIdx].At.IsZero() && !at.IsZero() {
-				s.Turns[turnIdx].Duration = at.Sub(s.Turns[turnIdx].At)
+				// 时钟倒流（结束早于开始）时**不记负数**：负时长会被下游当成「很久以前跑的」，
+				// 比没有更坏。记 0 并报缺，让人知道这个数不可信（2026-11-10 故障注入抓到的）。
+				if at.Before(s.Turns[turnIdx].At) {
+					s.Problems = append(s.Problems, fmt.Sprintf(
+						"第 %d 轮的结束时间早于开始时间（时钟倒流）—— 时长记 0，这个数不可信", turnIdx+1))
+				} else {
+					s.Turns[turnIdx].Duration = at.Sub(s.Turns[turnIdx].At)
+				}
 			}
 			if k := strings.TrimSpace(d.Reason.Kind); k != "" && k != "completed" {
 				s.Problems = append(s.Problems, fmt.Sprintf("第 %d 轮没跑完（reason=%s）—— 那一轮的账只记到中断处", turnIdx+1, k))
