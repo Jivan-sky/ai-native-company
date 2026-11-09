@@ -173,6 +173,14 @@ TASK_ID=$("$BIN" task pull "$ROOT" --who opsbot --limit 1 --json 2>"$LOG/task-pu
 has "$LOG/task-ls.log" "$TASK_ID" "ack 之后 done 态里没有这条"
 ok "任务 $TASK_ID 走完 add→pull→ack"
 
+step "anc audit config（装机凭据体检：权限 / 产物明文 / 真相源秘密文件 / 越权模式）"
+"$BIN" audit config "$ROOT" >"$LOG/audit-config.log" 2>&1 || {
+	sed -n '1,30p' "$LOG/audit-config.log" >&2
+	fail "audit config 退出码非 0"
+}
+has "$LOG/audit-config.log" "没有需要处理的项" "体检结论不对"
+ok "七项全过（不存在的东西按「跳过」，不是「通过」）"
+
 step "anc gate（交付链路的门：只出结论，不设门禁）"
 "$BIN" gate "$ROOT" >"$LOG/gate.log" 2>&1 || fail "gate 退出码非 0"
 ok "五道门已出结论"

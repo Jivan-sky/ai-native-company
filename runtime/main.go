@@ -223,6 +223,7 @@ func usage() {
                                       提案的待批队列、卡片与「点头」（审批的落点：看板 / 飞书卡片走同一个入口）
                                       卡片长什么样是数据（--frame），值是现算的（谁提的 / 属于谁 / 该谁批）
    anc audit log|add|collect <vault>  行使的流水：谁在什么时候、对谁、行使了什么（含被拒的）
+  anc audit config <vault>           装机凭据体检：文件权限 / 产物明文 / 真相源里的秘密文件 / 越权模式（只读）
    anc envelope check <vault> <信封.json>  接入面的信封：解析 + 绑真相源（只读）
    anc envelope serve <vault> [--addr 127.0.0.1:8791]
                                     接入面：harness 走 MCP 把信封递进来（无状态，默认只绑本机）

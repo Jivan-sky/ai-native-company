@@ -27,6 +27,7 @@ const auditUsage = `anc audit —— 行使的流水：谁在什么时候、对�
   anc audit collect <vault> [选项]    从 harness 原生记录归集（默认 dry-run）
   anc audit tools                     打印生效的工具表
   anc audit rules                     打印生效的脱敏表（加了一栏：带上了几条已知密钥值）
+  anc audit config <vault>            装机凭据体检：权限 / 产物明文 / 真相源里的秘密文件 / 越权模式（只读）
 
 log 选项：
   --actor <名字>      只看一个人
@@ -88,6 +89,8 @@ func cmdAudit(args []string) int {
 		return cmdAuditTools(args[1:])
 	case "rules":
 		return cmdAuditRules(args[1:])
+	case "config":
+		return cmdAuditConfig(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, auditUsage)
 		return 2
