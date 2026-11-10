@@ -1,0 +1,16 @@
+{
+  "schema": "anc.job/v1",
+  "name": "issue-sweep",
+  "title": "每日 issue 巡检：把开着的条目按 label 汇总成一份清单",
+  "schedule": { "every": "24h", "at": "09:00", "tz": "Asia/Shanghai" },
+  "timeout": "60s",
+  "retry": { "max": 1, "backoff": "10s" },
+  "params": { "repo": "Jivan-sky/ai-native-company" },
+  "http": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/{{repo}}/issues?state=open&per_page=100",
+    "headers": { "Accept": "application/vnd.github+json", "User-Agent": "anc-job" },
+    "auth": { "secret": "GITHUB_TOKEN", "scheme": "token" }
+  },
+  "write": { "path": "reports/issues-{{date}}.md", "render": "issues-md" }
+}
