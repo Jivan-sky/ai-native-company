@@ -201,3 +201,23 @@ func TestChatWithoutGateRefuses(t *testing.T) {
 		t.Fatalf("没有闸应当 503，实际 %d", rec.Code)
 	}
 }
+
+// 限流按注册名（厂商配额），不按票：多签几张票也不能绕过。
+func TestChatRateLimited(t *testing.T) {
+	s, tok, _ := newGated(t)
+	s.Gate.RPM = map[string]int{"qwen-max-prod": 2}
+	s.Gate.Limits = authz.RateLimits{Path: filepath.Join(t.TempDir(), "rl.json")}
+
+	for i := 0; i < 2; i++ {
+		if rec := postChat(t, s, tok, `{"prompt":"x"}`); rec.Code != 200 {
+			t.Fatalf("第 %d 次应当放行，实际 %d", i+1, rec.Code)
+		}
+	}
+	rec := postChat(t, s, tok, `{"prompt":"x"}`)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("第 3 次应当被限流，实际 %d：%s", rec.Code, rec.Body.String())
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("被限流要给 Retry-After")
+	}
+}
