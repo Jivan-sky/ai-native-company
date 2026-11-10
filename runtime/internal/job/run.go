@@ -71,7 +71,18 @@ func (o Options) now() time.Time {
 }
 
 // Run 执行一次。返回 Result；error 只在「连结果都记不下来」时返回。
+//
+// **无论从哪条路失败，都记账** —— 凭据缺失、URL 拼不出、落盘失败，和 HTTP 失败一样
+// 是「这个作业今天没干成」，不记就等于替它说「没事」。
 func Run(ctx context.Context, s Spec, opts Options) (Result, error) {
+	res := runInner(ctx, s, opts)
+	if res.Status != "skipped" {
+		record(s, opts, &res)
+	}
+	return res, nil
+}
+
+func runInner(ctx context.Context, s Spec, opts Options) Result {
 	now := opts.now()
 	res := Result{Job: s.Name, At: now, Status: "failed"}
 	key := s.expandKey(now)
@@ -81,13 +92,15 @@ func Run(ctx context.Context, s Spec, opts Options) (Result, error) {
 	if !opts.Force && st.LastKey == key && st.LastOK {
 		res.Status = "skipped"
 		res.Why = "幂等键已跑成功过（" + key + "）—— 同一件事不再做第二遍；要重跑用 --force"
-		return res, nil
+		return res
 	}
 
 	req, err := s.buildRequest(ctx, now, opts.Secrets)
 	if err != nil {
 		res.Why = err.Error()
-		return res, nil
+		st.merge(res, false)
+		_ = saveState(opts.DataDir, st)
+		return res
 	}
 	client := opts.Client
 	if client == nil {
@@ -100,10 +113,9 @@ func Run(ctx context.Context, s Spec, opts Options) (Result, error) {
 	res.Attempts, res.Code = attempts, code
 	if lastErr != nil {
 		res.Why = lastErr.Error()
-		record(s, opts, &res)
 		st.merge(res, false)
 		_ = saveState(opts.DataDir, st)
-		return res, nil
+		return res
 	}
 	out := render(s.Write.Render, body, s.Name, now)
 	res.Bytes = len(out)
@@ -115,14 +127,14 @@ func Run(ctx context.Context, s Spec, opts Options) (Result, error) {
 			res.Why = err.Error()
 			st.merge(res, false)
 			_ = saveState(opts.DataDir, st)
-			return res, nil
+			return res
 		}
 		// 原子写：中途被杀不会留半个文件（「看起来跑过了」是最坏的假象）。
 		if err := writeAtomic(dst, out); err != nil {
 			res.Why = err.Error()
 			st.merge(res, false)
 			_ = saveState(opts.DataDir, st)
-			return res, nil
+			return res
 		}
 		sum := sha256.Sum256(out)
 		res.SHA256 = hex.EncodeToString(sum[:])
@@ -130,10 +142,9 @@ func Run(ctx context.Context, s Spec, opts Options) (Result, error) {
 	}
 
 	res.Status = "ok"
-	record(s, opts, &res)
 	st.merge(res, true)
 	_ = saveState(opts.DataDir, st)
-	return res, nil
+	return res
 }
 
 // do 发请求并重试。**只对「可能自愈」的错误重试**：网络错误 / 5xx / 429；

@@ -218,3 +218,26 @@ func TestRunRecordsExecutions(t *testing.T) {
 		t.Fatal("跳过不该再写一条审计（会把「做了几次」算多）")
 	}
 }
+
+// 每一种失败都要留痕：凭据缺失 / URL 拼不出 / 落盘失败 —— 不能只有 HTTP 失败才记账。
+func TestEveryFailureIsRecorded(t *testing.T) {
+	vault, data := t.TempDir(), t.TempDir()
+	s := Spec{Schema: Schema, Name: "fail1", Schedule: Schedule{Every: "24h"},
+		HTTP: HTTP{URL: "https://example.invalid/x", Auth: &Auth{Secret: "MISSING"}}}
+	res, err := Run(context.Background(), s, Options{Vault: vault, DataDir: data,
+		Now: time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)})
+	if err != nil || res.Status != "failed" {
+		t.Fatalf("缺凭据应当失败：%+v %v", res, err)
+	}
+	if !res.Recorded {
+		t.Fatal("失败也必须记账（不记等于替它说「没事」）")
+	}
+	files, _ := filepath.Glob(filepath.Join(vault, "audit", "*.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("应当有一条 audit：%v", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	if !strings.Contains(string(b), `"result":"failed"`) || !strings.Contains(string(b), "MISSING") {
+		t.Fatalf("失败原因要落进台账：%s", b)
+	}
+}

@@ -4596,6 +4596,29 @@ timeline 🟢 作业 issue-sweep 跑了：HTTP 200 · case job:issue-sweep
 顺手抓到一个词表打架：audit 的 `ok/denied/failed` 与 timeline 的 `done/running/blocked/failed`
 不是一套，把 `ok` 直接喂给 timeline，看板会画成「认不出的档」（灰）。现在映射成 `done`。
 
+**失败告警（2026-11-10 补）**：无人值守时退出码没人看得到，所以失败必须**同时**出现在三处：
+
+| 面 | 什么时候看 | 实测输出 |
+|---|---|---|
+| `anc job ls` | 人主动查 | 作业名下面直接跟一行 `⚠️ 凭据 "GITHUB_TOKEN_EXPIRED" 不在 secrets 里` |
+| `timeline` | 看板 / 日报 | 🔴 红档，一条一个 `case job:<name>` |
+| `audit` | 对账 | `result=failed` + 原因原话 |
+
+而且**每一条失败路径都记账**（原来只有 HTTP 失败记，凭据缺失 / URL 拼不出 / 落盘失败直接 return，
+等于失败不留痕）：`runInner` 里所有出口都走同一个 `record`，跳过（幂等）仍不写。
+
+演练（真跑，两种故障）：
+
+```
+凭据缺失   ⚠️ 凭据 "GITHUB_TOKEN_EXPIRED" 不在 secrets 里（…别写进 spec）
+断网/不可达 ⚠️ dial tcp 127.0.0.1:1: connect: connection refused（重试 2 次）
+tick       exit=1，并打出「2 个作业失败（自愈不了，要人动手）」+ 每个的名字与原因
+撤掉演练   exit=0 —— 历史失败留在台账里（append-only 不该被擦）
+```
+
+**推送还没做**：现在的告警是**拉取式**（人去看 ls / 看板 / 日志）。真正的「推给人」（IM / 邮件）
+要接 `anc notify` 或客户自己的 webhook —— 本机没有可用的 IM 通道，所以没做，也不假装做了。
+
 **还没做的（照实列）**：
 
 - macOS 没有真重启验证（只有 launchd 登记 + 按间隔跑过的证据）；
