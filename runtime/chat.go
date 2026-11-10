@@ -21,8 +21,7 @@ import (
 	"time"
 
 	"anc/internal/agent"
-	"anc/internal/ctxpack"
-	"anc/internal/org"
+	"anc/internal/ctxtool"
 )
 
 const chatUsage = `anc chat —— ANC 自己的回合（流式 + 工具调用）
@@ -74,7 +73,7 @@ func cmdChat(args []string) int {
 
 	var tools []agent.Tool
 	if strings.TrimSpace(*vault) != "" {
-		tools = append(tools, readContextTool(*vault))
+		tools = append(tools, ctxtool.ReadContext(*vault))
 	}
 
 	loop := agent.New(client, tools)
@@ -112,33 +111,6 @@ func cmdChat(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-// readContextTool 把「读一个人的工作上下文」挂成工具。
-// 它就是 MCP 那条读出口的同一个装配点（ctxpack.Assemble），不是另写一套。
-func readContextTool(vault string) agent.Tool {
-	return agent.Tool{
-		Spec: agent.Spec("read_context", "读某个成员/agent 的工作上下文（身份 / 业务域 / 项目 / 可见范围 / 缺口）",
-			`{"type":"object","properties":{"who":{"type":"string","description":"成员名或 agent 的 slug"}},"required":["who"]}`),
-		Run: func(ctx context.Context, args json.RawMessage) (string, error) {
-			var a struct {
-				Who string `json:"who"`
-			}
-			if err := json.Unmarshal(args, &a); err != nil || strings.TrimSpace(a.Who) == "" {
-				return "", fmt.Errorf("需要 who（成员名或 agent slug）")
-			}
-			o, err := org.Load(vault)
-			if err != nil {
-				return "", fmt.Errorf("vault 加载失败：%v", err)
-			}
-			out, _ := ctxpack.Assemble(o, vault, a.Who, "", "", time.Now(), ctxpack.TasksIn{})
-			b, err := json.Marshal(out)
-			if err != nil {
-				return "", err
-			}
-			return string(b), nil
-		},
-	}
 }
 
 // transcriptWriter 把每条消息追加成一行 JSON：可回放、可对账。
