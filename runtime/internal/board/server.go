@@ -77,24 +77,10 @@ func (s *Server) now() time.Time {
 // Handler 组装路由。静态资源来自内嵌文件系统（构建期产物）。
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/board", s.handleBoard)
-	mux.HandleFunc("/api/issues", s.handleIssues)
-	mux.HandleFunc("/api/runtime", s.handleRuntime)
-	mux.HandleFunc("/api/dataflow", s.handleDataflow)
-	mux.HandleFunc("/api/assets", s.handleAssets)
-	mux.HandleFunc("/api/search", s.handleSearch)
-	mux.HandleFunc("/api/distill", s.handleDistill)
-	mux.HandleFunc("/api/timeline", s.handleTimeline)
-	mux.HandleFunc("/api/audit", s.handleAudit)
-	mux.HandleFunc("/api/approvals", s.handleApprovals)
-	mux.HandleFunc("/api/hot", s.handleHot)
-	mux.HandleFunc("/api/agents", s.handleAgents)
-	mux.HandleFunc("/api/context", s.handleContext)
-	mux.HandleFunc("/api/grants", s.handleGrants)
-	mux.HandleFunc(chatPath, s.handleChat)
-	mux.HandleFunc(modelsPath, s.handleModels)
-	mux.HandleFunc(WritePath, s.handleApprovalsDecide)
-	mux.HandleFunc(SettlePath, s.handleTaskSettle)
+	// 路由表是**唯一**的注册点（见 inventory.go）：加一条路由，就得先回答它属于哪一档。
+	for _, rt := range s.Routes() {
+		mux.HandleFunc(rt.Path, rt.Handle)
+	}
 	ui := s.UIFS
 	if ui == nil {
 		ui = UIFS()
@@ -112,7 +98,7 @@ func (s *Server) Handler() http.Handler {
 // 报出一个「Content-Type 不对」的假原因（真原因是动词不对）—— 2026-10-10 实测踩到。
 func readOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isChatPath(r.URL.Path) {
+		if k, ok := routeKind(r.URL.Path); ok && k == KindModel {
 			if r.Method != http.MethodPost && r.Method != http.MethodGet {
 				w.Header().Set("Allow", "GET, POST")
 				http.Error(w, "这个口只认 GET/POST", http.StatusMethodNotAllowed)
@@ -121,7 +107,7 @@ func readOnly(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.URL.Path == WritePath || r.URL.Path == SettlePath {
+		if k, ok := routeKind(r.URL.Path); ok && k == KindWrite {
 			if r.Method != http.MethodPost {
 				w.Header().Set("Allow", "POST")
 				http.Error(w, "这个写口只认 POST："+r.URL.Path, http.StatusMethodNotAllowed)
@@ -132,7 +118,7 @@ func readOnly(next http.Handler) http.Handler {
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "看板只读：只有 GET / HEAD（写只有两处 "+WritePath+" 与 "+SettlePath+"，且只收 POST + application/json）", http.StatusMethodNotAllowed)
+			http.Error(w, "看板只读：只有 GET / HEAD（写只有两处 "+WritePath+" 与 "+SettlePath+"；模型面只有 "+chatPath+"）", http.StatusMethodNotAllowed)
 			return
 		}
 		next.ServeHTTP(w, r)
