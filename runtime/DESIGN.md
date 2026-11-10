@@ -4897,6 +4897,38 @@ p50 = 146.625µs   p99 = 473.333µs
 **没做的**：限流只按注册名（没有按应用/租户的配额）、固定窗口没有滑动平滑、没有分布式计数
 （文件锁只管单机）、没有「超额告警」。
 
+### 7.1.93 脚本应用：装 / 审 / 沙箱跑 / 撤（2026-11-10，P1 第一刀）
+
+「挂到 ANC 上的产品」的第一种形态：**别人写的脚本**。三条口径全部落成可执行检查。
+
+| 口径 | 实现 | 证据 |
+|---|---|---|
+| **内容即身份**：装时对整个目录算 sha256（路径也进哈希），跑之前重算 | `apps.HashDir` | 改一个字节 → `refused：内容与安装时不一致（20e8426e… != 8e023829…）`；改名也会变（用例 `TestHashIncludesNames`） |
+| **未审批不跑** | `state: pending → approved`，审批记谁/何时 | `refused：还没审批（state=pending）` |
+| **没有沙箱就不跑** | `DockerRunner`：`--network=none --read-only --tmpfs /tmp --cap-drop ALL --user 65534` | 找不到 docker → `failed：没有沙箱 —— 拒绝执行`（用例 `TestNoSandboxRefuses`） |
+
+**真跑（样例 `hello`，本机 docker）**：
+
+```
+装      ✅ hello@1.0.0 · hash 8e02382973a7… · pending
+未审批  ⛔ 还没审批（state=pending）—— 未审批的应用不许跑
+审批    ✅ alice @ 2026-11-10T23:16:41+08:00
+跑      ✅ 5.2s
+        | hello from sandbox
+        | cwd=/app
+        | secrets_in_env=0      ← 环境里没有任何密钥
+        | write_app=no          ← /app 只读
+        | write_tmp=yes         ← /tmp 可写（临时空间）
+        | net=blocked           ← 无网络
+改一个字节  ⛔ 内容与安装时不一致
+撤销        ⛔ 已撤销 —— 撤销是立刻生效的
+```
+
+跑与拒都进 audit（`object=app:hello`、`ref=hash`）与 timeline（`case=app:hello`）。
+
+**没做的**：调度（复用 `anc job` 是下一刀）、应用调模型（要沙箱能回连 broker + egress 策略，
+现在 `--network=none` 就调不到）、多版本并存与回滚、依赖安装（现在假定镜像里有解释器）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
