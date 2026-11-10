@@ -39,6 +39,11 @@ func Due(s Spec, st *State, now time.Time) (bool, time.Time) {
 	if last.IsZero() {
 		return true, n
 	}
+	// 上次跑的时间在**未来**（时钟回拨 / 状态从别的机器恢复）：按「现在就该跑」处理。
+	// 否则 next 会算到过去，看板上就会出现「上次 12 号、下次 11 号」这种自相矛盾。
+	if last.After(n) {
+		return true, n
+	}
 
 	if at := strings.TrimSpace(s.Schedule.At); at != "" {
 		if hh, mm, ok := parseHHMM(at); ok {

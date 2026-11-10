@@ -48,3 +48,17 @@ func TestDueEveryOnly(t *testing.T) {
 		t.Fatal("到间隔该跑")
 	}
 }
+
+// 时钟回拨：上次时间在未来时，按「现在就该跑」处理，不许算出过去的 next。
+func TestDueHandlesClockBackwards(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Shanghai")
+	future := &State{LastOK: true, LastAt: time.Date(2026, 11, 12, 9, 0, 0, 0, loc)}
+	ok, next := Due(Spec{Schedule: Schedule{Every: "24h", At: "09:00", TZ: "Asia/Shanghai"}}, future,
+		time.Date(2026, 11, 10, 23, 0, 0, 0, loc))
+	if !ok {
+		t.Fatal("上次在未来应当按「现在该跑」处理")
+	}
+	if next.Before(time.Date(2026, 11, 10, 23, 0, 0, 0, loc)) {
+		t.Fatalf("next 不该在过去：%v", next)
+	}
+}

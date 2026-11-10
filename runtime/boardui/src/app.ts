@@ -1,5 +1,5 @@
 import type { ContextView, GrantsView, SearchView } from "./core/types";
-import type { AppsView, ModelsView } from "./core/types";
+import type { AppsView, JobsView, ModelsView } from "./core/types";
 import { contract, fetchData, getJSON } from "./core/api";
 import { ctxQuery, currentId, grantsQuery, hashQuery, searchQuery } from "./core/query";
 import { setReloader, setRerender } from "./core/refresh";
@@ -46,10 +46,18 @@ async function loadModels(): Promise<void> {
   shell();
 }
 
+async function loadJobs(): Promise<void> {
+  const res = await getJSON<JobsView>("/api/jobs");
+  const jb = contract(res, "作业清单");
+  if (cache) setCache({ ...cache, jobs: jb.v, jobsErr: jb.err });
+  shell();
+}
+
 function loadForPage(): boolean {
   const id = pageFor(currentId()).id;
   if (id === "apps") { void loadApps(); return true; }
   if (id === "models") { void loadModels(); return true; }
+  if (id === "jobs") { void loadJobs(); return true; }
   return false;
 }
 
