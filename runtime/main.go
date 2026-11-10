@@ -153,6 +153,8 @@ func main() {
 		os.Exit(cmdModels(args))
 	case "chat":
 		os.Exit(cmdChat(args))
+	case "model":
+		os.Exit(cmdModel(args))
 	case "app":
 		os.Exit(cmdApp(args))
 	case "delegate":
@@ -249,6 +251,7 @@ func usage() {
                                     把这一份冻成副本落 vault 的 context/（快照；给交付与审计取证）
   anc search <vault> --q "要查什么" [--who <编号>] [--domain <slug>] [--limit 8]
                                     按域可见范围搜知识（默认 BM25；给指针 + 片段，查不到就说没入库）
+  anc model ask --socket <路径> --prompt "…"   沙箱里通过 unix socket 让 ANC 代调模型
   anc app install|ls|approve|revoke|run  脚本应用：装/审/沙箱跑/撤（未审不跑）
   anc delegate issue|revoke <vault>   发/撤委派令牌（EdDSA；私钥住 data/authz）
   anc chat --once "…" --base-url <url> --model <m>   流式回合 + 工具调用（密钥走环境变量）

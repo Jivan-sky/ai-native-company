@@ -1,0 +1,11 @@
+{
+  "schema": "anc.app/v1",
+  "name": "hello-model",
+  "title": "样例应用：通过 ANC 的 broker 调模型（沙箱里没有网络、没有密钥）",
+  "version": "1.0.0",
+  "entrypoint": "run.sh",
+  "models": ["qwen-max-prod"],
+  "budget_usd": 1.0,
+  "egress": { "domains": [], "max_bytes": 0 },
+  "run": { "timeout": "60s", "image": "redis:7-alpine" }
+}

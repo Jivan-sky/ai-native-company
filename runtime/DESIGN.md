@@ -4929,6 +4929,36 @@ p50 = 146.625µs   p99 = 473.333µs
 **没做的**：调度（复用 `anc job` 是下一刀）、应用调模型（要沙箱能回连 broker + egress 策略，
 现在 `--network=none` 就调不到）、多版本并存与回滚、依赖安装（现在假定镜像里有解释器）。
 
+### 7.1.94 应用能用模型了：能力而不是凭据（2026-11-10）
+
+应用跑起来时，ANC 现签一张**短时票**（`sub=应用名`、`scope=manifest.models`、`budget=manifest.budget_usd`、
+10 分钟），把它塞进容器环境变量；应用这一步看到的是「broker 地址 + 一张票」，**没有密钥、没有端点、没有模型名**。
+
+**一个必须写清的退让**：原设计是「沙箱只挂一个 unix socket，egress 由构造保证」。
+实测 **Docker Desktop(macOS) 不能把 unix socket 挂进容器**（挂进去是个空目录，`ls -ln` 显示 total 0）。
+所以这一版改走回环 TCP（`host.docker.internal`），代价是：
+
+| 场景 | 网络 | 隔离 |
+|---|---|---|
+| 应用**不**调模型 | `--network=none` | 成立（实测 net=blocked、secrets_in_env=0） |
+| 应用调模型 | `--network=bridge` | **不成立**：应用能访问别的地址，只有鉴权成立 |
+
+Linux 宿主上仍可用 socket 方案（代码里两条路都留了）；要在这台 Mac 上恢复「构造性 egress」，
+得加一个只放行 broker 的出口代理（下一刀）。
+
+**真跑（本机，假模型端点）**：
+
+```
+$ ANC_BOARD_PORT=8787 anc app run .devbox/macos/acme2 hello-model
+✅ 应用 hello-model · ok（245ms）
+  | 问 ANC…
+  | 因为密钥是平台的，不是应用的。
+```
+
+钱记在**应用那张票**上：`data/authz/budgets.json` 里 `hello-model-…` 记了 0.02（预留）；
+audit 里 `app:hello-model` 一条 ok。沙箱里挂的必须是 **linux 版** `anc-linux-<arch>`，
+缺了明确报错（宿主那份是 darwin，挂进去第一行就 not found）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

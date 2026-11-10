@@ -32,6 +32,7 @@ type Manifest struct {
 	Version    string       `json:"version"`
 	Entrypoint string       `json:"entrypoint"` // 相对包根，例如 run.sh
 	Models     []string     `json:"models,omitempty"`
+	BudgetUSD  float64      `json:"budget_usd,omitempty"` // 一次运行能用多少（给票用；默认 1）
 	Egress     modelsEgress `json:"egress,omitempty"`
 	Run        RunSpec      `json:"run,omitempty"`
 }
@@ -138,6 +139,14 @@ func (m Manifest) Timeout() time.Duration {
 		return 60 * time.Second
 	}
 	return d
+}
+
+// Budget 取生效预算（默认 1 美元）。
+func (m Manifest) Budget() float64 {
+	if m.BudgetUSD <= 0 {
+		return 1
+	}
+	return m.BudgetUSD
 }
 
 // Image 取生效镜像（默认 alpine:3）。

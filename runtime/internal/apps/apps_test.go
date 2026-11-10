@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func sampleDir(t *testing.T) string {
@@ -28,9 +27,9 @@ type fakeRunner struct {
 	hits int
 }
 
-func (f *fakeRunner) Run(ctx context.Context, dir, entry, image string, timeout time.Duration) (Output, error) {
+func (f *fakeRunner) Run(ctx context.Context, e Exec) (Output, error) {
 	f.hits++
-	f.dir = dir
+	f.dir = e.Dir
 	return Output{Code: 0, Stdout: "hi\n"}, nil
 }
 
@@ -115,7 +114,7 @@ func TestNoSandboxRefuses(t *testing.T) {
 
 type failingRunner struct{}
 
-func (failingRunner) Run(ctx context.Context, dir, entry, image string, timeout time.Duration) (Output, error) {
+func (failingRunner) Run(ctx context.Context, e Exec) (Output, error) {
 	return Output{}, errNoSandbox
 }
 
