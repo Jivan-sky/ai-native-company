@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -385,6 +386,9 @@ func cmdJobInstall(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：--every=%q（至少 1m）\n", *every)
 		return 2
 	}
+	if runtime.GOOS == "linux" {
+		return installSystemd(vault, jobsDir, *secretsFile, interval, *apply)
+	}
 	self, err := os.Executable()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误：取不到自己的路径：%v\n", err)
@@ -436,6 +440,9 @@ func cmdJobUninstall(args []string) int {
 		return code
 	}
 	label := "com.anc.jobs." + sanitizeLabel(filepath.Base(vault))
+	if runtime.GOOS == "linux" {
+		return uninstallSystemd(vault)
+	}
 	home, _ := os.UserHomeDir()
 	path := filepath.Join(home, "Library", "LaunchAgents", label+".plist")
 	_ = runLaunchctl("bootout", "gui/"+uidStr()+"/"+label)
@@ -445,4 +452,78 @@ func cmdJobUninstall(args []string) int {
 	}
 	fmt.Printf("✅ 已卸载 %s（plist 已删）\n", label)
 	return 0
+}
+
+// installSystemd 是 Linux 那半边：写 service + timer，enable --now。
+// root 装系统级（容器/服务器），普通用户装 user 级 —— 两处的「重启后自己回来」都由 systemd 负责。
+func installSystemd(vault, jobsDir, secrets string, interval time.Duration, apply bool) int {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：取不到自己的路径：%v\n", err)
+		return 1
+	}
+	unit := "anc-jobs-" + sanitizeLabel(filepath.Base(vault))
+	svc, tm := job.BuildSystemdUnits(unit, self, vault, jobsDir, secrets, int(interval.Seconds()))
+
+	root := os.Geteuid() == 0
+	dir := "/etc/systemd/system"
+	if !root {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config", "systemd", "user")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	for name, body := range map[string]string{unit + ".service": svc, unit + ".timer": tm} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+			return 1
+		}
+	}
+	scope := ""
+	if !root {
+		scope = "--user"
+	}
+	fmt.Printf("✅ 已写 %s/%s.{service,timer}\n   timer 每 %s 跑一次 · 开机 20s 后先跑一次\n", dir, unit, interval)
+	if !apply {
+		fmt.Printf("\n加载（或加 --apply）：\n  systemctl %s daemon-reload && systemctl %s enable --now %s.timer\n", scope, scope, unit)
+		return 0
+	}
+	if err := runSystemctl(scope, "daemon-reload"); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：daemon-reload 失败：%v\n", err)
+		return 1
+	}
+	if err := runSystemctl(scope, "enable", "--now", unit+".timer"); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：enable --now 失败：%v\n", err)
+		return 1
+	}
+	fmt.Println("✅ 已启用（systemctl enable --now）")
+	return 0
+}
+
+func uninstallSystemd(vault string) int {
+	unit := "anc-jobs-" + sanitizeLabel(filepath.Base(vault))
+	scope := ""
+	dir := "/etc/systemd/system"
+	if os.Geteuid() != 0 {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config", "systemd", "user")
+		scope = "--user"
+	}
+	_ = runSystemctl(scope, "disable", "--now", unit+".timer")
+	for _, ext := range []string{".service", ".timer"} {
+		_ = os.Remove(filepath.Join(dir, unit+ext))
+	}
+	_ = runSystemctl(scope, "daemon-reload")
+	fmt.Printf("✅ 已卸载 %s（unit 文件已删）\n", unit)
+	return 0
+}
+
+func runSystemctl(scope string, args ...string) error {
+	full := args
+	if scope != "" {
+		full = append([]string{scope}, args...)
+	}
+	return job.RunCmd("systemctl", full...)
 }

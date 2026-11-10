@@ -154,3 +154,18 @@ func TestRenderIssuesSkipsPullRequests(t *testing.T) {
 		t.Fatalf("拉请求应当被剔除并计数：\n%s", out)
 	}
 }
+
+// systemd unit 的内容判据：开机先跑一次（重启后自己回来）+ 之后按间隔跑。
+func TestBuildSystemdUnits(t *testing.T) {
+	svc, tm := BuildSystemdUnits("anc-jobs-acme", "/usr/local/bin/anc", "/srv/acme", "/srv/jobs", "/etc/anc/secrets.env", 300)
+	for _, want := range []string{"Type=oneshot", "ExecStart=/usr/local/bin/anc job tick /srv/acme --dir /srv/jobs --secrets /etc/anc/secrets.env", "WorkingDirectory=/"} {
+		if !strings.Contains(svc, want) {
+			t.Errorf("service 缺 %q：\n%s", want, svc)
+		}
+	}
+	for _, want := range []string{"OnBootSec=20s", "OnUnitActiveSec=300s", "Unit=anc-jobs-acme.service", "WantedBy=timers.target"} {
+		if !strings.Contains(tm, want) {
+			t.Errorf("timer 缺 %q：\n%s", want, tm)
+		}
+	}
+}
