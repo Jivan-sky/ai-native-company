@@ -153,8 +153,16 @@ func printJobResult(r job.Result) {
 		fmt.Printf("  原因     %s\n", r.Why)
 		return
 	}
-	fmt.Printf("  HTTP     %d（%d 次尝试）· %s\n", r.Code, r.Attempts, r.Duration.Round(time.Millisecond))
+	if strings.HasPrefix(r.Path, "app:") {
+		fmt.Printf("  应用     %s · %s\n", strings.TrimPrefix(r.Path, "app:"), r.Duration.Round(time.Millisecond))
+	} else {
+		fmt.Printf("  HTTP     %d（%d 次尝试）· %s\n", r.Code, r.Attempts, r.Duration.Round(time.Millisecond))
+	}
 	if r.Status == "ok" {
+		if strings.HasPrefix(r.Path, "app:") {
+			fmt.Printf("  产出     %d 字节\n", r.Bytes)
+			return
+		}
 		fmt.Printf("  落盘     %s（%d 字节，sha256 %s）\n", r.Path, r.Bytes, shortSHA(r.SHA256))
 		return
 	}
@@ -307,7 +315,16 @@ func cmdJobTick(args []string) int {
 		if !due {
 			continue
 		}
-		res, err := job.Run(context.Background(), s, job.Options{Vault: vault, DataDir: dataDir, Secrets: sec, Now: now})
+		res, err := job.Run(context.Background(), s, job.Options{
+			Vault: vault, DataDir: dataDir, Secrets: sec, Now: now,
+			RunApp: func(ctx context.Context, name string) (string, string, int, string) {
+				r, err := runAppOnce(vault, name)
+				if err != nil {
+					return "failed", err.Error(), 0, ""
+				}
+				return r.Status, r.Why, r.Code, r.Output
+			},
+		})
 		if err != nil {
 			res = job.Result{Job: s.Name, Status: "failed", Why: err.Error(), At: now}
 		}

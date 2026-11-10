@@ -1,0 +1,10 @@
+{
+  "schema": "anc.job/v1",
+  "name": "app-hello-model",
+  "title": "每天 09:00 跑一次 hello-model 应用（应用自己的审批/沙箱由 anc app 管）",
+  "schedule": { "every": "24h", "at": "09:00", "tz": "Asia/Shanghai" },
+  "timeout": "90s",
+  "retry": { "max": 0 },
+  "app": { "name": "hello-model" },
+  "write": {}
+}

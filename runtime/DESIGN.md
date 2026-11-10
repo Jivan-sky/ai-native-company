@@ -4959,6 +4959,36 @@ $ ANC_BOARD_PORT=8787 anc app run .devbox/macos/acme2 hello-model
 audit 里 `app:hello-model` 一条 ok。沙箱里挂的必须是 **linux 版** `anc-linux-<arch>`，
 缺了明确报错（宿主那份是 darwin，挂进去第一行就 not found）。
 
+### 7.1.95 应用可以定时跑了：接在同一个 job 内核上（2026-11-10）
+
+不另起一套调度：job 的 spec 多一种动作 —— `"app": {"name": "hello-model"}`，
+与 `http` **二选一**（一次只能做一件事）。租约、幂等键、失败不推进、记账，全部复用。
+
+```json
+{"schema":"anc.job/v1","name":"app-hello-model","schedule":{"every":"24h","at":"09:00","tz":"Asia/Shanghai"},
+ "timeout":"90s","retry":{"max":0},"app":{"name":"hello-model"},"write":{}}
+```
+
+**真跑（排练时钟，连跑两天）**：
+
+```
+11-11 09:05   ✅ 作业 app-hello-model · ok
+              幂等键 2026-11-11
+              应用 hello-model · 216ms
+              产出 44 字节
+11-12 09:05   ✅ 同上（幂等键 2026-11-12）
+```
+
+台账里 `object=app:hello-model`、`source=job` —— 同一个应用被「直接跑」和「被定时器跑」
+写的是同一本账，只是 `tool` 不同（`app:hello-model` / `job:app-hello-model`）。
+
+顺手修了输出：应用作业原来会打 `HTTP 0（0 次尝试）`（它根本没有 HTTP），现在打
+`应用 hello-model · 219ms · 产出 N 字节`。
+
+**没做的**：应用自己的 `run.timeout` 与 job 的 `timeout` 还没合并（以 manifest 为准，job 的
+只约束外层）；app 作业的 `retry` 没接（失败应当重试还是等人看，要定）；同一应用并发跑的
+互斥没做。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
