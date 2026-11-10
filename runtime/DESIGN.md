@@ -4700,6 +4700,53 @@ $ ./dev/mask-scan.sh http://127.0.0.1:8787 .devbox/macos/acme2 --secrets …
 
 **没做的**（下一刀）：broker（按票据代调、记账、限额）、脚本应用上传与沙箱、撤销与换钥演练。
 
+### 7.1.88 ANC 自己的回合：流式 + 工具调用 + 可回放（2026-11-10）
+
+在这之前 `anc` 是**一堆纯代码工具**：每个命令自己读、自己写、自己退出。这一节补的是
+**agent 运行时**——多轮、流式、中途做决定、可被取消而不留半截账。
+
+**一个内核，先给 CLI 用**（HTTP/SSE 出口是下一刀）：
+
+```
+anc chat --once "…" --base-url <兼容端点> --model <m> [--vault <目录>] [--transcript <文件>]
+        │
+        ▼
+  internal/agent
+   ├ message.go  消息形状 / 用量 / 工具参数校验
+   ├ sse.go      OpenAI 兼容流式客户端（分片 tool_calls、[DONE]、usage）
+   └ loop.go     回合：模型 → 工具 → 回灌 → 收口；步数上限；取消
+```
+
+三条口径（写进代码与用例）：
+
+| 口径 | 为什么 | 用例 |
+|---|---|---|
+| **流不是文本**：`tool_calls[i].function.arguments` 会分片到达，按 index 累积 | 当成整块解析，第一次真调用就会拼出半个 JSON | `TestLoopReassemblesSplitToolArgs`（参数分两片到，拼出 `{"who":"alice"}`） |
+| **工具失败回灌，不崩**：参数不是 JSON / 工具报错 → 一条 tool 消息 | 那是模型的输入，不是我们的异常 | `TestLoopFeedsBackBadArgs` |
+| **不许假装完成**：取消 / 步数上限 → `Incomplete` + 原因 | 「半截」与「收口」混在一起，账就不可信 | `TestLoopCancelIsIncomplete`、`TestLoopStopsAtMaxSteps` |
+
+**测试怎么不依赖真 key**：`fakeModel` 按第几次请求回放脚本化 SSE（还能把参数切片），
+所以分片、[DONE]、usage 累积这些都能确定性地验。
+
+**端到端（假模型 → 真 vault）**：
+
+```
+$ anc chat --once "alice 现在手里有什么？" --base-url http://127.0.0.1:18999/v1 --model fake \
+            --vault .devbox/macos/acme2 --transcript .devbox/macos/data/chat/demo.jsonl
+我先查一下 alice 的上下文。查到了：alice 在 trade 域，能看 10-knowledge。
+— 用量 in 240 / out 60 / 缓存读 100 · 2 步
+```
+
+工具就是 MCP 读出口那个装配点（`ctxpack.Assemble`），不是另写一套。
+
+**没做的（下一刀）**：
+
+- **HTTP/SSE 出口**（`POST /api/chat`）与交互模式（现在只有 `--once`）；
+- **工具的策略闸**：现在工具直接执行，没有「这次回合的委派/预算」——那要接 §7.1.87 的注册表与票据；
+- 会话持久化与断点续跑（transcript 只是证据，不是可恢复的状态）；
+- 并行工具调用、流式工具输出（长任务时人看不到进度）；
+- 真端点（百炼/其他）还没跑过 —— 没有 key 之前，链路的正确性只由假模型证明。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
