@@ -153,7 +153,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	parent := filepath.Dir(s.Vault)
 	reg, err := models.LoadRegistry(filepath.Join(parent, "registry.json"))
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"wired": false, "why": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]any{"schema": "anc.models/v1", "wired": false, "why": err.Error()})
 		return
 	}
 	type row struct {
@@ -183,7 +183,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, row{e.ID, e.Provider, e.Model, e.Secret, values[e.Secret], status, apps})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"wired": true, "entries": rows})
+	writeJSON(w, http.StatusOK, map[string]any{"schema": "anc.models/v1", "wired": true, "entries": rows})
 }
 
 // secretKeys 只回答「这个键配了没有」——它**不返回值**，连长度都不给。

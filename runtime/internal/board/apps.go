@@ -14,7 +14,7 @@ import (
 func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 	list, err := apps.List(s.Vault)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"wired": false, "why": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]any{"schema": "anc.apps/v1", "wired": false, "why": err.Error()})
 		return
 	}
 	type row struct {
@@ -33,5 +33,5 @@ func (s *Server) handleApps(w http.ResponseWriter, r *http.Request) {
 		}
 		rows = append(rows, row{a.Name, a.Version, a.State, short, a.ApprovedBy, a.ApprovedAt})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"wired": true, "apps": rows})
+	writeJSON(w, http.StatusOK, map[string]any{"schema": "anc.apps/v1", "wired": true, "apps": rows})
 }
