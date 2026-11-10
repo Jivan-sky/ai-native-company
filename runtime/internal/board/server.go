@@ -63,6 +63,8 @@ type Server struct {
 
 	// Chat 是 `/api/chat` 的端点与模型；nil/未配 → 501（不假装能用）。
 	Chat *ChatConfig
+	// Gate 是模型出口的授权闸；配了 Chat 却没配 Gate → 503（fail-closed）。
+	Gate *GateConfig
 	// ChatClient 可注入（测试用）；nil 就按 Chat 建一个真客户端。
 	ChatClient agent.Client
 }

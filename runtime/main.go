@@ -153,6 +153,8 @@ func main() {
 		os.Exit(cmdModels(args))
 	case "chat":
 		os.Exit(cmdChat(args))
+	case "delegate":
+		os.Exit(cmdDelegate(args))
 	case "job":
 		os.Exit(cmdJob(args))
 	case "ingest":
@@ -245,6 +247,7 @@ func usage() {
                                     把这一份冻成副本落 vault 的 context/（快照；给交付与审计取证）
   anc search <vault> --q "要查什么" [--who <编号>] [--domain <slug>] [--limit 8]
                                     按域可见范围搜知识（默认 BM25；给指针 + 片段，查不到就说没入库）
+  anc delegate issue|revoke <vault>   发/撤委派令牌（EdDSA；私钥住 data/authz）
   anc chat --once "…" --base-url <url> --model <m>   流式回合 + 工具调用（密钥走环境变量）
   anc models ls|check <vault>      模型注册表 + 应用绑定（密钥只以 **** 出现）
   anc job run|ls|tick <vault> ...   ANC 自己去调外部系统：一次执行 / 看作业 / 按调度（tick 待接）

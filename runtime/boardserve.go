@@ -12,8 +12,10 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
+	"anc/internal/authz"
 	"anc/internal/board"
 	"anc/internal/hot"
 	"anc/internal/org"
@@ -69,6 +71,8 @@ func cmdBoardServe(args []string) int {
 	chatBaseURL := fs.String("chat-base-url", "", "给 /api/chat 用的模型端点（兼容 OpenAI）；不配则该口 501")
 	chatModel := fs.String("chat-model", "", "/api/chat 用的模型名")
 	chatKeyEnv := fs.String("chat-key-env", "DASHSCOPE_API_KEY", "密钥所在的环境变量名（不是密钥本身）")
+	gateKeys := fs.String("gate-keys", "", "授权密钥目录（默认 <vault>/../data/authz）")
+	gateModelID := fs.String("gate-model-id", "", "闸默认校验的注册名（不给就用 --chat-model）")
 	insecureBind := fs.Bool("insecure-bind", false, "允许绑到非回环地址（默认拒绝；要给别人看请走 ssh 端口转发）")
 	data := fs.String("data", "", "gateway data 目录（运行态页用）")
 	hotAddr := fs.String("hot-addr", "", "热层地址（待批页用；默认 "+hot.DefaultAddr+"；也可用 ANC_HOT_ADDR）")
@@ -152,6 +156,28 @@ func cmdBoardServe(args []string) int {
 	// 看不到待批不等于真相源坏了，投影照样该看得到。
 	bs := &board.Server{Vault: abs, DataDir: dataDir, Now: time.Now, UIFS: uiFS}
 	bs.Chat = &board.ChatConfig{BaseURL: *chatBaseURL, Model: *chatModel, KeyEnv: *chatKeyEnv}
+	if strings.TrimSpace(*chatBaseURL) != "" {
+		// 配了模型出口，就**必须**有闸 —— 没有闸的出口一律 503（fail-closed）。
+		keys := *gateKeys
+		if keys == "" {
+			keys = filepath.Join(filepath.Dir(abs), "data", "authz")
+		}
+		pub, _, kerr := authz.Keys{Dir: keys}.Load()
+		if kerr != nil {
+			fmt.Fprintf(os.Stderr, "错误：授权密钥读不出来（%v）。先跑一次 `anc delegate issue <vault> …` 生成。\n", kerr)
+			return 1
+		}
+		modelID := *gateModelID
+		if modelID == "" {
+			modelID = *chatModel
+		}
+		bs.Gate = &board.GateConfig{
+			PubKey:  pub,
+			Revoked: authz.Revocations{Path: filepath.Join(keys, "revoked.json")},
+			Budgets: authz.Budgets{Path: filepath.Join(keys, "budgets.json")},
+			ModelID: modelID,
+		}
+	}
 	if st, err := hot.Open(hot.Config{
 		Addr:       firstNonEmpty(*hotAddr, os.Getenv("ANC_HOT_ADDR"), hot.DefaultAddr),
 		Prefix:     firstNonEmpty(*hotPrefix, os.Getenv("ANC_HOT_PREFIX")),

@@ -2,6 +2,8 @@ package board
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"anc/internal/agent"
+	"anc/internal/authz"
 )
 
 // 假模型：第一轮要工具，第二轮给最终文本。和 agent 包的用例同一套路子。
@@ -33,19 +37,55 @@ func (f *fakeChat) Stream(ctx context.Context, msgs []agent.Message, tools []age
 	return onDelta(agent.Delta{Usage: &agent.Usage{In: 20, Out: 5}})
 }
 
-func newChatServer(t *testing.T) *Server {
+// newGated 造一个「配了端点 + 配了闸」的服务，并签一张票。
+func newGated(t *testing.T) (*Server, string, ed25519.PrivateKey) {
 	t.Helper()
-	vault := t.TempDir()
-	s := &Server{Vault: vault, Chat: &ChatConfig{BaseURL: "http://x", Model: "m"}, ChatClient: &fakeChat{}}
-	return s
+	dir := t.TempDir()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	tok, err := authz.Sign(priv, "k1", authz.Claims{
+		Sub: "invoice-sweep", Aud: "chat", Scope: []string{"qwen-max-prod"},
+		BudgetUSD: 0.05, IAT: now.Unix(), Exp: now.Add(10 * time.Minute).Unix(), JTI: "j-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		Vault:      t.TempDir(),
+		Chat:       &ChatConfig{BaseURL: "http://x", Model: "m"},
+		ChatClient: &fakeChat{},
+		Gate: &GateConfig{
+			PubKey:  pub,
+			Revoked: authz.Revocations{Path: filepath.Join(dir, "revoked.json")},
+			Budgets: authz.Budgets{Path: filepath.Join(dir, "budgets.json"), Reserve: 0.02},
+			ModelID: "qwen-max-prod",
+		},
+	}
+	return s, tok, priv
+}
+
+func postChat(t *testing.T, s *Server, token, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/api/chat", strings.NewReader(body))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	return rec
 }
 
 func TestChatStreamsSSE(t *testing.T) {
-	s := newChatServer(t)
+	s, tok, _ := newGated(t)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	resp, err := http.Post(srv.URL+"/api/chat", "application/json", strings.NewReader(`{"prompt":"alice 有什么"}`))
+	req, _ := http.NewRequest("POST", srv.URL+"/api/chat", strings.NewReader(`{"prompt":"alice 有什么"}`))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,5 +155,49 @@ func TestChatNotConfiguredIs501(t *testing.T) {
 	s.Handler().ServeHTTP(rec, httptest.NewRequest("POST", "/api/chat", strings.NewReader(`{"prompt":"x"}`)))
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("没配端点应当 501，实际 %d", rec.Code)
+	}
+}
+
+// 闸的三条主线：无票 401、越权 403、预算不够 429。
+func TestChatGate(t *testing.T) {
+	s, tok, priv := newGated(t)
+
+	if rec := postChat(t, s, "", `{"prompt":"x"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("无票应当 401，实际 %d", rec.Code)
+	}
+	if rec := postChat(t, s, "garbage", `{"prompt":"x"}`); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("假票应当 401，实际 %d", rec.Code)
+	}
+	// 越权：换一个不在 scope 里的注册名
+	if rec := postChat(t, s, tok, `{"prompt":"x","model_id":"qwen-turbo-dev"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("越权应当 403，实际 %d", rec.Code)
+	}
+	// 被撤销
+	_ = s.Gate.Revoked.Revoke("j-1", time.Now().Add(time.Hour))
+	if rec := postChat(t, s, tok, `{"prompt":"x"}`); rec.Code != http.StatusForbidden {
+		t.Fatalf("已撤销应当 403，实际 %d", rec.Code)
+	}
+	_ = priv // 签名端在这一侧不用
+}
+
+// 预算：预留 0.02、票面 0.05 → 第 3 次就该 429（前两次各占 0.02）。
+func TestChatBudgetExhausts(t *testing.T) {
+	s, tok, _ := newGated(t)
+	for i := 0; i < 2; i++ {
+		if rec := postChat(t, s, tok, `{"prompt":"x"}`); rec.Code != 200 {
+			t.Fatalf("第 %d 次应当放行，实际 %d：%s", i+1, rec.Code, rec.Body.String())
+		}
+	}
+	rec := postChat(t, s, tok, `{"prompt":"x"}`)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("预算用尽应当 429，实际 %d：%s", rec.Code, rec.Body.String())
+	}
+}
+
+// 配了端点却没配闸：503，绝不放行。
+func TestChatWithoutGateRefuses(t *testing.T) {
+	s := &Server{Vault: t.TempDir(), Chat: &ChatConfig{BaseURL: "http://x", Model: "m"}, ChatClient: &fakeChat{}}
+	if rec := postChat(t, s, "whatever", `{"prompt":"x"}`); rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("没有闸应当 503，实际 %d", rec.Code)
 	}
 }

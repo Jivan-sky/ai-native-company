@@ -41,6 +41,7 @@ type chatRequest struct {
 	Prompt   string          `json:"prompt,omitempty"`
 	Messages []agent.Message `json:"messages,omitempty"`
 	MaxSteps int             `json:"max_steps,omitempty"`
+	ModelID  string          `json:"model_id,omitempty"`
 }
 
 // handleChat 是 `POST /api/chat`：请求体进、SSE 事件出。
@@ -54,15 +55,22 @@ type chatRequest struct {
 // 客户端断开 → ctx 取消 → 循环返回 Incomplete → 我们写一条 done(incomplete=true)。
 // **不写「假装正常结束」的 done**：那会让下游把半截当成完整。
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
+	// 先读请求体（要拿 model_id 去判定），**再**鉴权：判定需要知道「它想用哪个模型」。
+	var req chatRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法 JSON：" + err.Error()})
+		return
+	}
+	modelID := firstNonEmpty(req.ModelID, s.chatModelID())
+	if s.Chat.configured() || s.Gate != nil {
+		if _, _, ok := s.authorize(w, r, modelID); !ok {
+			return
+		}
+	}
 	if !s.Chat.configured() {
 		writeJSON(w, http.StatusNotImplemented, map[string]any{
 			"error": "没有配置模型端点：anc board … --chat-base-url <url> --chat-model <名> [--chat-key-env NAME]",
 		})
-		return
-	}
-	var req chatRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法 JSON：" + err.Error()})
 		return
 	}
 	msgs := req.Messages
@@ -226,3 +234,11 @@ const (
 
 var _ = context.Background
 var _ = time.Now
+
+// chatModelID 是这一台机器默认使用的注册名。
+func (s *Server) chatModelID() string {
+	if s.Gate != nil && s.Gate.ModelID != "" {
+		return s.Gate.ModelID
+	}
+	return ""
+}
