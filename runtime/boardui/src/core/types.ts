@@ -295,6 +295,18 @@ export type ContextView = {
   task_bands?: Record<string, string>;
 };
 
+export type AppRow = {
+  name: string; version: string; state: string; sha256: string;
+  approved_by?: string; approved_at?: string;
+};
+export type AppsView = { schema: string; wired: boolean; why?: string; apps: AppRow[] };
+
+export type ModelRow = {
+  id: string; provider: string; model: string; secret: string;
+  configured: boolean; status: string; apps: string[] | null;
+};
+export type ModelsView = { schema?: string; wired: boolean; why?: string; entries: ModelRow[] };
+
 export type Data = {
   board: BoardView | null; issues: Issues;
   agents: AgentsView | null; agentsErr: string;
@@ -309,6 +321,8 @@ export type Data = {
   approvals: ApprovalView | null; approvalsErr: string;
   context: ContextView | null; contextErr: string;
   grants: GrantsView | null; grantsErr: string;
+  apps: AppsView | null; appsErr: string;
+  models: ModelsView | null; modelsErr: string;
   err: string;
 };
 

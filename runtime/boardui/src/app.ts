@@ -1,4 +1,5 @@
 import type { ContextView, GrantsView, SearchView } from "./core/types";
+import type { AppsView, ModelsView } from "./core/types";
 import { contract, fetchData, getJSON } from "./core/api";
 import { ctxQuery, currentId, grantsQuery, hashQuery, searchQuery } from "./core/query";
 import { setReloader, setRerender } from "./core/refresh";
@@ -27,6 +28,29 @@ async function boot(force = false): Promise<void> {
     setCache(await fetchData());
   }
   shell();
+  loadForPage();
+}
+
+// 应用页 / 模型页：这两页的数据不在启动时那一次取齐 —— 进了才取，免得每次刷新都多两次请求。
+async function loadApps(): Promise<void> {
+  const res = await getJSON<AppsView>("/api/apps");
+  const ap = contract(res, "应用清单");
+  if (cache) setCache({ ...cache, apps: ap.v, appsErr: ap.err });
+  shell();
+}
+
+async function loadModels(): Promise<void> {
+  const res = await getJSON<ModelsView>("/api/models");
+  const md = contract(res, "模型注册表");
+  if (cache) setCache({ ...cache, models: md.v, modelsErr: md.err });
+  shell();
+}
+
+function loadForPage(): boolean {
+  const id = pageFor(currentId()).id;
+  if (id === "apps") { void loadApps(); return true; }
+  if (id === "models") { void loadModels(); return true; }
+  return false;
 }
 
 // 授权表那一页的取数：换视角时只重取这一份（其余几份不用动）。
@@ -64,6 +88,7 @@ setRerender(shell);
 setReloader((force) => void boot(force));
 
 window.addEventListener("hashchange", () => {
+  if (loadForPage()) return;
   // 这一页的「选中谁」在 hash 里：进了这一页就按 URL 重取一次，别的页照旧（取数只在启动 / 刷新）。
   if (pageFor(currentId()).id === "context") {
     void loadContext();

@@ -1,11 +1,13 @@
 import { icon } from "./core/icons";
 import type { Page } from "./core/types";
+import { renderApps } from "./pages/apps";
 import { renderApprovals } from "./pages/approvals";
 import { renderAssets, renderCases, renderSediment } from "./pages/assets";
 import { renderAudit } from "./pages/audit";
 import { renderContext } from "./pages/context";
 import { renderGraph } from "./pages/graph";
 import { renderDomains, renderMembers, renderProjects } from "./pages/org";
+import { renderModels } from "./pages/models";
 import { renderOverview } from "./pages/overview";
 import { renderSearch } from "./pages/search";
 import { renderSystem } from "./pages/system";
@@ -49,6 +51,18 @@ export const contextPage: Page = {
   id: "context", group: "工作", label: "上下文", icon: "context", wired: true,
   question: "一个 agent 的工作上下文是什么？", view: renderContext,
 };
+export const appsPage: Page = {
+  id: "apps", group: "运行", label: "应用", icon: "grid", wired: true,
+  question: "装了什么、审没审、内容对不对？",
+  sub: "脚本应用：装时算 hash、审批记人、跑前重算。看板只读，装/审/撤在 CLI。",
+  view: renderApps,
+};
+export const modelsPage: Page = {
+  id: "models", group: "运行", label: "模型", icon: "spark", wired: true,
+  question: "有哪几个模型、谁绑了它、密钥配没配？",
+  sub: "注册表在我们手里；密钥只显示名字与「配没配」，不显示值。",
+  view: renderModels,
+};
 export const timelinePage: Page = {
   id: "timeline", group: "记录", label: "时间线", icon: "clock", wired: true,
   question: "卡在哪、谁在跟、下一步是谁的决定？", view: renderTimeline,
@@ -86,6 +100,7 @@ export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage, contextPage,
   graphPage, membersPage, domainsPage,
+  appsPage, modelsPage,
   timelinePage, casesPage, auditPage,
   assetsPage, searchPage, sedimentPage,
   systemPage,
