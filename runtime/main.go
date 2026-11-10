@@ -157,6 +157,8 @@ func main() {
 		os.Exit(cmdModel(args))
 	case "app":
 		os.Exit(cmdApp(args))
+	case "db":
+		os.Exit(cmdDB(args))
 	case "delegate":
 		os.Exit(cmdDelegate(args))
 	case "job":
@@ -253,6 +255,7 @@ func usage() {
                                     按域可见范围搜知识（默认 BM25；给指针 + 片段，查不到就说没入库）
   anc model ask --socket <路径> --prompt "…"   沙箱里通过 unix socket 让 ANC 代调模型
   anc app install|ls|approve|revoke|run  脚本应用：装/审/沙箱跑/撤（未审不跑）
+  anc db ls|query <vault> ...       数据源（只读）：看有哪些、跑一条 SELECT
   anc delegate issue|revoke <vault>   发/撤委派令牌（EdDSA；私钥住 data/authz）
   anc chat --once "…" --base-url <url> --model <m>   流式回合 + 工具调用（密钥走环境变量）
   anc models ls|check <vault>      模型注册表 + 应用绑定（密钥只以 **** 出现）
