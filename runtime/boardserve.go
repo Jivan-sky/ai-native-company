@@ -66,6 +66,9 @@ const boardServeUsage = `anc board serve —— 起 ANC 看板（读为主；写
 func cmdBoardServe(args []string) int {
 	fs := flag.NewFlagSet("board serve", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:8787", "监听地址")
+	chatBaseURL := fs.String("chat-base-url", "", "给 /api/chat 用的模型端点（兼容 OpenAI）；不配则该口 501")
+	chatModel := fs.String("chat-model", "", "/api/chat 用的模型名")
+	chatKeyEnv := fs.String("chat-key-env", "DASHSCOPE_API_KEY", "密钥所在的环境变量名（不是密钥本身）")
 	insecureBind := fs.Bool("insecure-bind", false, "允许绑到非回环地址（默认拒绝；要给别人看请走 ssh 端口转发）")
 	data := fs.String("data", "", "gateway data 目录（运行态页用）")
 	hotAddr := fs.String("hot-addr", "", "热层地址（待批页用；默认 "+hot.DefaultAddr+"；也可用 ANC_HOT_ADDR）")
@@ -148,6 +151,7 @@ func cmdBoardServe(args []string) int {
 	// 热层：接得上就把「待批」页接上；接不上**不拦看板**（同 data 目录的口径）——
 	// 看不到待批不等于真相源坏了，投影照样该看得到。
 	bs := &board.Server{Vault: abs, DataDir: dataDir, Now: time.Now, UIFS: uiFS}
+	bs.Chat = &board.ChatConfig{BaseURL: *chatBaseURL, Model: *chatModel, KeyEnv: *chatKeyEnv}
 	if st, err := hot.Open(hot.Config{
 		Addr:       firstNonEmpty(*hotAddr, os.Getenv("ANC_HOT_ADDR"), hot.DefaultAddr),
 		Prefix:     firstNonEmpty(*hotPrefix, os.Getenv("ANC_HOT_PREFIX")),

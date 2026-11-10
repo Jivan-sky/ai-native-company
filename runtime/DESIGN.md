@@ -4747,6 +4747,49 @@ $ anc chat --once "alice 现在手里有什么？" --base-url http://127.0.0.1:1
 - 并行工具调用、流式工具输出（长任务时人看不到进度）；
 - 真端点（百炼/其他）还没跑过 —— 没有 key 之前，链路的正确性只由假模型证明。
 
+### 7.1.89 HTTP/SSE 出口：`POST /api/chat` 与 `GET /api/models`（2026-11-10）
+
+agent 内核（§7.1.88）之前只有 CLI。这一节把它接到**有地址的那一个 HTTP 面**（看板服务）上：
+出口只有一个，`dev/mask-scan.sh` 才扫得干净；多起一个端口，运维与防火墙就多记一条。
+
+**`POST /api/chat`（SSE）**
+
+```
+event: delta   data: {"text":"…"}
+event: tool    data: {"name":"read_context","args":"{…}"}
+event: done    data: {"usage":{…},"steps":2,"incomplete":false}
+```
+
+- 没配端点 → **501** + 说清缺哪个 flag（不假装能用）；
+- 客户端断开 → ctx 取消 → 循环返回 `Incomplete` → done 里 `incomplete:true` + why，
+  **不写「假装正常结束」的 done**（半截被当成完整，是最贵的一类假绿）；
+- 工具仍是 `ctxpack.Assemble`（与 MCP 读出口同一装配点，抽成 `internal/ctxtool`）。
+
+**`GET /api/models`（注册表，只有打码形态）**
+
+这一条比上一节更严：**它根本不读密钥值**，只回答「配了 / 没配」。连尾巴四位都不给 ——
+少一个把密钥形状带出去的通道。
+
+```
+$ curl -s :8787/api/models
+{"entries":[{"id":"qwen-max-prod","secret":"DASHSCOPE_KEY_PROD","configured":true,…}]}
+```
+
+**验收脚本由红转绿**（同一份 `dev/mask-scan.sh`）：
+
+```
+✅ /api/models 200
+✅ /api/models 只出现打码形态
+✅ 落盘 1 个目录里没有密钥原文
+结论：通过 —— 打码路径成立   exit=0
+```
+
+用例：`TestChatStreamsSSE`（delta/tool/done 三帧齐全）、`TestModelsEndpointNeverLeaksValues`
+（塞哨兵密钥，响应里出现原文即失败）、`TestChatNotConfiguredIs501`。
+
+**没做的**：`/api/chat` 还没接策略闸（谁可以调、预算多少 —— 要接 §7.1.87 的票据）；
+没有会话持久化与断点续跑；没有并行工具调用；真端点仍未跑过。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

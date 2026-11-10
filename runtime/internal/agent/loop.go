@@ -26,9 +26,10 @@ type Tool struct {
 type Loop struct {
 	Client   Client
 	Tools    map[string]Tool
-	MaxSteps int           // 0 = 8
-	Out      io.Writer     // 文本增量写到哪（可为 nil）
-	Record   func(Message) // 每条消息落地（可为 nil）
+	MaxSteps int            // 0 = 8
+	Out      io.Writer      // 文本增量写到哪（可为 nil）
+	Record   func(Message)  // 每条消息落地（可为 nil）
+	OnTool   func(ToolCall) // 每次执行工具前回调（出口用它推 SSE 事件；可为 nil）
 }
 
 // Result 是一次 Run 的结果。
@@ -134,6 +135,9 @@ func (l *Loop) Run(ctx context.Context, msgs []Message) (Result, error) {
 		}
 
 		for _, tc := range asst.ToolCalls {
+			if l.OnTool != nil {
+				l.OnTool(tc)
+			}
 			out := l.execOne(ctx, tc)
 			cur = append(cur, out)
 			if l.Record != nil {

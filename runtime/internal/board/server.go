@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/agent"
 	"anc/internal/approvals"
 	"anc/internal/org"
 )
@@ -59,6 +60,11 @@ type Server struct {
 	//
 	// 它只换「前端文件从哪来」，不动 HTTP 面的契约（路由、只读口径、端点还是那些）。
 	UIFS fs.FS
+
+	// Chat 是 `/api/chat` 的端点与模型；nil/未配 → 501（不假装能用）。
+	Chat *ChatConfig
+	// ChatClient 可注入（测试用）；nil 就按 Chat 建一个真客户端。
+	ChatClient agent.Client
 }
 
 func (s *Server) now() time.Time {
@@ -85,6 +91,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/agents", s.handleAgents)
 	mux.HandleFunc("/api/context", s.handleContext)
 	mux.HandleFunc("/api/grants", s.handleGrants)
+	mux.HandleFunc(chatPath, s.handleChat)
+	mux.HandleFunc(modelsPath, s.handleModels)
 	mux.HandleFunc(WritePath, s.handleApprovalsDecide)
 	mux.HandleFunc(SettlePath, s.handleTaskSettle)
 	ui := s.UIFS
@@ -104,6 +112,15 @@ func (s *Server) Handler() http.Handler {
 // 报出一个「Content-Type 不对」的假原因（真原因是动词不对）—— 2026-10-10 实测踩到。
 func readOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isChatPath(r.URL.Path) {
+			if r.Method != http.MethodPost && r.Method != http.MethodGet {
+				w.Header().Set("Allow", "GET, POST")
+				http.Error(w, "这个口只认 GET/POST", http.StatusMethodNotAllowed)
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.URL.Path == WritePath || r.URL.Path == SettlePath {
 			if r.Method != http.MethodPost {
 				w.Header().Set("Allow", "POST")
