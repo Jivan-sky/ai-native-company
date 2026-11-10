@@ -4575,12 +4575,33 @@ boot #2   00:54:36 heartbeat 又跑一次（文件 mtime 08:53:16 → 08:54:36�
 也就是说「重启后自己回来」这一条**在 Linux/systemd 上成立了**；macOS 的 launchd 只验到
 「已登记 + 按间隔真跑」，**没有真重启过这台 Mac**（不会拿用户的机器去重启）。
 
+**执行进了两本账（2026-11-10 补）**：每次**真发生**的执行写两处 ——
+
+| 账 | 写什么 | 为什么 |
+|---|---|---|
+| `audit`（流水，逐次） | `actor=anc` · `action=invoke` · `object=<URL>` · `result=ok/failed` · `tool=job:<name>` · `source=job` · `ref=<落盘路径>` · detail 里带 attempts / bytes / sha256 | 「谁在什么时候对谁行使了什么」，能拿去和下游系统对账 |
+| `timeline`（时间线，按 case 折叠） | `case=job:<name>` · `kind=execution` · `status=done/failed` · 标题 + 明细 | 看板与日报读的是它；一个作业一条 case，翻起来是它的历史 |
+
+**跳过（幂等命中）不写** —— 什么都没发生，写一条会让「做了几次」这个数失真。
+
+实测（真跑一次 `issue-sweep --force`）：
+
+```
+audit    1 条 · anc · invoke · ok · 对谁 = https://api.github.com/repos/…/issues?state=open…
+timeline 🟢 作业 issue-sweep 跑了：HTTP 200 · case job:issue-sweep
+对账     台账 detail 里的 sha256 = 293106b9…3ce3d
+         盘上文件 shasum      = 293106b9…3ce3d   ✅ 一致
+```
+
+顺手抓到一个词表打架：audit 的 `ok/denied/failed` 与 timeline 的 `done/running/blocked/failed`
+不是一套，把 `ok` 直接喂给 timeline，看板会画成「认不出的档」（灰）。现在映射成 `done`。
+
 **还没做的（照实列）**：
 
 - macOS 没有真重启验证（只有 launchd 登记 + 按间隔跑过的证据）；
 - 失败没有告警：tick 退出码 1，但没人看得到（要接 `anc notify`，那是下一条）；
 - 没有多步（一条 spec 只做一次请求 + 一次落盘）；没有「跑完再触发另一件事」；
-- 没有把每次执行写进 timeline/audit（现在只落 `data/jobs/<name>.json` 的状态）；
+- ~~没有把每次执行写进 timeline/audit~~ —— **2026-11-10 补上了**（见下）；
 - `--force` 只在 `run` 上有，`tick` 没有。
 
 ## 8. 与 SPEC 的映射

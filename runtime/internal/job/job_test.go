@@ -169,3 +169,52 @@ func TestBuildSystemdUnits(t *testing.T) {
 		}
 	}
 }
+
+// 执行要进两处账：audit（逐次，可对账）+ timeline（按 case 折叠，给看板/日报）。
+// 跳过（幂等）**不写** —— 什么都没发生，写一条会让「做了几次」失真。
+func TestRunRecordsExecutions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	vault, data := t.TempDir(), t.TempDir()
+	s := Spec{Schema: Schema, Name: "rec1", Schedule: Schedule{Every: "24h"},
+		HTTP: HTTP{URL: srv.URL}, Write: Write{Path: "out/{{date}}.txt"}}
+	now := time.Date(2026, 11, 10, 2, 0, 0, 0, time.UTC)
+
+	res, err := Run(context.Background(), s, Options{Vault: vault, DataDir: data, Now: now})
+	if err != nil || !res.Recorded {
+		t.Fatalf("成功执行应当记账：%+v %v", res, err)
+	}
+	// audit：一个分片文件里能搜到 job 名与客体
+	auditFiles, _ := filepath.Glob(filepath.Join(vault, "audit", "*.jsonl"))
+	if len(auditFiles) != 1 {
+		t.Fatalf("audit 应当有一份分片：%v", auditFiles)
+	}
+	b, _ := os.ReadFile(auditFiles[0])
+	for _, want := range []string{"job:rec1", srv.URL, `"source":"job"`, `"result":"ok"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("audit 缺 %q：%s", want, b)
+		}
+	}
+	// timeline：case = job:<name>
+	tlFiles, _ := filepath.Glob(filepath.Join(vault, "timeline", "*.jsonl"))
+	if len(tlFiles) != 1 {
+		t.Fatalf("timeline 应当有一份分片：%v", tlFiles)
+	}
+	tb, _ := os.ReadFile(tlFiles[0])
+	if !strings.Contains(string(tb), `"case":"job:rec1"`) || !strings.Contains(string(tb), `"kind":"execution"`) {
+		t.Errorf("timeline 不对：%s", tb)
+	}
+
+	// 同一天再跑：跳过，不新增账
+	beforeA, _ := os.ReadFile(auditFiles[0])
+	res2, _ := Run(context.Background(), s, Options{Vault: vault, DataDir: data, Now: now})
+	if res2.Status != "skipped" {
+		t.Fatalf("应当跳过：%+v", res2)
+	}
+	afterA, _ := os.ReadFile(auditFiles[0])
+	if string(beforeA) != string(afterA) {
+		t.Fatal("跳过不该再写一条审计（会把「做了几次」算多）")
+	}
+}
