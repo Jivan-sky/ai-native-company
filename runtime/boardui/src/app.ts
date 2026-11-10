@@ -1,5 +1,6 @@
 import type { ContextView, GrantsView, SearchView } from "./core/types";
 import type { AppsView, JobsView, ModelsView } from "./core/types";
+import { mountChatPanel } from "./ui/chatpanel";
 import { contract, fetchData, getJSON } from "./core/api";
 import { ctxQuery, currentId, grantsQuery, hashQuery, searchQuery } from "./core/query";
 import { setReloader, setRerender } from "./core/refresh";
@@ -115,3 +116,4 @@ window.addEventListener("hashchange", () => {
 });
 
 void boot();
+mountChatPanel();

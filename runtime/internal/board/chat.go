@@ -228,8 +228,9 @@ func loadBindingFiles(dir string, reg *models.Registry) ([]*models.Binding, erro
 func isChatPath(p string) bool { return p == chatPath || p == modelsPath }
 
 const (
-	chatPath   = "/api/chat"
-	modelsPath = "/api/models"
+	chatPath        = "/api/chat"
+	chatSessionPath = "/api/chat/session"
+	modelsPath      = "/api/models"
 )
 
 var _ = context.Background

@@ -26,7 +26,8 @@ import (
 
 // GateConfig 是这一台机器上的授权配置。
 type GateConfig struct {
-	PubKey  []byte            // Ed25519 公钥（签发端持有私钥）
+	PubKey  []byte            // Ed25519 公钥
+	PrivKey []byte            // 私钥：只用于给**本机看板界面**签发短时票（不出进程、不上网）
 	Revoked authz.Revocations // 撤销表（jti）
 	Budgets authz.Budgets     // 预算账（jti → 已花）
 	Limits  authz.RateLimits  // 限流（注册名 → 本分钟计数）

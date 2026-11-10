@@ -164,7 +164,7 @@ func cmdBoardServe(args []string) int {
 		if keys == "" {
 			keys = filepath.Join(filepath.Dir(abs), "data", "authz")
 		}
-		pub, _, kerr := authz.Keys{Dir: keys}.Load()
+		pub, privRaw, kerr := authz.Keys{Dir: keys}.Load()
 		if kerr != nil {
 			fmt.Fprintf(os.Stderr, "错误：授权密钥读不出来（%v）。先跑一次 `anc delegate issue <vault> …` 生成。\n", kerr)
 			return 1
@@ -181,6 +181,7 @@ func cmdBoardServe(args []string) int {
 		}
 		bs.Gate = &board.GateConfig{
 			PubKey:  pub,
+			PrivKey: privRaw,
 			Revoked: authz.Revocations{Path: filepath.Join(keys, "revoked.json")},
 			Budgets: authz.Budgets{Path: filepath.Join(keys, "budgets.json")},
 			Limits:  authz.RateLimits{Path: filepath.Join(keys, "ratelimit.json")},
