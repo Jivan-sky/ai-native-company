@@ -1,0 +1,10 @@
+{
+  "schema": "anc.app/v1",
+  "name": "hello",
+  "title": "样例应用：只证明「能装、能审、能在沙箱里跑」",
+  "version": "1.0.0",
+  "entrypoint": "run.sh",
+  "models": [],
+  "egress": { "domains": [], "max_bytes": 0 },
+  "run": { "timeout": "20s", "image": "redis:7-alpine" }
+}
