@@ -4561,9 +4561,23 @@ $ launchctl print gui/501/com.anc.jobs.acme2
 | launchd 里的 tick 说「没有到点的作业」 | plist 里是**相对路径**（`.devbox/macos/jobs`），而 launchd 的 cwd 是 `/` | 装机时把 vault / jobs / secrets 全部 `filepath.Abs` |
 | 上面那条**看起来正常** | `tick` 把「作业目录不存在」也报成「没有到点的作业」 | 目录不在 / 一个 spec 都没有 → **报错退出 1**，不再与「没有到点」共用一句话 |
 
+**重启后自己回来 —— 在容器里验成了**（2026-11-10）：Docker 里跑一个 systemd 当 init 的容器
+（`--privileged --cgroupns=host`，镜像 = golang:1.25 + systemd），把 `anc job install` 装成
+**系统级 service + timer**（`OnBootSec=20s` + `OnUnitActiveSec=60s`）：
+
+```
+boot #1   timer NEXT 00:53:15 → 00:53:17 服务跑完（issue-sweep 落盘 7,631 字节 + heartbeat）
+docker restart（= 关机再开机）
+boot #2   00:54:36 heartbeat 又跑一次（文件 mtime 08:53:16 → 08:54:36，HTTP 200）
+          journalctl：Finished anc-jobs-acme.service —— 两次 boot 各一次
+```
+
+也就是说「重启后自己回来」这一条**在 Linux/systemd 上成立了**；macOS 的 launchd 只验到
+「已登记 + 按间隔真跑」，**没有真重启过这台 Mac**（不会拿用户的机器去重启）。
+
 **还没做的（照实列）**：
 
-- **重启后自己回来 —— 没验**：那要重启这台机器；现在能证明的是「launchd 已登记、按间隔真跑过」；
+- macOS 没有真重启验证（只有 launchd 登记 + 按间隔跑过的证据）；
 - 失败没有告警：tick 退出码 1，但没人看得到（要接 `anc notify`，那是下一条）；
 - 没有多步（一条 spec 只做一次请求 + 一次落盘）；没有「跑完再触发另一件事」；
 - 没有把每次执行写进 timeline/audit（现在只落 `data/jobs/<name>.json` 的状态）；

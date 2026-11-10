@@ -65,3 +65,12 @@ func RunLaunchctl(args ...string) error {
 	}
 	return nil
 }
+
+// RunCmd 跑一条外部命令（launchctl / systemctl 共用）。
+func RunCmd(name string, args ...string) error {
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v：%s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
