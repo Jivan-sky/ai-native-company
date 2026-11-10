@@ -14,8 +14,13 @@ import (
 	"strings"
 	"time"
 
+	"crypto/ed25519"
+	"path/filepath"
+	"runtime"
+
 	"anc/internal/apps"
 	"anc/internal/audit"
+	"anc/internal/authz"
 	"anc/internal/timeline"
 )
 
@@ -155,8 +160,38 @@ func cmdAppRun(args []string) int {
 		return 2
 	}
 	vault, name := posArgs[0], posArgs[1]
+	// 沙箱里跑的是 Linux —— 挂进去的必须是 linux 版 anc（和宿主这份不是同一个文件）。
+	self, err := sandboxBin()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	keysDir := authzDir(vault, "")
+	_, privRaw, kerr := authz.Keys{Dir: keysDir}.Load()
+	if kerr != nil {
+		fmt.Fprintf(os.Stderr, "错误：授权密钥读不出来（%v）。先跑 `anc delegate issue` 生成。\n", kerr)
+		return 1
+	}
+	brokerURL := fmt.Sprintf("http://host.docker.internal:%s", boardChatPort())
+	_ = brokerURL
+	mint := func(app string, modelIDs []string) (string, error) {
+		now := time.Now()
+		// 应用声明的预算就是这张票的上限；票只活 10 分钟。
+		budget := 1.0
+		if st, err := apps.Load(vault, name); err == nil {
+			if m, err := apps.LoadManifest(st.Dir); err == nil {
+				budget = m.Budget()
+			}
+		}
+		return authz.Sign(ed25519.PrivateKey(privRaw), "k1", authz.Claims{
+			Sub: app, Aud: "chat", Scope: modelIDs, BudgetUSD: budget,
+			IAT: now.Unix(), Exp: now.Add(10 * time.Minute).Unix(),
+			JTI: fmt.Sprintf("%s-%d", app, now.UnixNano()),
+		})
+	}
 	res, err := apps.Run(context.Background(), vault, name, apps.Options{
-		Record: func(r apps.Result, st apps.Installed) { recordAppRun(vault, r, st) },
+		Record:    func(r apps.Result, st apps.Installed) { recordAppRun(vault, r, st) },
+		BrokerURL: brokerURL, SelfBin: self, MintToken: mint,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
@@ -210,4 +245,27 @@ func recordAppRun(vault string, r apps.Result, st apps.Installed) {
 		Title:  fmt.Sprintf("应用 %s %s", r.App, map[string]string{"ok": "跑通", "refused": "被拒", "failed": "失败"}[r.Status]),
 		Detail: r.Why,
 	})
+}
+
+// sandboxBin 找「给沙箱用的 linux 版 anc」：与当前二进制同目录的 anc-linux-<arch>。
+// 宿主那份是 darwin/windows 的，挂进 Linux 容器只会在第一行报「not found」。
+func sandboxBin() (string, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(filepath.Dir(self), "anc-linux-"+runtime.GOARCH)
+	if _, err := os.Stat(p); err != nil {
+		return "", fmt.Errorf("沙箱里要跑 linux 版 anc，但缺 %s —— 先交叉编译一份放过去", p)
+	}
+	return p, nil
+}
+
+// boardChatPort 是 broker 在宿主上的端口（与 `anc board serve --addr` 一致）。
+// 真实部署应当由配置给出；这里用环境变量，缺省 8787。
+func boardChatPort() string {
+	if p := strings.TrimSpace(os.Getenv("ANC_BOARD_PORT")); p != "" {
+		return p
+	}
+	return "8787"
 }

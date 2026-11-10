@@ -74,6 +74,7 @@ func cmdBoardServe(args []string) int {
 	chatKeyEnv := fs.String("chat-key-env", "DASHSCOPE_API_KEY", "密钥所在的环境变量名（不是密钥本身）")
 	gateKeys := fs.String("gate-keys", "", "授权密钥目录（默认 <vault>/../data/authz）")
 	gateModelID := fs.String("gate-model-id", "", "闸默认校验的注册名（不给就用 --chat-model）")
+	chatSocket := fs.String("chat-socket", "", "额外在 unix socket 上提供同一个 HTTP 面（给沙箱里的应用用）")
 	insecureBind := fs.Bool("insecure-bind", false, "允许绑到非回环地址（默认拒绝；要给别人看请走 ssh 端口转发）")
 	data := fs.String("data", "", "gateway data 目录（运行态页用）")
 	hotAddr := fs.String("hot-addr", "", "热层地址（待批页用；默认 "+hot.DefaultAddr+"；也可用 ANC_HOT_ADDR）")
@@ -238,6 +239,25 @@ func cmdBoardServe(args []string) int {
 	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+
+	// 沙箱通道：同一个 handler，挂在 unix socket 上。应用在 network=none 的容器里，
+	// 唯一能到 ANC 的路就是这个 socket —— egress 由构造保证。
+	if p := strings.TrimSpace(*chatSocket); p != "" {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			fmt.Fprintf(os.Stderr, "错误：建 socket 目录失败：%v\n", err)
+			return 1
+		}
+		_ = os.Remove(p)
+		uln, err := net.Listen("unix", p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "错误：监听 unix socket 失败：%v\n", err)
+			return 1
+		}
+		_ = os.Chmod(p, 0o600)
+		defer os.Remove(p)
+		go func() { errc <- srv.Serve(uln) }()
+		fmt.Printf("  沙箱通道 %s（只有本用户可连）\n", p)
+	}
 
 	select {
 	case <-ctx.Done():

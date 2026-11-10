@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -24,38 +25,71 @@ type Output struct {
 	Stderr string
 }
 
+// Exec 是一次沙箱执行的参数。
+//
+// Socket/Token 不为空时，容器里**只有**一条通往 ANC 的路：挂进去的 unix socket。
+// 网络仍然是 none —— egress 是构造保证的，不是靠声明。
+type Exec struct {
+	Dir     string
+	Entry   string
+	Image   string
+	Timeout time.Duration
+	// BrokerURL 是容器**能访问到**的 broker 地址（例：http://host.docker.internal:8787）。
+	// 注意：Docker Desktop(macOS) 挂不了 unix socket，所以这里走回环 TCP ——
+	// 代价是网络隔离在这一模式下**不成立**（应用能访问别的地址），只有鉴权成立。
+	BrokerURL string
+	SelfBin   string // 要挂进容器里的 linux 版 anc（应用用它说话）
+	Token     string // 委派令牌（经 docker 的环境变量传入，不进 argv）
+}
+
 // Runner 是「跑一段脚本」的抽象（测试注入假实现，不依赖 docker）。
 type Runner interface {
-	Run(ctx context.Context, dir, entry, image string, timeout time.Duration) (Output, error)
+	Run(ctx context.Context, e Exec) (Output, error)
 }
 
 // DockerRunner 用 docker 跑：无网络、只读根、丢掉全部 capability、临时 /tmp、非 root。
 type DockerRunner struct{}
 
-func (DockerRunner) Run(ctx context.Context, dir, entry, image string, timeout time.Duration) (Output, error) {
+func (DockerRunner) Run(ctx context.Context, e Exec) (Output, error) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		return Output{}, fmt.Errorf("没有沙箱（找不到 docker）—— 拒绝执行别人上传的脚本")
 	}
-	cctx, cancel := context.WithTimeout(ctx, timeout)
+	cctx, cancel := context.WithTimeout(ctx, e.Timeout)
 	defer cancel()
-	cmd := exec.CommandContext(cctx, "docker", "run", "--rm",
-		"--network=none",
+	network := "--network=none"
+	if e.BrokerURL != "" {
+		// 要能到 broker，就得有网；代价是这一模式下**网络不再隔离**（文档里写清）。
+		network = "--network=bridge"
+	}
+	args := []string{"run", "--rm", network,
 		"--read-only",
 		"--tmpfs", "/tmp:rw,size=16m",
 		"--cap-drop", "ALL",
 		"--security-opt", "no-new-privileges",
-		"--user", "65534:65534",
-		"-v", dir+":/app:ro",
-		"-w", "/app",
-		image, "/bin/sh", "-c", "./"+entry,
-	)
+	}
+	var extraEnv []string
+	if e.BrokerURL != "" {
+		// 应用能到 broker，就能到别的地址 —— 这一点必须写在文档里，不能假装隔离。
+		args = append(args, "--add-host", "host.docker.internal:host-gateway")
+		if e.SelfBin != "" {
+			args = append(args, "-v", e.SelfBin+":/usr/local/bin/anc:ro")
+		}
+		args = append(args, "-e", "ANC_BROKER_URL="+e.BrokerURL, "-e", "ANC_DELEGATION")
+		extraEnv = append(extraEnv, "ANC_DELEGATION="+e.Token)
+	} else {
+		args = append(args, "--user", "65534:65534")
+	}
+	args = append(args, "-v", e.Dir+":/app:ro", "-w", "/app",
+		e.Image, "/bin/sh", "-c", "./"+e.Entry)
+	cmd := exec.CommandContext(cctx, "docker", args...)
+	cmd.Env = append(os.Environ(), extraEnv...)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
 	err := cmd.Run()
 	res := Output{Stdout: out.String(), Stderr: errb.String()}
 	if cctx.Err() == context.DeadlineExceeded {
-		return res, fmt.Errorf("超时（%s）——沙箱被强杀", timeout)
+		return res, fmt.Errorf("超时（%s）——沙箱被强杀", e.Timeout)
 	}
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -82,6 +116,10 @@ type Options struct {
 	Runner Runner
 	Now    func() time.Time
 	Record func(Result, Installed) // 记账（CLI 注入；测试可为 nil）
+	// 应用要调模型时用：broker 的 socket、anc 二进制、发令牌的函数。
+	BrokerURL string
+	SelfBin   string
+	MintToken func(app string, models []string) (string, error)
 }
 
 func (o Options) now() time.Time {
@@ -133,8 +171,25 @@ func Run(ctx context.Context, vault, name string, opts Options) (Result, error) 
 	if runner == nil {
 		runner = DockerRunner{}
 	}
+	var token string
+	if len(m.Models) > 0 {
+		if opts.MintToken == nil || opts.BrokerURL == "" || opts.SelfBin == "" {
+			res.Status, res.Why = "failed", "应用声明了模型，但 broker 还没接上（缺 socket/令牌/二进制）"
+			opts.record(res, st)
+			return res, nil
+		}
+		token, err = opts.MintToken(m.Name, m.Models)
+		if err != nil {
+			res.Status, res.Why = "failed", "发不出委派令牌："+err.Error()
+			opts.record(res, st)
+			return res, nil
+		}
+	}
 	start := time.Now()
-	out, err := runner.Run(ctx, st.Dir, m.Entrypoint, m.Image(), m.Timeout())
+	out, err := runner.Run(ctx, Exec{
+		Dir: st.Dir, Entry: m.Entrypoint, Image: m.Image(), Timeout: m.Timeout(),
+		BrokerURL: opts.BrokerURL, SelfBin: opts.SelfBin, Token: token,
+	})
 	res.Duration = time.Since(start)
 	res.Code = out.Code
 	res.Output = strings.TrimSpace(out.Stdout + "\n" + out.Stderr)
