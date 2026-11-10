@@ -34,6 +34,9 @@ type Spec struct {
 	Retry    Retry    `json:"retry,omitempty"`
 
 	HTTP HTTP `json:"http"`
+	// App 是另一种动作：跑一个**已审批的脚本应用**（与 http 二选一）。
+	// 复用同一套 lease/幂等/记账 —— 调度只有一套，不然就是两本账。
+	App *AppAction `json:"app,omitempty"`
 	// Params 是会替换进 URL / headers / path 的占位值（`{{repo}}`）。
 	// 只有这里列出来的才替换 —— spec 里不许出现「魔法变量」。
 	Params map[string]string `json:"params,omitempty"`
@@ -116,8 +119,16 @@ func (s Spec) validate() error {
 	if !reName.MatchString(s.Name) {
 		return fmt.Errorf("name=%q 必须是小写 ASCII（会当状态文件名）", s.Name)
 	}
-	if strings.TrimSpace(s.HTTP.URL) == "" {
-		return fmt.Errorf("缺 http.url")
+	if s.App == nil && strings.TrimSpace(s.HTTP.URL) == "" {
+		return fmt.Errorf("缺 http.url（或者写 app.name 跑一个应用）")
+	}
+	if s.App != nil {
+		if strings.TrimSpace(s.App.Name) == "" {
+			return fmt.Errorf("app.name 不能为空")
+		}
+		if strings.TrimSpace(s.HTTP.URL) != "" {
+			return fmt.Errorf("http 与 app 只能选一个（一次只能做一件事）")
+		}
 	}
 	if strings.TrimSpace(s.Schedule.Every) == "" && strings.TrimSpace(s.Schedule.At) == "" {
 		return fmt.Errorf("缺 schedule.every（至少给一个间隔）")
@@ -158,4 +169,9 @@ func (s Spec) EnabledOrDefault() bool {
 		return true
 	}
 	return *s.Enabled
+}
+
+// AppAction 是「跑一个应用」这个动作。
+type AppAction struct {
+	Name string `json:"name"`
 }

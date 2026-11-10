@@ -61,6 +61,8 @@ type Options struct {
 	Force   bool              // 忽略幂等（人工重跑）
 	Now     time.Time         // 注入时钟（测试用；零值 = time.Now）
 	Client  *http.Client      // 测试可注入
+	// RunApp 执行一个已审批的应用（CLI 注入；测试可注入假实现）。
+	RunApp func(ctx context.Context, name string) (status, why string, code int, output string)
 }
 
 func (o Options) now() time.Time {
@@ -92,6 +94,13 @@ func runInner(ctx context.Context, s Spec, opts Options) Result {
 	if !opts.Force && st.LastKey == key && st.LastOK {
 		res.Status = "skipped"
 		res.Why = "幂等键已跑成功过（" + key + "）—— 同一件事不再做第二遍；要重跑用 --force"
+		return res
+	}
+
+	if s.App != nil {
+		res := s.runApp(ctx, opts, now, key)
+		st.merge(res, res.Status == "ok")
+		_ = saveState(opts.DataDir, st)
 		return res
 	}
 
@@ -340,6 +349,9 @@ func record(s Spec, opts Options, res *Result) {
 	stamp := at.Format(time.RFC3339)
 	id := fmt.Sprintf("job:%s:%s", s.Name, res.Key)
 	object := expand(s.HTTP.URL, s.Params, at)
+	if s.App != nil {
+		object = "app:" + s.App.Name
+	}
 	if len(object) > 160 {
 		object = object[:160]
 	}
@@ -361,6 +373,9 @@ func record(s Spec, opts Options, res *Result) {
 		Detail: fmt.Sprintf("attempts=%d bytes=%d sha256=%s", res.Attempts, res.Bytes, res.SHA256),
 	})
 	title := fmt.Sprintf("作业 %s 跑了：HTTP %d", s.Name, res.Code)
+	if s.App != nil {
+		title = fmt.Sprintf("作业 %s 跑了应用 %s", s.Name, s.App.Name)
+	}
 	if res.Status != "ok" {
 		title = fmt.Sprintf("作业 %s 失败：%s", s.Name, firstNonEmpty(res.Why, "未知原因"))
 	}
@@ -404,4 +419,30 @@ func short(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// runApp 跑应用：应用自己的审批/哈希/沙箱由 apps 包负责，这里只做调度与记账。
+func (s Spec) runApp(ctx context.Context, opts Options, now time.Time, key string) Result {
+	res := Result{Job: s.Name, Key: key, At: now, Status: "failed"}
+	if opts.RunApp == nil {
+		res.Why = "没有接上应用执行器（RunApp 为空）"
+		return res
+	}
+	start := time.Now()
+	status, why, code, output := opts.RunApp(ctx, s.App.Name)
+	res.Duration = time.Since(start)
+	res.Code, res.Bytes, res.Why = code, len(output), why
+	switch status {
+	case "ok":
+		res.Status = "ok"
+	case "refused":
+		res.Status = "failed" // 被拒不等于跑成功；仍要记账
+		if res.Why == "" {
+			res.Why = "应用拒绝执行"
+		}
+	default:
+		res.Status = "failed"
+	}
+	res.Path = "app:" + s.App.Name
+	return res
 }

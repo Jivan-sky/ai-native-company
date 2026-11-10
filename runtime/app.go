@@ -160,39 +160,7 @@ func cmdAppRun(args []string) int {
 		return 2
 	}
 	vault, name := posArgs[0], posArgs[1]
-	// 沙箱里跑的是 Linux —— 挂进去的必须是 linux 版 anc（和宿主这份不是同一个文件）。
-	self, err := sandboxBin()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
-		return 1
-	}
-	keysDir := authzDir(vault, "")
-	_, privRaw, kerr := authz.Keys{Dir: keysDir}.Load()
-	if kerr != nil {
-		fmt.Fprintf(os.Stderr, "错误：授权密钥读不出来（%v）。先跑 `anc delegate issue` 生成。\n", kerr)
-		return 1
-	}
-	brokerURL := fmt.Sprintf("http://host.docker.internal:%s", boardChatPort())
-	_ = brokerURL
-	mint := func(app string, modelIDs []string) (string, error) {
-		now := time.Now()
-		// 应用声明的预算就是这张票的上限；票只活 10 分钟。
-		budget := 1.0
-		if st, err := apps.Load(vault, name); err == nil {
-			if m, err := apps.LoadManifest(st.Dir); err == nil {
-				budget = m.Budget()
-			}
-		}
-		return authz.Sign(ed25519.PrivateKey(privRaw), "k1", authz.Claims{
-			Sub: app, Aud: "chat", Scope: modelIDs, BudgetUSD: budget,
-			IAT: now.Unix(), Exp: now.Add(10 * time.Minute).Unix(),
-			JTI: fmt.Sprintf("%s-%d", app, now.UnixNano()),
-		})
-	}
-	res, err := apps.Run(context.Background(), vault, name, apps.Options{
-		Record:    func(r apps.Result, st apps.Installed) { recordAppRun(vault, r, st) },
-		BrokerURL: brokerURL, SelfBin: self, MintToken: mint,
-	})
+	res, err := runAppOnce(vault, name)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
@@ -207,6 +175,38 @@ func cmdAppRun(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// runAppOnce 是「跑一个应用」的唯一实现：CLI 与 job tick 共用。
+func runAppOnce(vault, name string) (apps.Result, error) {
+	self, err := sandboxBin()
+	if err != nil {
+		return apps.Result{App: name, Status: "failed", Why: err.Error()}, nil
+	}
+	keysDir := authzDir(vault, "")
+	_, privRaw, kerr := authz.Keys{Dir: keysDir}.Load()
+	if kerr != nil {
+		return apps.Result{}, fmt.Errorf("授权密钥读不出来（%v）：先跑 `anc delegate issue`", kerr)
+	}
+	brokerURL := fmt.Sprintf("http://host.docker.internal:%s", boardChatPort())
+	mint := func(app string, modelIDs []string) (string, error) {
+		now := time.Now()
+		budget := 1.0
+		if st, err := apps.Load(vault, name); err == nil {
+			if m, err := apps.LoadManifest(st.Dir); err == nil {
+				budget = m.Budget()
+			}
+		}
+		return authz.Sign(ed25519.PrivateKey(privRaw), "k1", authz.Claims{
+			Sub: app, Aud: "chat", Scope: modelIDs, BudgetUSD: budget,
+			IAT: now.Unix(), Exp: now.Add(10 * time.Minute).Unix(),
+			JTI: fmt.Sprintf("%s-%d", app, now.UnixNano()),
+		})
+	}
+	return apps.Run(context.Background(), vault, name, apps.Options{
+		Record:    func(r apps.Result, st apps.Installed) { recordAppRun(vault, r, st) },
+		BrokerURL: brokerURL, SelfBin: self, MintToken: mint,
+	})
 }
 
 func printAppResult(r apps.Result) {
