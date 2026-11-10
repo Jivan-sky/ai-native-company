@@ -4649,6 +4649,57 @@ tick       exit=1，并打出「2 个作业失败（自愈不了，要人动手�
 - ~~没有把每次执行写进 timeline/audit~~ —— **2026-11-10 补上了**（见下）；
 - `--force` 只在 `run` 上有，`tick` 没有。
 
+### 7.1.87 模型是平台能力：注册表 + 绑定两份契约，和一份「现在必须红」的验收（2026-11-10）
+
+**纠正一条走弯的说法**：不是「做一个能统一委派 API key 的东西」——那是把密钥发给应用。
+正确的是：**应用永远不知道密钥长什么样，它只声明「我要用哪个注册名」**。ANC 持有注册表，
+按名字代调，密钥全程打码。
+
+两份契约（`internal/models`，进 git、不含密文）：
+
+```json
+// registry.json —— 一个端点一行
+{"id":"qwen-max-prod","provider":"dashscope","base_url":"https://…/compatible-mode/v1",
+ "model":"qwen-max","secret":"DASHSCOPE_KEY_PROD",
+ "limits":{"rpm":60,"daily_tokens":2000000,"budget_usd":20}}
+
+// apps/<app>.json —— 应用只按注册名绑定
+{"app":"invoice-sweep","models":["qwen-max-prod"],
+ "egress":{"domains":["trade"],"max_bytes":200000},
+ "run":{"schedule":"daily 09:00","timeout":"5m","sandbox":"egress-only"}}
+```
+
+三条校验写进代码（不靠自觉）：
+
+| 规则 | 为什么 |
+|---|---|
+| `secret` 必须是**环境变量名**（`^[A-Z][A-Z0-9_]*$`），不是值 | 注册表要进 git。谁把 `sk-xxx` 粘进来，当场被拒（用例：`TestRegistryRejectsKeyValueAsSecret`） |
+| **至少要有一条限额**（rpm / 日 token / 预算） | 没有限额的条目 = 无限授权 |
+| `egress.domains` 必须显式、`max_bytes` 必须为正 | 模型调用是**数据外送**；「这块业务的数据能不能出门」是一条策略，不许默认全通 |
+
+看表：
+
+```
+$ anc models ls <vault>
+  qwen-max-prod   dashscope  qwen-max  DASHSCOPE_KEY_PROD ****_PROD  启用   invoice-sweep
+```
+
+密钥值只以 `****尾巴四位` 出现；没配就写「（未配置）」。`anc models check` 顺带报「哪些条目的密钥还没配」。
+
+**验收脚本先红**（`dev/mask-scan.sh`，P0 的验收）：往注册表塞真密钥 → 扫全部出口
+（`/api/models` 响应 · 落盘目录）。它现在**必须红**，而且红的原因只能是「这条路还不存在」：
+
+```
+$ ./dev/mask-scan.sh http://127.0.0.1:8787 .devbox/macos/acme2 --secrets …
+❌ /api/models HTTP 000 —— 这条路还不存在（P0 未落地）
+✅ 落盘 1 个目录里没有密钥原文
+结论：不通过（能力缺失=1 · 泄漏=0）   exit=1
+```
+
+这样设计是为了区分两种红：**能力缺失**与**真的泄漏**。broker 落地后，同一份脚本只剩后一种红。
+
+**没做的**（下一刀）：broker（按票据代调、记账、限额）、脚本应用上传与沙箱、撤销与换钥演练。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
