@@ -1,0 +1,11 @@
+{
+  "schema": "anc.ds/v1",
+  "name": "demo-pg",
+  "title": "样例：客户自己的业务库（只读）",
+  "type": "postgres",
+  "dsn": "postgres://reader@127.0.0.1:5432/shop?sslmode=disable",
+  "secret": "PG_DEMO_PASSWORD",
+  "read_only": true,
+  "timeout": "15s",
+  "max_rows": 200
+}

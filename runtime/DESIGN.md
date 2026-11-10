@@ -4989,6 +4989,40 @@ audit 里 `app:hello-model` 一条 ok。沙箱里挂的必须是 **linux 版** `
 只约束外层）；app 作业的 `retry` 没接（失败应当重试还是等人看，要定）；同一应用并发跑的
 互斥没做。
 
+### 7.1.96 数据中台第一根柱子：PG 只读连接器（2026-11-11）
+
+**只连不搬**：数据源注册表只存「连接的定义」，查询结果不落真相源。
+
+| 件 | 落点 |
+|---|---|
+| 注册表 | `<vault>/../datasources/<name>.json`（type/dsn/secret/read_only/timeout/max_rows） |
+| 线协议客户端 | `internal/pgwire`：零依赖，trust / cleartext / md5 / **SCRAM-SHA-256**；只做简单查询 |
+| 只读守卫 | `ds.Guard`：单条、SELECT/WITH 开头、含分号即拒 |
+| 服务端兜底 | 会话里先跑 `SET default_transaction_read_only = on` 与 `statement_timeout` |
+| 上限 | 行数上限 + 超时，写在数据源定义里，调用方改不了 |
+| CLI | `anc db ls` / `anc db query <vault> <ds> --sql …` |
+
+**真跑（一个假 PG 服务端：只验我们的协议实现与守卫，不代表真实 PG 兼容性）**：
+
+```
+$ anc db query .devbox/macos/acme2 demo-pg --sql "SELECT id, name, amount FROM orders WHERE amount > 10"
+id	name	amount
+1	alice	18.00
+2	bob	42.50
+2 行 · 1ms
+
+$ anc db query … --sql "UPDATE orders SET amount=0"
+错误：只读数据源：只许 SELECT / WITH 开头          （台账记 failed，理由原样）
+```
+
+**没做的（照实列）**：
+
+- **真实 PostgreSQL 没验过**：本机没有 PG，Docker Hub 拉不到镜像；线协议的正确性目前只由假服务端证明。
+- **不支持 TLS**：`sslmode=disable` 以外的连接串直接拒绝（不假装加密）。
+- **SCRAM 只实现了客户端**，没有和真 PG 对过一次。
+- 没有参数化查询（`$1` 走扩展协议），现在只有简单查询 + 守卫。
+- 没有 HTTP 出口（`/api/query`），只有 CLI；MySQL 与本地文件目录还没接。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
