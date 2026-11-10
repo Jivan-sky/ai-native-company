@@ -99,6 +99,7 @@ func cmdJobRun(args []string) int {
 	fs := flag.NewFlagSet("job run", flag.ContinueOnError)
 	secretsFile := fs.String("secrets", "", "凭据文件（默认 ~/.anc/secrets.env）")
 	force := fs.Bool("force", false, "忽略幂等键")
+	nowFlag := fs.String("now", "", "演练专用：把「现在」钉在这个时刻（RFC3339）。定时器不传它")
 	asJSON := fs.Bool("json", false, "JSON 出口")
 	flagArgs, posArgs := splitArgs(args, map[string]bool{"force": true, "json": true})
 	if err := fs.Parse(flagArgs); err != nil {
@@ -117,11 +118,16 @@ func cmdJobRun(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 2
 	}
+	now, code := parseNowFlag(*nowFlag)
+	if code != 0 {
+		return code
+	}
 	res, err := job.Run(context.Background(), spec, job.Options{
 		Vault:   vault,
 		DataDir: dataDir,
 		Secrets: loadSecrets(*secretsFile),
 		Force:   *force,
+		Now:     now,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
@@ -254,6 +260,7 @@ func cmdJobTick(args []string) int {
 	fs := flag.NewFlagSet("job tick", flag.ContinueOnError)
 	dirFlag := fs.String("dir", "", "作业目录（默认 <vault>/../jobs）")
 	secretsFile := fs.String("secrets", "", "凭据文件（默认 ~/.anc/secrets.env）")
+	nowFlag := fs.String("now", "", "演练专用：把「现在」钉在这个时刻（RFC3339）。定时器不传它")
 	asJSON := fs.Bool("json", false, "JSON 出口")
 	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true})
 	if err := fs.Parse(flagArgs); err != nil {
@@ -281,7 +288,13 @@ func cmdJobTick(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：作业目录里没有 spec：%s\n", jobsDir)
 		return 1
 	}
-	now := time.Now()
+	now, code := parseNowFlag(*nowFlag)
+	if code != 0 {
+		return code
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
 	sec := loadSecrets(*secretsFile)
 	var results []job.Result
 	failed := 0
@@ -539,4 +552,19 @@ func runSystemctl(scope string, args ...string) error {
 		full = append([]string{scope}, args...)
 	}
 	return job.RunCmd("systemctl", full...)
+}
+
+// parseNowFlag 解析演练用的 --now。不写就返回零值（调用方用真实时间）。
+// 为什么留这个口子：定时任务的时间语义（每天一次、漏跑怎么办）没法靠等一天来验。
+func parseNowFlag(v string) (time.Time, int) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return time.Time{}, 0
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：--now=%q 不是 RFC3339（例：2026-11-11T09:05:00+08:00）\n", v)
+		return time.Time{}, 2
+	}
+	return t, 0
 }
