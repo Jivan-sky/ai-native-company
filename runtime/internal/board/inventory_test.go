@@ -38,8 +38,13 @@ func TestExactlyOneModelRoute(t *testing.T) {
 			models = append(models, p)
 		}
 	}
-	if len(models) != 1 || models[0] != chatPath {
-		t.Fatalf("模型面应当只有 %s，实际 %v", chatPath, models)
+	if len(models) != 2 {
+		t.Fatalf("模型面应当恰好两条（%s / %s），实际 %v", chatPath, chatSessionPath, models)
+	}
+	for _, m := range models {
+		if m != chatPath && m != chatSessionPath {
+			t.Fatalf("多了一个模型入口：%s —— 每多一个就是一个不经过判定的面", m)
+		}
 	}
 }
 
