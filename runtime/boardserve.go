@@ -18,6 +18,7 @@ import (
 	"anc/internal/authz"
 	"anc/internal/board"
 	"anc/internal/hot"
+	"anc/internal/models"
 	"anc/internal/org"
 )
 
@@ -171,10 +172,18 @@ func cmdBoardServe(args []string) int {
 		if modelID == "" {
 			modelID = *chatModel
 		}
+		rpm := map[string]int{}
+		if reg, rerr := models.LoadRegistry(filepath.Join(filepath.Dir(abs), "registry.json")); rerr == nil {
+			for _, e := range reg.Entries {
+				rpm[e.ID] = e.Limits.RPM
+			}
+		}
 		bs.Gate = &board.GateConfig{
 			PubKey:  pub,
 			Revoked: authz.Revocations{Path: filepath.Join(keys, "revoked.json")},
 			Budgets: authz.Budgets{Path: filepath.Join(keys, "budgets.json")},
+			Limits:  authz.RateLimits{Path: filepath.Join(keys, "ratelimit.json")},
+			RPM:     rpm,
 			ModelID: modelID,
 		}
 	}

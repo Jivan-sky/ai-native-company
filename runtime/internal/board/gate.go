@@ -29,6 +29,8 @@ type GateConfig struct {
 	PubKey  []byte            // Ed25519 公钥（签发端持有私钥）
 	Revoked authz.Revocations // 撤销表（jti）
 	Budgets authz.Budgets     // 预算账（jti → 已花）
+	Limits  authz.RateLimits  // 限流（注册名 → 本分钟计数）
+	RPM     map[string]int    // 每个注册名的 rpm（来自注册表 limits.rpm）
 	ModelID string            // 没在请求里指定时，用这个注册名
 }
 
@@ -72,6 +74,20 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request, modelID strin
 	}, s.now()); err != nil {
 		s.deny(w, r, http.StatusForbidden, err.Error(), c.Sub, c.JTI)
 		return c, 0, false
+	}
+	// 先限流、再预留：被厂商配额挡下的请求不该占掉这张票的预算。
+	if lim := s.Gate.RPM[modelID]; lim > 0 {
+		okL, wait, err := s.Gate.Limits.Allow(modelID, lim, s.now())
+		if err != nil {
+			s.deny(w, r, http.StatusServiceUnavailable, "限流账读不出来（fail-closed）："+err.Error(), c.Sub, c.JTI)
+			return c, 0, false
+		}
+		if !okL {
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(wait.Seconds())))
+			s.deny(w, r, http.StatusTooManyRequests,
+				fmt.Sprintf("限流：%s 每分钟最多 %d 次，这次被挡下（约 %s 后可再试）", modelID, lim, wait), c.Sub, c.JTI)
+			return c, 0, false
+		}
 	}
 	okB, _, err := s.Gate.Budgets.TryReserve(c.JTI, c.BudgetUSD)
 	if err != nil {
