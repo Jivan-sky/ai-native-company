@@ -7,6 +7,7 @@ import { renderAudit } from "./pages/audit";
 import { renderContext } from "./pages/context";
 import { renderGraph } from "./pages/graph";
 import { renderDomains, renderMembers, renderProjects } from "./pages/org";
+import { renderJobs } from "./pages/jobs";
 import { renderModels } from "./pages/models";
 import { renderOverview } from "./pages/overview";
 import { renderSearch } from "./pages/search";
@@ -63,6 +64,12 @@ export const modelsPage: Page = {
   sub: "注册表在我们手里；密钥只显示名字与「配没配」，不显示值。",
   view: renderModels,
 };
+export const jobsPage: Page = {
+  id: "jobs", group: "运行", label: "作业", icon: "clock", wired: true,
+  question: "什么时候跑、上次成没成、下次几点？",
+  sub: "定时作业与应用作业共用一套租约与幂等；下次时间是调度器同一个函数算的。",
+  view: renderJobs,
+};
 export const timelinePage: Page = {
   id: "timeline", group: "记录", label: "时间线", icon: "clock", wired: true,
   question: "卡在哪、谁在跟、下一步是谁的决定？", view: renderTimeline,
@@ -100,7 +107,7 @@ export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage, contextPage,
   graphPage, membersPage, domainsPage,
-  appsPage, modelsPage,
+  appsPage, modelsPage, jobsPage,
   timelinePage, casesPage, auditPage,
   assetsPage, searchPage, sedimentPage,
   systemPage,

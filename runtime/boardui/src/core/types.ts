@@ -301,6 +301,13 @@ export type AppRow = {
 };
 export type AppsView = { schema: string; wired: boolean; why?: string; apps: AppRow[] };
 
+export type JobRow = {
+  name: string; title?: string; enabled: boolean;
+  every?: string; at?: string; tz?: string; kind: string;
+  last_at?: string; last_ok: boolean; last_error?: string; next_at?: string;
+};
+export type JobsView = { schema?: string; wired: boolean; why?: string; jobs: JobRow[] };
+
 export type ModelRow = {
   id: string; provider: string; model: string; secret: string;
   configured: boolean; status: string; apps: string[] | null;
@@ -323,6 +330,7 @@ export type Data = {
   grants: GrantsView | null; grantsErr: string;
   apps: AppsView | null; appsErr: string;
   models: ModelsView | null; modelsErr: string;
+  jobs: JobsView | null; jobsErr: string;
   err: string;
 };
 

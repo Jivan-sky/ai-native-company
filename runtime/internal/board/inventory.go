@@ -56,6 +56,7 @@ func (s *Server) Routes() []Route {
 		{"/api/grants", KindRead, s.handleGrants},
 		{"/api/models", KindRead, s.handleModels},
 		{"/api/apps", KindRead, s.handleApps},
+		{"/api/jobs", KindRead, s.handleJobs},
 		{WritePath, KindWrite, s.handleApprovalsDecide},
 		{SettlePath, KindWrite, s.handleTaskSettle},
 		{chatPath, KindModel, s.handleChat},
@@ -70,8 +71,8 @@ var routeKindSet = map[string]RouteKind{
 	"/api/distill": KindRead, "/api/timeline": KindRead, "/api/audit": KindRead,
 	"/api/approvals": KindRead, "/api/hot": KindRead, "/api/agents": KindRead,
 	"/api/context": KindRead, "/api/grants": KindRead, "/api/models": KindRead,
-	"/api/apps": KindRead,
-	WritePath:   KindWrite, SettlePath: KindWrite,
+	"/api/apps": KindRead, "/api/jobs": KindRead,
+	WritePath: KindWrite, SettlePath: KindWrite,
 	chatPath: KindModel,
 }
 
