@@ -149,6 +149,8 @@ func main() {
 		os.Exit(cmdBench(args))
 	case "prices":
 		os.Exit(cmdPrices(args))
+	case "job":
+		os.Exit(cmdJob(args))
 	case "ingest":
 		os.Exit(cmdIngest(args))
 	case "import":
@@ -239,6 +241,7 @@ func usage() {
                                     把这一份冻成副本落 vault 的 context/（快照；给交付与审计取证）
   anc search <vault> --q "要查什么" [--who <编号>] [--domain <slug>] [--limit 8]
                                     按域可见范围搜知识（默认 BM25；给指针 + 片段，查不到就说没入库）
+  anc job run|ls|tick <vault> ...   ANC 自己去调外部系统：一次执行 / 看作业 / 按调度（tick 待接）
   anc prices [--prices <文件>] [--json]
                                     价格表（数据；出厂空表）：没有条目的模型一律显式「无价格」
   anc bench <vault> --suite <目录|文件> [--k <视角数>] [--json] [--min <0..1>]

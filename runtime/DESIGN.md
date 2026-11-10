@@ -4503,6 +4503,72 @@ trail 的 totals 是 0。这也暴露了一个待办：**读不到时 totals 仍
 - **看板的成本区没接**（#25）：看板读的是真相源投影，而金额住在 trail 的会话账里 ——
   要接得先定「看板读不读 trail」，不是加一个字段的事。
 
+### 7.1.86 ANC 第一次自己干活：job 契约 + 真跑 + launchd 定时（2026-11-10）
+
+前面七十多节的产出全在**记账**（真相源、上下文、留痕、看板、测量）。这一节换一样东西：
+**ANC 自己去调一个外部系统，并把结果写回去** —— 从「记录一切」到「做成一件事」。
+
+**先契约，后代码。** 一份 spec 必须能回答四个问题：什么时候跑、调哪个 API 怎么带凭据、
+结果落哪、**凭什么判定「这次和上次是同一件事」**。
+
+```json
+{
+  "schema": "anc.job/v1", "name": "issue-sweep",
+  "schedule": {"every": "24h", "at": "09:00", "tz": "Asia/Shanghai"},
+  "timeout": "60s", "retry": {"max": 1, "backoff": "10s"},
+  "params": {"repo": "Jivan-sky/ai-native-company"},
+  "http": {"url": "https://api.github.com/repos/{{repo}}/issues?state=open",
+           "auth": {"secret": "GITHUB_TOKEN", "scheme": "token"}},
+  "write": {"path": "reports/issues-{{date}}.md", "render": "issues-md"}
+}
+```
+
+三条口径写死：
+
+1. **凭据只按名字引用**（`secret: GITHUB_TOKEN`）—— spec 要进 git，值住 secrets（600）。
+2. **幂等键是数据**，不是代码里的 `time.Now()`：默认 `{{date}}`，同一天成功过一次就不再跑；
+   **失败不推进键**（否则一次偶发失败会让今天这件事永远不做）。
+3. **未知字段直接报错**（`DisallowUnknownFields`）—— spec 是契约，写错的字段静默失效 =
+   行为与写的人以为的不一样。
+
+**真跑（本机，GitHub 真 API，token 来自钥匙串、写进 `.devbox/macos/secrets.env` 600）**：
+
+```
+第一次   ✅ ok    HTTP 200 · 1.6s · 落盘 reports/issues-2026-11-10.md（7,631 字节，sha256 293106b9…）
+        内容：开着 38 条（拉请求 0，已剔除）· 9 个 label
+第二次   … skipped  幂等键 2026-11-10 已跑成功过
+tick     ✅ 第二份作业（issue-sweep-2）从没跑过 → 立刻跑，HTTP 200 · 1.5s · 7,633 字节
+```
+
+**launchd 定时（装机 = 一条命令）**：
+
+```
+$ anc job install <vault> --dir <jobs> --secrets <secrets> --every 5m --apply
+✅ 已写 ~/Library/LaunchAgents/com.anc.jobs.acme2.plist
+✅ 已加载（launchctl bootstrap）
+$ launchctl print gui/501/com.anc.jobs.acme2
+	state = active   run interval = 300 seconds
+```
+
+为了让「它真的在按周期自己跑」可见，临时把间隔压到 1 分钟并加了一个 `heartbeat`
+（`idempotency: {{datetime}}`，每跑一次覆盖一次文件）：**70 秒内真跑了两次**，
+`reports/heartbeat.txt` 两次都 HTTP 200 并更新时间戳；随后把间隔恢复成 5 分钟、删掉 heartbeat。
+
+**无人值守跑出来的两个真 bug**（都在装完之后才现形）：
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| launchd 里的 tick 说「没有到点的作业」 | plist 里是**相对路径**（`.devbox/macos/jobs`），而 launchd 的 cwd 是 `/` | 装机时把 vault / jobs / secrets 全部 `filepath.Abs` |
+| 上面那条**看起来正常** | `tick` 把「作业目录不存在」也报成「没有到点的作业」 | 目录不在 / 一个 spec 都没有 → **报错退出 1**，不再与「没有到点」共用一句话 |
+
+**还没做的（照实列）**：
+
+- **重启后自己回来 —— 没验**：那要重启这台机器；现在能证明的是「launchd 已登记、按间隔真跑过」；
+- 失败没有告警：tick 退出码 1，但没人看得到（要接 `anc notify`，那是下一条）；
+- 没有多步（一条 spec 只做一次请求 + 一次落盘）；没有「跑完再触发另一件事」；
+- 没有把每次执行写进 timeline/audit（现在只落 `data/jobs/<name>.json` 的状态）；
+- `--force` 只在 `run` 上有，`tick` 没有。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
