@@ -1,0 +1,23 @@
+{
+  "schema": "anc.models/v1",
+  "_readme": "模型注册表：一个端点一行。secret 只写**密钥的名字**（值住 secrets 文件，600）。没有 limits 的条目会被拒 —— 没有限额等于无限授权。",
+  "entries": [
+    {
+      "id": "qwen-max-prod",
+      "provider": "dashscope",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-max",
+      "secret": "DASHSCOPE_KEY_PROD",
+      "limits": { "rpm": 60, "daily_tokens": 2000000, "budget_usd": 20 },
+      "status": "enabled"
+    },
+    {
+      "id": "qwen-turbo-dev",
+      "provider": "dashscope",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-turbo",
+      "secret": "DASHSCOPE_KEY_DEV",
+      "limits": { "rpm": 20, "daily_tokens": 500000, "budget_usd": 2 }
+    }
+  ]
+}

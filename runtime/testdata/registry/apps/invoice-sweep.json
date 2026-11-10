@@ -1,0 +1,8 @@
+{
+  "schema": "anc.binding/v1",
+  "app": "invoice-sweep",
+  "title": "发票巡检：每天把差异挑出来让人看",
+  "models": ["qwen-max-prod"],
+  "egress": { "domains": ["trade"], "max_bytes": 200000 },
+  "run": { "schedule": "daily 09:00", "timeout": "5m", "sandbox": "egress-only" }
+}
