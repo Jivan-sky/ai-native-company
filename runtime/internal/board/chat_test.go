@@ -221,3 +221,24 @@ func TestChatRateLimited(t *testing.T) {
 		t.Fatal("被限流要给 Retry-After")
 	}
 }
+
+// 应用清单：只出身份与状态，不出包内内容。
+func TestAppsEndpoint(t *testing.T) {
+	vault := t.TempDir()
+	s := &Server{Vault: vault}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/api/apps", nil))
+	if rec.Code != 200 {
+		t.Fatalf("HTTP %d", rec.Code)
+	}
+	var out struct {
+		Wired bool  `json:"wired"`
+		Apps  []any `json:"apps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("不是 JSON：%v", err)
+	}
+	if !out.Wired || len(out.Apps) != 0 {
+		t.Fatalf("空目录应当 wired=true、0 个应用：%s", rec.Body.String())
+	}
+}
