@@ -213,11 +213,15 @@ func cmdJobLs(args []string) int {
 		}
 		last := "从没跑过"
 		if r.State != nil && !r.State.LastAt.IsZero() {
-			last = r.State.LastAt.Local().Format("01-02 15:04") + " · " + map[bool]string{true: "成功", false: "上次失败"}[r.State.LastOK]
+			last = r.State.LastAt.Local().Format("01-02 15:04") + " · " + map[bool]string{true: "成功", false: "⚠️ 上次失败"}[r.State.LastOK]
 		}
 		fmt.Printf("  %-16s %-22s %s\n", r.Name, sched, last)
 		if r.Title != "" {
 			fmt.Printf("      %s\n", r.Title)
+		}
+		if r.State != nil && !r.State.LastOK && r.State.LastError != "" {
+			// 失败原因就摆在名字下面：这一页是无人值守时人唯一会看的地方。
+			fmt.Printf("      ⚠️  %s\n", r.State.LastError)
 		}
 	}
 	return 0
@@ -311,6 +315,15 @@ func cmdJobTick(args []string) int {
 		}
 	}
 	if failed > 0 {
+		// 无人值守时，退出码没人看得到 —— 所以把「谁失败了、为什么」直接打出来，
+		// 并且这一条同时已经进了 timeline（红档）与 audit（failed），看板上看得到。
+		fmt.Fprintf(os.Stderr, "\n⚠️ %d 个作业失败（自愈不了，要人动手）：\n", failed)
+		for _, r := range results {
+			if r.Status == "failed" {
+				fmt.Fprintf(os.Stderr, "   - %s：%s\n", r.Job, r.Why)
+			}
+		}
+		fmt.Fprintf(os.Stderr, "   看：anc job ls %s · anc timeline list %s\n", vault, vault)
 		return 1
 	}
 	return 0
