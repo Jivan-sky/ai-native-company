@@ -41,7 +41,7 @@ export function zoneCell(e: AuditEntryView): Kid {
 // 完整时间挂在 title 上 —— 要精确的时候悬停就有，不用的时候不占宽度。
 function stamp(at: string): HTMLElement {
   const full = localTime(at);
-  return el("span", { class: "mono", title: full }, full.slice(5, 16));
+  return el("span", { class: "mono nw", title: full }, full.slice(5, 16));
 }
 
 function auditRow(e: AuditEntryView): Kid[] {

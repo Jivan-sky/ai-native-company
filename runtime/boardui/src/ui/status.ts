@@ -30,11 +30,13 @@ export const BAND_WORD: Record<string, string> = {
 };
 export const bandWord = (b: string): string => BAND_WORD[b] ?? "灰 · 认不出的词";
 
-// 四档图例：形状 → 含义。摆出来是给**不看颜色**的读者留一条路（色盲、灰度截图、小屏）。
+// 四档图例：形状 → 含义 → 原始 status 词。
+// 摆出来是给**不看颜色**的读者留一条路（色盲、灰度截图、小屏）；
+// 原始词一起写，是因为表里显示的是 status 原文，图例得能对上号。
 export function bandLegend(): HTMLElement {
   return el("p", { class: "legend" },
-    dotLine("dot ok", el("span", {}, "实心圆 · 已完成")),
-    dotLine("dot warn", el("span", {}, "带光环的圆 · 运行中")),
-    dotLine("dot bad", el("span", {}, "菱形 · 卡点或失败")),
-    dotLine("dot gray", el("span", {}, "空心虚线圈 · 认不出的词（没判过）")));
+    dotLine("dot ok", el("span", {}, "实心圆 · 已完成 done")),
+    dotLine("dot warn", el("span", {}, "带光环的圆 · 运行中 running")),
+    dotLine("dot bad", el("span", {}, "菱形 · 卡点或失败 blocked / failed")),
+    dotLine("dot gray", el("span", {}, "空心虚线圈 · 认不出的词")));
 }
