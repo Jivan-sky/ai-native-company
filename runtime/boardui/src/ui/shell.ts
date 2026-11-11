@@ -283,8 +283,9 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
   return el("header", { class: "topbar" },
     menu,
     el("div", { class: "crumbs" },
-      el("span", { class: "grp" }, page.group),
-      el("span", { class: "sep" }, "/"),
+      // 组名与页名一样时不重复（并页之后会出现「运行 / 运行」这种话）
+      page.group === page.label ? "" : el("span", { class: "grp" }, page.group),
+      page.group === page.label ? "" : el("span", { class: "sep" }, "/"),
       el("b", {}, page.label)),
     cmd,
     el("div", { class: "top-actions" },
@@ -309,8 +310,7 @@ const TABS: { id: string; label: string }[] = [
   { id: "overview", label: "总览" },
   { id: "approvals", label: "待批" },
   { id: "data", label: "数据" },
-  { id: "apps", label: "应用" },
-  { id: "jobs", label: "作业" },
+  { id: "run", label: "运行" },
   { id: "audit", label: "审计" },
 ];
 

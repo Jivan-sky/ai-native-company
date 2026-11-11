@@ -25,11 +25,9 @@ const GATED: Record<string, Role[]> = {
   // 控制面：谁能动别人的权限、谁的机器在跑什么 —— 只给管理岗
   members: ["super", "admin", "lead"],
   domains: ["super", "admin"],
-  apps: ["super", "admin"],
-  models: ["super", "admin"],
-  jobs: ["super", "admin"],
+  // 应用 / 模型 / 作业 / 接入 是同一页（#/run）的四个标签 —— 权限按页判，不按标签判
+  run: ["super", "admin"],
   system: ["super", "admin"],
-  intake: ["super", "admin"],
   // 审计与沉淀：决策记录与可提炼资产，只有能拍板的人看
   audit: ["super", "admin"],
   sediment: ["super", "admin"],
