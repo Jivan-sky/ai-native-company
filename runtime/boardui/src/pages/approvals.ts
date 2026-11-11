@@ -23,16 +23,32 @@ export function receiptBanner(r: DecideReply): HTMLElement {
 }
 
 // 「谁在点」—— 看板没有免登，所以这一栏由页面出，并记在本机（下次不用再打）。
+// 「谁在点」会写成留痕的文件名（timeline/<月>.<谁>.jsonl），所以只允许字母数字与 ._- 空格。
+// 后端本来就拒，但**拒在点完之后**：用户填了中文名、点了同意，才被告知写不成 ——
+// 那一刻他填的「为什么」已经跟着重画丢了。所以在这里先说，边打边说。
+const BY_OK = /^[A-Za-z0-9._\- ]+$/;
+
 export function bySection(): Kid {
   const input = el("input", {
     class: "by", type: "text",
-    placeholder: "你的名字 / 岗位（会原样写进留痕）",
+    placeholder: "英文名或成员 slug，例如 zhangwei（会写进文件名）",
     value: byWho,
+    "aria-describedby": "by-rule",
   });
+  const rule = el("p", { class: "quiet", id: "by-rule" }, "");
+  const check = (): void => {
+    const v = (input as HTMLInputElement).value.trim();
+    rule.textContent = v === "" || BY_OK.test(v)
+      ? "留痕按名字分文件，所以只收字母、数字、. _ - 和空格。"
+      : "这串字符写不成文件名 —— 留痕按名字分文件，只收字母、数字、. _ - 和空格。";
+    rule.classList.toggle("bad", v !== "" && !BY_OK.test(v));
+  };
   input.addEventListener("input", () => {
     setByWho((input as HTMLInputElement).value);
+    check();
   });
-  return section("谁在点", "", el("div", { class: "field" }, input));
+  check();
+  return section("谁在点", "", el("div", { class: "field" }, input, rule));
 }
 
 // 一条提案一张卡：状态在上，人话在中，按钮在下。
@@ -95,6 +111,12 @@ export async function decide(
   if (who === "") {
     // 后端也这么拒（「匿名点头等于没点头」）—— 这里先说，省一次往返。
     lastDecideErr = "先在上面填「谁在点」：匿名点头等于没点头（后端也这么拒）。";
+    rerender();
+    return;
+  }
+  // 同一个规则在前端先过一遍：省一次往返，也不让填好的「为什么」白丢。
+  if (!BY_OK.test(who)) {
+    lastDecideErr = "「" + who + "」写不成文件名 —— 留痕按名字分文件，只收字母、数字、. _ - 和空格。换一个再点。";
     rerender();
     return;
   }
