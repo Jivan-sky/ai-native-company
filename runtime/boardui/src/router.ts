@@ -1,6 +1,7 @@
 import { icon } from "./core/icons";
 import type { Page } from "./core/types";
 import { renderApps } from "./pages/apps";
+import { renderData } from "./pages/data";
 import { renderApprovals } from "./pages/approvals";
 import { renderAssets, renderCases, renderSediment } from "./pages/assets";
 import { renderAudit } from "./pages/audit";
@@ -70,6 +71,12 @@ export const jobsPage: Page = {
   sub: "定时作业与应用作业共用一套租约与幂等；下次时间是调度器同一个函数算的。",
   view: renderJobs,
 };
+export const dataPage: Page = {
+  id: "data", group: "运行", label: "数据", icon: "layers", wired: true,
+  question: "我们连了哪些数据、目录里有什么、谁能看哪一列？",
+  sub: "只连不搬：数据在客户库里；这里看目录、分级、策略，并跑只读查询。",
+  view: renderData,
+};
 export const timelinePage: Page = {
   id: "timeline", group: "记录", label: "时间线", icon: "clock", wired: true,
   question: "卡在哪、谁在跟、下一步是谁的决定？", view: renderTimeline,
@@ -107,7 +114,7 @@ export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage, contextPage,
   graphPage, membersPage, domainsPage,
-  appsPage, modelsPage, jobsPage,
+  appsPage, modelsPage, jobsPage, dataPage,
   timelinePage, casesPage, auditPage,
   assetsPage, searchPage, sedimentPage,
   systemPage,

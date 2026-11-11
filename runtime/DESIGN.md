@@ -5285,6 +5285,34 @@ POST /api/query {"datasource":"demo-pg","sql":"SELECT id, region, total FROM ord
 
 **没做的**：`/api/files/*`；看板的数据页（下一刀）；查询票在 UI 里还得用 CLI 签（没有 SSO）。
 
+### 7.1.104 看板「数据」页：目录、分级、策略、查询（2026-11-11）
+
+一张页把治理的四件事摆在一起：**连了什么 → 目录里有什么 → 谁被拍板成什么 → 谁能查哪一列**。
+
+| 组件 | 数据源 |
+|---|---|
+| 数据源卡片 | `GET /api/datasources`（类型 / 表列数 / 已拍板 / 有无策略） |
+| 目录 + 分级 | `GET /api/catalog?ds=`（表/列/主键/注释 + 人工拍板） |
+| 策略 | 同一份 `policies/<ds>.json`（规则 + 行过滤） |
+| 查询框 | `POST /api/query`，票由 `/api/chat/session` 顺带签（`aud=query`，主体 `board-ui`） |
+
+**ego lite 实测**（PG 17）：
+
+```
+查询框：SELECT id, region, total FROM orders ORDER BY id
+id | region | total
+1  | cn     | ***
+
+1 行 · 脱敏 total · 行过滤 orders: region = 'cn'
+```
+
+也就是说：**界面上的查询和 CLI 走的是同一道闸、同一份策略、同一本账**——不是另开一条路。
+
+**踩到并修掉的两个坑**：
+
+1. 会话端点要求 `ModelID` 非空才签发，没配模型时连查询票都拿不到 → 现在拆开：模型票只在配了默认注册名时签，查询票独立；
+2. 查询框取数据源用的是 URL 参数，直接进页面（没带 `?ds=`）时为空 → 改成取当前展示的目录。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
