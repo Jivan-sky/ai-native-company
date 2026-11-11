@@ -329,6 +329,11 @@ export type CatalogView = {
   policy?: { default: string; derived: string; rules: { subject: string; table: string; columns: string[]; action: string }[]; row_filters?: { table: string; where: string }[] };
 };
 
+export type FileEntryView = { path: string; size: number; sha256?: string; mtime: string };
+export type FileSnapView = { schema?: string; wired: boolean; why?: string; datasource: string; fingerprint?: string; scanned_at?: string; files: FileEntryView[]; dirs: string[] };
+export type FileRowView = { name: string; path: string; dir: boolean; size: number; mtime: string };
+export type FileListView = { wired: boolean; path: string; entries: FileRowView[]; truncated: boolean; hidden?: number };
+
 export type Data = {
   board: BoardView | null; issues: Issues;
   agents: AgentsView | null; agentsErr: string;
@@ -348,6 +353,7 @@ export type Data = {
   jobs: JobsView | null; jobsErr: string;
   ds: DataSourcesView | null; dsErr: string;
   cat: CatalogView | null; catErr: string;
+  fileSnap: FileSnapView | null; fileList: FileListView | null; filePath: string; fileErr: string;
   err: string;
 };
 

@@ -52,8 +52,8 @@ func TestExactlyOneModelRoute(t *testing.T) {
 			queries++
 		}
 	}
-	if queries != 1 {
-		t.Fatalf("查询面应当只有 /api/query，实际 %d 条", queries)
+	if queries != 3 {
+		t.Fatalf("查询面应当 3 条（/api/query 与 files 的 ls/cat），实际 %d 条", queries)
 	}
 }
 

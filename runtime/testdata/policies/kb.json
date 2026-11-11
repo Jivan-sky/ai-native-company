@@ -3,7 +3,37 @@
   "datasource": "kb",
   "default": "deny",
   "rules": [
-    { "subject": "alice", "table": ".", "columns": ["*"], "action": "allow" },
-    { "subject": "alice", "table": "Obsidian_database/*", "columns": ["*"], "action": "allow" }
+    {
+      "subject": "alice",
+      "table": ".",
+      "columns": [
+        "*"
+      ],
+      "action": "allow"
+    },
+    {
+      "subject": "alice",
+      "table": "Obsidian_database/*",
+      "columns": [
+        "*"
+      ],
+      "action": "allow"
+    },
+    {
+      "subject": "board-ui",
+      "table": ".",
+      "columns": [
+        "*"
+      ],
+      "action": "allow"
+    },
+    {
+      "subject": "board-ui",
+      "table": "Obsidian_database/*",
+      "columns": [
+        "*"
+      ],
+      "action": "allow"
+    }
   ]
 }
