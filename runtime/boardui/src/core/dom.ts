@@ -49,9 +49,10 @@ export function table(headers: string[], rows: Kid[][]): HTMLElement {
   return el("div", { class: "tw vt" }, el("table", {}, el("thead", {}, head), body));
 }
 
-export function section(title: string, hint: string, ...body: Kid[]): HTMLElement {
+// hint 现在允许是节点：有些「标题右边那一行」本身就是可点的数字（比如审计总条数）。
+export function section(title: string, hint: Kid, ...body: Kid[]): HTMLElement {
   const h = el("h2", {}, title);
-  if (hint !== "") h.append(el("span", { class: "hint" }, hint));
+  if (hint !== "" && hint !== null && hint !== undefined) h.append(el("span", { class: "hint" }, hint));
   return el("section", { class: "sec" }, h, ...body);
 }
 
