@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"anc/internal/audit"
+	"anc/internal/catalog"
 	"anc/internal/ds"
+	"anc/internal/policy"
 )
 
 const dbUsage = `anc db —— 数据源（只读）
@@ -91,6 +93,7 @@ func cmdDBQuery(args []string) int {
 	sqlText := fs.String("sql", "", "要跑的查询（只读）")
 	secretsFile := fs.String("secrets", "", "凭据文件（默认 <vault>/../secrets.env）")
 	asJSON := fs.Bool("json", false, "JSON 出口")
+	subject := fs.String("as", "anc", "以谁的身份查（策略按这个主体判）")
 	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -122,15 +125,33 @@ func cmdDBQuery(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	res, err := ds.Query(ctx, src, password, *sqlText)
+
+	// 策略：默认拒绝；拒绝是整条查询失败，脱敏是保留列、替换值。
+	pol, perr := policy.Load(filepath.Join(filepath.Dir(vault), "policies"), name)
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "错误：策略读不动：%v\n", perr)
+		return 1
+	}
+	var dec policy.Decision
+	if err == nil {
+		var aerr error
+		dec, aerr = pol.Apply(*subject, columnTableMap(vault, name), res.Columns, res.Rows)
+		if aerr != nil {
+			err = aerr
+		}
+	}
 	at := time.Now().Format(time.RFC3339)
 	result := audit.ResultOK
-	why := fmt.Sprintf("%d 行 · %s", res.Returned, res.Duration.Round(time.Millisecond))
+	why := fmt.Sprintf("%d 行 · %s · 主体 %s", res.Returned, res.Duration.Round(time.Millisecond), *subject)
+	if len(dec.Masked) > 0 {
+		why += " · 脱敏列 " + strings.Join(dec.Masked, ",")
+	}
 	if err != nil {
 		result, why = audit.ResultFailed, err.Error()
 	}
 	_, _ = audit.Append(vault, audit.Record{
 		ID: fmt.Sprintf("db:%s:%d", name, time.Now().UnixNano()), At: at,
-		Actor: "anc", Action: audit.ActionRead, Object: "ds:" + name,
+		Actor: *subject, Action: audit.ActionRead, Object: "ds:" + name,
 		Result: result, Why: why, Tool: "db", Source: "db", Ref: res.SQLHash,
 	})
 
@@ -161,4 +182,26 @@ func cmdDBQuery(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "\n%d 行 · %s%s\n", res.Returned, res.Duration.Round(time.Millisecond), note)
 	return 0
+}
+
+func columnTableMap(vault, dsName string) map[string]string {
+	snap, err := catalog.Load(vault, dsName)
+	if err != nil {
+		return nil
+	}
+	count := map[string]int{}
+	owner := map[string]string{}
+	for _, t := range snap.Tables {
+		for _, c := range t.Columns {
+			count[c.Name]++
+			owner[c.Name] = t.Name
+		}
+	}
+	out := map[string]string{}
+	for col, n := range count {
+		if n == 1 {
+			out[col] = owner[col]
+		}
+	}
+	return out
 }
