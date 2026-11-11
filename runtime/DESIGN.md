@@ -5225,6 +5225,39 @@ $ anc catalog confirm … demo-pg orders.nope pii --by alice
 **没做的**：MySQL 的值形状（`REGEXP` 写法不同）；正则只覆盖四类；采样是「前 N 行」，
 不是全表统计（大表上要改成分批聚合）。
 
+### 7.1.102 行级过滤 + MySQL 值形状（2026-11-11）
+
+**行级过滤用「包装」而不是「拼接」**：
+
+```sql
+SELECT * FROM ( <你的查询> ) AS anc_rls WHERE ( region = 'cn' )
+```
+
+不解析 SQL，也就不怕用户的 WHERE / ORDER BY / 子查询把条件吃掉。命中的判据是
+「SQL 文本里出现了那条过滤的表名」——**保守**：宁可多套一层（可能报列不存在），也不放过。
+`where` 里出现分号一律拒绝（防止一条条件变成两条语句）。
+
+**真跑（PG 17）**：
+
+```
+$ anc db query … --as alice --sql "SELECT id, region FROM orders ORDER BY id"
+id	region
+1	cn                       ← 只返回 region='cn' 的行
+（台账：行过滤 orders: region = 'cn'）
+```
+
+**MySQL 值形状**：同一条口径，SQL 换成 `SUM(col REGEXP '…')`（MySQL 的 REGEXP 返回 1/0）。
+
+```
+$ anc catalog classify … demo-mysql
+值形状证据（库内聚合计数，未取回任何行）：
+  orders.email  pii  email  3/3（100%）
+  orders.phone  pii  phone  3/3（100%）
+```
+
+**没做的**：行过滤的命中是启发式（表名出现在文本里），多表 JOIN 时可能套错层；
+`where` 引用结果里没有的列会直接报错（宁可报错，不静默放行）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
