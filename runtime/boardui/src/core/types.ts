@@ -308,6 +308,8 @@ export type JobRow = {
   name: string; title?: string; enabled: boolean;
   every?: string; at?: string; tz?: string; kind: string;
   last_at?: string; last_ok: boolean; last_error?: string; next_at?: string;
+  // 接入页要用的：打到哪、用哪个密钥（只给名字）、写到哪个文件
+  method?: string; url?: string; secret?: string; app?: string; timeout?: string; write_path?: string;
 };
 export type JobsView = { schema?: string; wired: boolean; why?: string; jobs: JobRow[] };
 

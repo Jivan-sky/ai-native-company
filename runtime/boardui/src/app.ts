@@ -108,6 +108,8 @@ function loadForPage(): boolean {
   if (id === "apps") { void loadApps(); return true; }
   if (id === "models") { void loadModels(); return true; }
   if (id === "jobs") { void loadJobs(); return true; }
+  // 接入页也吃作业目录那一份数据（接了什么、打到哪、用哪个密钥）
+  if (id === "intake") { void loadJobs(); return true; }
   if (id === "data") { void loadDataSources(); return true; }
   return false;
 }

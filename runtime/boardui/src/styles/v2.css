@@ -279,3 +279,18 @@ details[open] summary::after { transform: rotate(90deg); }
   margin: 0 0 var(--s2); font-size: var(--t2); font-weight: 600;
 }
 .qgroup > h3 .hint { font-size: var(--t1); color: var(--muted); font-weight: 400; }
+
+/* 接入页：左边填表、右边预演。两栏必须同屏 —— 改一个字段就该立刻看到它会做什么。 */
+.intake-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s5); align-items: start; }
+@media (max-width: 1024px) { .intake-grid { grid-template-columns: minmax(0, 1fr); } }
+.iform { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
+.ifield { display: flex; flex-direction: column; gap: var(--s1); font-size: var(--t1); color: var(--muted); }
+.ifield input, .ifield select {
+  height: 34px; padding: 0 var(--s3); border-radius: var(--radius-s, 6px);
+  border: 1px solid var(--line); background: transparent; color: var(--text); font-size: var(--t2);
+}
+.ifield input:focus, .ifield select:focus { outline: none; border-color: var(--line-2); }
+.intake-side h4 { margin: var(--s4) 0 var(--s2); font-size: var(--t1); color: var(--muted); font-weight: 600; letter-spacing: .06em; }
+.intake-side h4:first-child { margin-top: 0; }
+.dryrun { margin: 0; padding-left: 1.2em; font-size: var(--t2); color: var(--text-2); line-height: 1.85; }
+.dryrun li::marker { color: var(--muted); }
