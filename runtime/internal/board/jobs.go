@@ -28,6 +28,14 @@ type jobRow struct {
 	LastOK    bool   `json:"last_ok"`
 	LastError string `json:"last_error,omitempty"`
 	NextAt    string `json:"next_at,omitempty"`
+	// 下面这几个是「接入」页要用的：接了什么、打到哪、用哪个密钥（只给**键名**）、写到哪。
+	// 密钥的值永远不进看板 —— 它只存在于 secrets.env 里，spec 里也只有名字。
+	Method    string `json:"method,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Secret    string `json:"secret,omitempty"`
+	App       string `json:"app,omitempty"`
+	Timeout   string `json:"timeout,omitempty"`
+	WritePath string `json:"write_path,omitempty"`
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +68,14 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 			Name: spec.Name, Title: spec.Title, Enabled: spec.EnabledOrDefault(),
 			Every: spec.Schedule.Every, At: spec.Schedule.At, TZ: spec.Schedule.TZ,
 			Kind: kind, NextAt: next.Format("2006-01-02T15:04:05Z07:00"),
+			Method: spec.HTTP.Method, URL: spec.HTTP.URL,
+			Timeout: spec.Timeout, WritePath: spec.Write.Path,
+		}
+		if spec.HTTP.Auth != nil {
+			row.Secret = spec.HTTP.Auth.Secret
+		}
+		if spec.App != nil {
+			row.App = spec.App.Name
 		}
 		if st != nil {
 			row.LastAt = st.LastAt.Format("2006-01-02T15:04:05Z07:00")

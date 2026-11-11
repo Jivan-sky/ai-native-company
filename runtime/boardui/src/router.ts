@@ -8,6 +8,7 @@ import { renderAudit } from "./pages/audit";
 import { renderContext } from "./pages/context";
 import { renderGraph } from "./pages/graph";
 import { renderDomains, renderMembers, renderProjects } from "./pages/org";
+import { renderIntake } from "./pages/intake";
 import { renderJobs } from "./pages/jobs";
 import { renderModels } from "./pages/models";
 import { renderOverview } from "./pages/overview";
@@ -72,6 +73,11 @@ export const jobsPage: Page = {
   sub: "定时作业与应用作业共用一套租约与幂等；下次时间是调度器同一个函数算的。",
   view: renderJobs,
 };
+export const intakePage: Page = {
+  id: "intake", group: "运行", label: "接入", icon: "key", wired: true,
+  question: "接一个脚本或一个外部接口进来：什么时候跑、打到哪、用哪个密钥、写到哪个文件？",
+  view: renderIntake,
+};
 export const dataPage: Page = {
   id: "data", group: "运行", label: "数据", icon: "layers", wired: true,
   question: "我们连了哪些数据、目录里有什么、谁能看哪一列？",
@@ -115,7 +121,7 @@ export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage, contextPage,
   graphPage, membersPage, domainsPage,
-  appsPage, modelsPage, jobsPage, dataPage,
+  appsPage, modelsPage, jobsPage, intakePage, dataPage,
   timelinePage, casesPage, auditPage,
   assetsPage, searchPage, sedimentPage,
   systemPage,
