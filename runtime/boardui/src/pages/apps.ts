@@ -1,7 +1,7 @@
 import type { AppRow, Data, Kid } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
 import { shortTime } from "../core/format";
-import { emptyNote } from "../ui/blocks";
+import { cmd, emptyState } from "../ui/states";
 
 // 「应用」页：装了什么、审没审、内容对不对。
 //
@@ -47,7 +47,7 @@ export function renderApps(d: Data): Kid[] {
   const out: Kid[] = [];
   out.push(section("装了什么", `共 ${v.apps.length} 个`,
     v.apps.length === 0
-      ? emptyNote("还没有装应用。装一个：`anc app install <vault> <目录>`。")
+      ? emptyState("还没有装应用。", el("span", {}, "装一个：", cmd("anc app install <vault> <目录>")))
       : table(["名字", "版本", "状态", "内容 hash", "谁审的"],
           v.apps.map((a) => rowCell(a)))));
 

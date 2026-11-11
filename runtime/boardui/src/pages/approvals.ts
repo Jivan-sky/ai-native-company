@@ -3,7 +3,8 @@ import { postJSON } from "../core/api";
 import { banner, chip, dash, el, section } from "../core/dom";
 import { localTime, sinceText } from "../core/format";
 import { reload, rerender } from "../core/refresh";
-import { cannot, emptyNote } from "../ui/blocks";
+import { cannot } from "../ui/blocks";
+import { emptyState } from "../ui/states";
 import { byWho, setByWho } from "../ui/bywho";
 import { bandDot, bandWord, dotLine } from "../ui/status";
 
@@ -119,7 +120,7 @@ export async function decide(
 
 export function pendingSection(v: ApprovalView): Kid {
   if (v.pending.length === 0) {
-    return section("队列", "", emptyNote("队列是空的：现在没有等点头的提案。"));
+    return section("队列", "", emptyState("队列里没有等点头的提案。", "有提案进来会自己出现在这里。"));
   }
   return section("队列", "共 " + v.count + " 条 · 早提的在前",
     el("div", { class: "grid props" }, ...v.pending.map((p) => pendingCard(v, p))));

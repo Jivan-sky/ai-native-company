@@ -1,7 +1,7 @@
 import type { Data, JobRow, Kid } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
-import { emptyNote } from "../ui/blocks";
+import { cmd, emptyState } from "../ui/states";
 
 // 「作业」页：什么时候跑、上次成没成、下次几点。
 //
@@ -47,7 +47,7 @@ export function renderJobs(d: Data): Kid[] {
   const out: Kid[] = [];
   out.push(section("作业", `共 ${v.jobs.length} 个`,
     v.jobs.length === 0
-      ? emptyNote("还没有作业：写一份 spec 放进 `<vault>/../jobs/`。")
+      ? emptyState("还没有作业。", el("span", {}, "写一份 spec 放进 ", cmd("<vault>/../jobs/")))
       : table(["名字", "类型", "计划", "上次", "下次", "上次失败原因"],
           v.jobs.map((j) => rowCell(j)))));
 
