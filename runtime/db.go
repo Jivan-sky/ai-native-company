@@ -135,7 +135,7 @@ func cmdDBQuery(args []string) int {
 	var dec policy.Decision
 	if err == nil {
 		var aerr error
-		dec, aerr = pol.Apply(*subject, columnTableMap(vault, name), res.Columns, res.Rows)
+		dec, aerr = pol.Apply(*subject, columnTableMap(vault, name), knownColumns(vault, name), res.Columns, res.Rows)
 		if aerr != nil {
 			err = aerr
 		}
@@ -145,6 +145,9 @@ func cmdDBQuery(args []string) int {
 	why := fmt.Sprintf("%d 行 · %s · 主体 %s", res.Returned, res.Duration.Round(time.Millisecond), *subject)
 	if len(dec.Masked) > 0 {
 		why += " · 脱敏列 " + strings.Join(dec.Masked, ",")
+	}
+	if len(dec.Derived) > 0 {
+		why += " · 派生列 " + strings.Join(dec.Derived, ",")
 	}
 	if err != nil {
 		result, why = audit.ResultFailed, err.Error()
@@ -182,6 +185,21 @@ func cmdDBQuery(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "\n%d 行 · %s%s\n", res.Returned, res.Duration.Round(time.Millisecond), note)
 	return 0
+}
+
+// knownColumns 是目录里出现过的列名集合（用来区分「派生列」与「策略外的列」）。
+func knownColumns(vault, dsName string) map[string]bool {
+	snap, err := catalog.Load(vault, dsName)
+	if err != nil {
+		return nil // 没有目录：所有列都按策略判（更严）
+	}
+	out := map[string]bool{}
+	for _, t := range snap.Tables {
+		for _, c := range t.Columns {
+			out[c.Name] = true
+		}
+	}
+	return out
 }
 
 func columnTableMap(vault, dsName string) map[string]string {
