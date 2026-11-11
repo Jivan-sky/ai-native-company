@@ -43,12 +43,6 @@ export function renderApps(d: Data): Kid[] {
     return [banner("warn", "应用目录没接上", [el("span", {}, v.why ?? "")])];
   }
   const out: Kid[] = [];
-  out.push(section("这一页的口径",
-    "未审批不许跑；跑之前重算内容 hash，对不上也不跑 —— 审批的是那一个版本，不是这个目录",
-    el("p", { class: "empty" },
-      "装 / 审 / 撤都在 CLI：`anc app install` / `anc app approve` / `anc app revoke`。" +
-      "看板不发明第二套写口。")));
-
   out.push(section("装了什么", `共 ${v.apps.length} 个`,
     v.apps.length === 0
       ? emptyNote("还没有装应用。装一个：`anc app install <vault> <目录>`。")
