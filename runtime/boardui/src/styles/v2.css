@@ -77,8 +77,9 @@
   text-decoration: none; border-bottom: 2px solid transparent; white-space: nowrap; }
 .tabs .tab:hover { color: var(--ink, #1f1d1a); }
 .tabs .tab.active { color: var(--ink, #1f1d1a); border-bottom-color: var(--ink, #1f1d1a); font-weight: 600; }
-/* 标签页已表明「在哪」，页头不再重复大标题 */
-.page-head.no-title { padding-top: 4px; }
+/* 每一页都不再放大标题：标签 / 面包屑 / 左栏已经说了「在哪」。
+   这一节只剩留白，作用是把第一屏和顶部导航拉开一点。 */
+.page-head.no-title { padding: 18px 0 0; }
 .page-head.no-title .ph-main { display: none; }
 
 /* 数据表：只吃主题变量，深/浅两套都成立；数字等宽，行高一致。
