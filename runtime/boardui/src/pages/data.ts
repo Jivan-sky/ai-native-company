@@ -96,7 +96,7 @@ export function renderData(d: Data): Kid[] {
   }
   const out: Kid[] = [];
   const active = d.cat?.datasource ?? d.fileSnap?.datasource ?? "";
-  out.push(section("数据源", "只连不搬：这里只有定义与目录，数据仍在客户库里",
+  out.push(section("数据源", "",
     v.datasources.length === 0
       ? emptyNote("还没有数据源：在 `<vault>/../datasources/` 放一份定义。")
       : el("div", { class: "ds-list" }, ...v.datasources.map((x) => dsCard(x, x.name === active)))));

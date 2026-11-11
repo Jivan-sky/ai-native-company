@@ -44,12 +44,6 @@ export function renderJobs(d: Data): Kid[] {
     return [banner("warn", "作业目录没接上", [el("span", {}, v.why ?? "")])];
   }
   const out: Kid[] = [];
-  out.push(section("这一页的口径",
-    "下次时间是调度器同一个函数算的（job.Due），看板不另算一份",
-    el("p", { class: "empty" },
-      "失败不推进幂等键 —— 一次偶发失败不会让今天这件事永远不做。" +
-      "失败的作业在 tick 时会打「要人动手」，同时落一条红档时间线。")));
-
   out.push(section("作业", `共 ${v.jobs.length} 个`,
     v.jobs.length === 0
       ? emptyNote("还没有作业：写一份 spec 放进 `<vault>/../jobs/`。")

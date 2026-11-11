@@ -39,7 +39,6 @@ export function renderTimeline(d: Data): Kid[] {
 
   const out: Kid[] = [];
   if ((v.error ?? "") !== "") out.push(banner("bad", "这一页读不动", [el("span", {}, dash(v.error))]));
-  out.push(banner("warn", "这些行是人 / agent 自己写下来的", [el("span", {}, dash(v.note))]));
   if (v.bad.length > 0) {
     out.push(banner("warn", "有 " + v.bad.length + " 行读不懂（逐行列出来，不静默跳过）",
       v.bad.map((b) => el("span", { class: "mono" }, b))));

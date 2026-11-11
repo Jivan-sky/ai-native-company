@@ -108,8 +108,6 @@ export function renderGrants(d: Data): Kid[] {
     return out;
   }
 
-  out.push(section("这一页的口径", "", el("p", { class: "empty" }, dash(v.note))));
-
   out.push(section("视角", "换一个主体，就只看与他有关的那几条；链接可以发给别人",
     grantPicker(v)));
 

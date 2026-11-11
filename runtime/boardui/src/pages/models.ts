@@ -29,11 +29,6 @@ export function renderModels(d: Data): Kid[] {
     return [banner("warn", "注册表没接上", [el("span", {}, v.why ?? "")])];
   }
   const out: Kid[] = [];
-  out.push(section("这一页的口径",
-    "应用不拿密钥，只声明「我要用哪个注册名」；密钥住 secrets，这一页只显示名字与「配没配」",
-    el("p", { class: "empty" },
-      "没有限额的条目在注册表校验阶段就会被拒 —— 没有上限的授权不算授权。")));
-
   out.push(section("注册表", `共 ${v.entries.length} 条`,
     v.entries.length === 0
       ? emptyNote("注册表是空的：写一份 registry.json 放在 vault 旁边。")
