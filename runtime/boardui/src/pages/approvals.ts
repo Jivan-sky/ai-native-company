@@ -1,10 +1,10 @@
 import type { ApprovalPending, ApprovalSignal, ApprovalView, Data, DecideReply, Kid } from "../core/types";
 import { postJSON } from "../core/api";
-import { banner, chip, dash, el, section } from "../core/dom";
-import { localTime, sinceText } from "../core/format";
+import { banner, chip, dash, el, section, table } from "../core/dom";
+import { localTime, shortTime, sinceText } from "../core/format";
 import { reload, rerender } from "../core/refresh";
 import { cannot } from "../ui/blocks";
-import { emptyState } from "../ui/states";
+import { emptyState, unknownState } from "../ui/states";
 import { metricButton } from "../core/metrics";
 import { byWho, setByWho } from "../ui/bywho";
 import { bandDot, bandWord, dotLine } from "../ui/status";
@@ -119,12 +119,51 @@ export async function decide(
   rerender();
 }
 
+// 成员：按「该谁批」分组 —— 一个人打开这一页，要能一眼看到「我这摊有几件」。
+// `to` 是岗位不是人名（人由展示层现算，见后端 approvals.Approver），所以标题写岗位。
 export function pendingSection(v: ApprovalView): Kid {
   if (v.pending.length === 0) {
-    return section("队列", "", emptyState("队列里没有等点头的提案。", "有提案进来会自己出现在这里。"));
+    return section("成员", "", emptyState("没有等点头的提案。", "有提案进来会自己出现在这里。"));
   }
-  return section("队列", el("span", {}, "共 ", metricButton("pending", String(v.count)), " 条 · 早提的在前"),
-    el("div", { class: "grid props" }, ...v.pending.map((p) => pendingCard(v, p))));
+  const groups = new Map<string, ApprovalPending[]>();
+  for (const p of v.pending) {
+    const to = (p.to ?? "").trim();
+    groups.set(to === "" ? "域表没写该谁批" : to, [...(groups.get(to) ?? []), p]);
+  }
+  const blocks = [...groups.entries()].map(([who, list]) =>
+    el("div", { class: "qgroup" },
+      el("h3", {}, el("span", {}, who),
+        el("span", { class: "hint" }, (who === "域表没写该谁批" ? "" : "岗位 · ") + list.length + " 件")),
+      el("div", { class: "grid props" }, ...list.map((p) => pendingCard(v, p)))));
+  return section("成员", "共 " + v.count + " 件 · 按该谁批分组", ...blocks);
+}
+
+// Agent：谁在跑、正在做什么。这块回答的是「Agent 那半边」——
+// 它们不需要人点头，但需要人知道它们在干什么（以及有没有停在那儿）。
+export function agentSection(d: Data): Kid {
+  const a = d.agents;
+  if (!a) {
+    return section("Agent", "", unknownState("读不到 Agent 运行态。",
+      "服务没回 anc.agents/v1 —— 这一块的空不是「没有 agent」。"));
+  }
+  if (!a.wired) {
+    return section("Agent", "", unknownState("Agent 运行态还没接上。", dash(a.why ?? "")));
+  }
+  if (a.entries.length === 0) {
+    return section("Agent", "", emptyState("还没有登记在跑的 agent。",
+      "agents.md 里登记之后才会出现在这里。"));
+  }
+  const rows: Kid[][] = a.entries.map((g) => [
+    dotLine(g.online ? "dot ok" : g.stale ? "dot warn" : "dot gray", el("span", {}, g.name)),
+    el("span", { class: "mono nw" }, dash(g.domain_name || g.domain || "")),
+    (g.task_title ?? "") === "" ? cannot("没在做什么") : el("span", {}, g.task_title ?? ""),
+    (g.note ?? "") === "" ? "—" : el("span", { class: "quiet" }, g.note ?? ""),
+    (g.last_seen ?? "") === ""
+      ? cannot("从没心跳")
+      : el("span", { class: "mono nw", title: localTime(g.last_seen ?? "") }, shortTime(g.last_seen ?? "")),
+  ]);
+  return section("Agent", a.online + " / " + a.total + " 在线",
+    table(["Agent", "业务域", "正在做什么", "备注", "心跳"], rows));
 }
 
 export function renderApprovals(d: Data): Kid[] {
@@ -147,6 +186,7 @@ export function renderApprovals(d: Data): Kid[] {
   }
   out.push(bySection());
   if (v.wired) out.push(pendingSection(v));
+  out.push(agentSection(d));
   return out;
 }
 

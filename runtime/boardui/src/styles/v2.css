@@ -270,3 +270,12 @@ details[open] summary::after { transform: rotate(90deg); }
    原来用 .st 的 align-items:center，三行标题会把点挤到第二行开头去。 */
 .card h3 > .st { align-items: flex-start; }
 .card h3 > .st > .dot { margin-top: 6px; }
+
+/* 待批的成员分组：一个岗位一组，组标题比卡片标题小一号 —— 层级是「岗位 > 提案」 */
+.qgroup { margin-top: var(--s4); }
+.qgroup:first-of-type { margin-top: 0; }
+.qgroup > h3 {
+  display: flex; align-items: baseline; gap: var(--s2);
+  margin: 0 0 var(--s2); font-size: var(--t2); font-weight: 600;
+}
+.qgroup > h3 .hint { font-size: var(--t1); color: var(--muted); font-weight: 400; }
