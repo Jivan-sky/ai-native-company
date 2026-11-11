@@ -1468,10 +1468,10 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
 [data-theme="light"] .column { background: linear-gradient(180deg, rgba(255,255,255,0.90), rgba(246,245,240,0.72)); }
 [data-theme="light"] .tk { background: rgba(255,255,255,0.92); border-color: rgba(28,31,26,0.16); }
 [data-theme="light"] .tk.masked { border-color: rgba(80,95,192,0.30); color: #3f4a9e; }
-[data-theme="light"] .page .field input.by, [data-theme="light"] .page .field input.why {
+[data-theme="light"] .page input.by, [data-theme="light"] .page input.why {
   background: rgba(255,255,255,0.86); border-color: rgba(28,31,26,0.14);
 }
-[data-theme="light"] .page .field input.by:focus, [data-theme="light"] .page .field input.why:focus {
+[data-theme="light"] .page input.by:focus, [data-theme="light"] .page input.why:focus {
   border-color: rgba(158,118,38,0.42); box-shadow: 0 0 0 3px rgba(158,118,38,0.10);
 }
 
@@ -1829,3 +1829,30 @@ summary::after {
   transition: transform .16s ease;
 }
 details[open] summary::after { transform: rotate(90deg); }
+
+/* 待批卡：一条提案一张卡 —— 状态在上，人话在中，按钮在下。
+   只用主题变量，深浅两套都成立；卡片之间靠留白分开，不靠更重的描边。 */
+.pcard {
+  display: flex; flex-direction: column; gap: var(--s2);
+  padding: var(--s4);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 10px);
+}
+.pcard .phead {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s2);
+  font-size: var(--t1); color: var(--text-2);
+}
+.pcard .phead .pid { color: var(--muted); }
+.pcard .ptitle { margin: 0; font-size: var(--t3); line-height: 1.45; font-weight: 600; color: var(--text); }
+.pcard .pmeta {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2);
+  font-size: var(--t2); color: var(--text-2);
+}
+.pcard .pmeta b { font-weight: 600; color: var(--text); }
+.pcard .pmeta .dotsep { color: var(--line-3); }
+.pcard .pbody { margin: 0; font-size: var(--t2); line-height: 1.68; color: var(--text-2); }
+.pcard .acts { margin-top: var(--s2); align-items: center; }
+.pcard .acts input.why { flex: 1 1 190px; min-width: 150px; }
+/* 分隔符与后一项同属一个 flex 项：它跟着那一项走，不会孤零零留在行尾 */
+.pcard .pmeta .pair { display: inline-flex; align-items: baseline; gap: var(--s2); white-space: nowrap; }

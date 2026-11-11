@@ -33,26 +33,37 @@ export function bySection(): Kid {
   return section("谁在点", "", el("div", { class: "field" }, input));
 }
 
-// 一条提案一张卡：人话在上，凭证（id / 时间 / 客体）在下，按钮在最底下。
+// 一条提案一张卡：状态在上，人话在中，按钮在下。
+//
+// 卡里不放「当前态 pending」—— 这一整列都是 pending，写一行等于没写；
+// 也不放「靛 · 」这种颜色词 —— 形状就在旁边，颜色从不单独承载信息。
+const dotSep = (): HTMLElement => el("span", { class: "dotsep" }, "·");
+
 export function pendingCard(v: ApprovalView, p: ApprovalPending): HTMLElement {
   const title = (p.title ?? "").trim();
   const subject = [p.domain, p.project].map((x) => (x ?? "").trim()).filter((x) => x !== "").join(" / ");
-  // 判真那一档：**在队列里 = 有人在等你给一句话**（靛蓝 + 暂停形）。
-  // 档由服务端给（band），前端照画；服务端没给就不画点 —— 宁可少一个符号，
-  // 也不画一个说不清什么意思的圆。符号旁边永远带词（颜色不许单独承载信息）。
+  // 判真那一档：**在队列里 = 有人在等你给一句话**（暂停形 + 靛蓝）。
+  // 档由服务端给（band），前端照画。颜色不单独承载信息：旁边永远有词。
   const band = (p.band ?? "").trim();
-  const lamp: Kid[] = band === "" ? [] : [dotLine(bandDot(band), el("span", {}, bandWord(band)))];
-  return el("div", { class: "card prop" },
-    el("h3", {}, ...lamp, el("span", {}, title === "" ? "（提案没写标题）" : title), chip(dash(p.id), true)),
-    el("dl", {},
-      el("dt", {}, "该谁批"),
-      el("dd", {}, (p.to ?? "").trim() === "" ? cannot("域表里没写 who —— 不知道该谁批") : p.to),
-      el("dt", {}, "谁提的"), el("dd", {}, dash(p.who)),
-      el("dt", {}, "客体"), el("dd", {}, subject === "" ? "—" : subject),
-      el("dt", {}, "进队"),
-      el("dd", {}, localTime(p.enqueued) + "（" + sinceText(p.enqueued) + "）"),
-      el("dt", {}, "当前态"), el("dd", {}, dash(p.status))),
-    el("p", { class: "body" }, (p.body ?? "").trim() === "" ? cannot("提案没有正文") : p.body),
+  const head = el("div", { class: "phead" },
+    band === "" ? el("span", {}) : dotLine(bandDot(band), el("span", {}, bandWord(band).split(" · ").pop() ?? "")),
+    el("span", { class: "pid mono" }, dash(p.id)));
+  const to = (p.to ?? "").trim();
+  // 分隔符贴在后一项**前面**、与它同属一个 flex 项：折行时「·」落在行首，
+  // 不会孤零零挂在上一行末尾（挂在那里看着像少了一个词）。
+  const facts: Kid[] = [
+    el("span", {}, "该谁批 ", to === "" ? cannot("域表没写，不知道该谁批") : el("b", {}, to)),
+    el("span", {}, dash(p.who), " 提"),
+  ];
+  if (subject !== "") facts.push(el("span", {}, subject));
+  facts.push(el("span", { title: localTime(p.enqueued) }, sinceText(p.enqueued)));
+  const meta = el("div", { class: "pmeta" },
+    ...facts.map((f, i) => (i === 0 ? f : el("span", { class: "pair" }, dotSep(), f))));
+  return el("div", { class: "pcard" },
+    head,
+    el("h3", { class: "ptitle" }, title === "" ? "（提案没写标题）" : title),
+    meta,
+    el("p", { class: "pbody" }, (p.body ?? "").trim() === "" ? cannot("提案没有正文") : p.body),
     actsRow(v, p));
 }
 
@@ -108,17 +119,10 @@ export async function decide(
 
 export function pendingSection(v: ApprovalView): Kid {
   if (v.pending.length === 0) {
-    return section("队列", "进队时间从早到晚 —— 早提的先办",
-      emptyNote("队列是空的：现在没有等点头的提案。"));
+    return section("队列", "", emptyNote("队列是空的：现在没有等点头的提案。"));
   }
-  return section("队列", "一共 " + v.count + " 条 —— 早提的排前面；每条前面那个靛蓝暂停符号是判真第四档："
-    + "有人在等你给一句话（没坏，也不是系统自己在走）",
+  return section("队列", "共 " + v.count + " 条 · 早提的在前",
     el("div", { class: "grid props" }, ...v.pending.map((p) => pendingCard(v, p))));
-}
-
-export function signalsSection(v: ApprovalView): Kid {
-  return el("div", { class: "approve-actions" },
-    ...v.signals.map((sig) => el("button", { class: "ghost-btn", type: "button" }, sig.label || sig.value)));
 }
 
 export function renderApprovals(d: Data): Kid[] {
@@ -141,7 +145,6 @@ export function renderApprovals(d: Data): Kid[] {
   }
   out.push(bySection());
   if (v.wired) out.push(pendingSection(v));
-  out.push(signalsSection(v));
   return out;
 }
 
