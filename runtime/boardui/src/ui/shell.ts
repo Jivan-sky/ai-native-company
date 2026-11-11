@@ -11,6 +11,7 @@ import { PAGES, pageFor } from "../router";
 import { healthState, statusDot, statusText } from "./blocks";
 import { closeDrawer, mountDrawer } from "./drawer";
 import { deniedState } from "./states";
+import { track } from "../core/usage";
 import { mountField, stopField } from "./field";
 import { mountOrgGraph, stopOrgGraph } from "./orggraph";
 import { closePalette, mountPalette, openPalette } from "./palette";
@@ -369,10 +370,12 @@ export function shell(): void {
   if (!d) {
     col.append(loadingBlock());
   } else if (!allowed(role, page.id)) {
+    track("deny", page.id);
     col.append(deniedPage(page, role));
     col.append(pageFooter());
     lastShellPage = page.id;
   } else {
+    track("page", page.id);
     try {
       for (const kid of page.view(d)) col.append(kid);
     } catch (err) {

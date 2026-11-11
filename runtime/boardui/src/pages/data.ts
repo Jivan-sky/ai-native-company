@@ -2,6 +2,7 @@ import type { CatalogView, Data, DSRow, Kid } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { emptyNote } from "../ui/blocks";
+import { currentRole, visible } from "../core/roles";
 
 // 「数据」页：数据源 → 目录 → 分级/策略；右边可以直接跑一条只读查询。
 //
@@ -114,7 +115,8 @@ export function renderData(d: Data): Kid[] {
       "扫于 " + ((d.cat.scanned_at ?? "") === "" ? "—" : shortTime(d.cat.scanned_at ?? "")) +
         " · 指纹 " + (d.cat.fingerprint ?? "").slice(0, 12),
       catalogTable(d.cat)));
-    out.push(section("策略", "", policyBlock(d.cat)));
+    // 段落级门禁：成员能看目录（哪些表、哪几列），看不到策略规则本身。
+    if (visible(currentRole(), "data.policy")) out.push(section("策略", "", policyBlock(d.cat)));
     out.push(section("查询", "只读 · 列策略 + 行过滤仍然生效",
       el("div", { id: "data-query", class: "query-box" },
         el("textarea", { class: "query-input", rows: "2", placeholder: "SELECT …（只读）" }),

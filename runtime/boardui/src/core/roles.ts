@@ -42,6 +42,22 @@ export function allowed(role: Role, pageId: string): boolean {
   return gate === undefined ? true : gate.includes(role);
 }
 
+// 页内**段落**级可见性。整页能进、但其中一段只给管理岗 —— 这才是「精密」发生的地方。
+//
+// 注意：真做到「张三是成员，只能看自己那 3 条」需要真身份；
+// 这一层现在只能按角色切段落。差的那一段记在 PLAN 的风险表里，不假装有。
+const SECTIONS: Record<string, Role[]> = {
+  // 策略规则暴露「谁被 mask 了什么」—— 那是管理动作，不是成员的信息
+  "data.policy": ["super", "admin"],
+  // 效率曲线：先只给管事的看，等口径稳了再放开
+  "overview.efficiency": ["super", "admin", "lead"],
+};
+
+export function visible(role: Role, section: string): boolean {
+  const gate = SECTIONS[section];
+  return gate === undefined ? true : gate.includes(role);
+}
+
 export function roleLabel(role: Role): string {
   return ROLES.find((r) => r.id === role)?.label ?? role;
 }
