@@ -3,6 +3,7 @@ import { banner, chip, dash, el, root } from "../core/dom";
 import { localTime } from "../core/format";
 import { icon, iconBox } from "../core/icons";
 import { currentId } from "../core/query";
+import { ROLES, type Role, allowed, currentRole, deniedReason, roleLabel, setRole } from "../core/roles";
 import { reload } from "../core/refresh";
 import { cache } from "../core/state";
 import { paintSediment } from "../pages/sediment";
@@ -63,7 +64,9 @@ export function rail(page: Page): HTMLElement {
   const tabs = el("nav", { class: "tabs" });
   let group = "";
   let items = el("div", { class: "gitems" });
+  const role = currentRole();
   for (const p of PAGES) {
+    if (!allowed(role, p.id)) continue;
     if (p.group !== group) {
       if (group !== "") tabs.append(el("div", { class: "navgroup" }, el("div", { class: "glabel" }, group), items));
       group = p.group;
@@ -158,7 +161,9 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
   const nav = el("nav", { class: "side-nav", "aria-label": "主导航" });
   let group = "";
   let box: HTMLElement | null = null;
+  const role = currentRole();
   for (const p of PAGES) {
+    if (!allowed(role, p.id)) continue;
     if (p.group !== group) {
       group = p.group;
       box = el("div", { class: "nav-group" }, el("div", { class: "nav-label" }, group), el("div", { class: "nav-rail" }));
@@ -224,6 +229,33 @@ export function copyLink(): void {
   showToast("当前浏览器不支持剪贴板");
 }
 
+// 身份切换器（框架版）。
+//
+// 顶栏里一个 select 就够了 —— 不值得为四种角色做一个弹层。
+// 但要说清它是演示：title 上写明「切换只影响这台浏览器，后端还没有鉴权」，
+// 免得有人以为点一下就有了隔离。
+export function roleSwitcher(page: Page): HTMLElement {
+  const role = currentRole();
+  const sel = el("select", {
+    class: "role-switch",
+    "aria-label": "当前身份（演示用，后端未接鉴权）",
+    title: "演示身份：切换只影响这台浏览器；后端还没有鉴权",
+  }) as HTMLSelectElement;
+  for (const r of ROLES) {
+    const opt = el("option", { value: r.id, title: r.note }, r.label) as HTMLOptionElement;
+    if (r.id === role) opt.selected = true;
+    sel.append(opt);
+  }
+  sel.addEventListener("change", () => {
+    const next = sel.value as Role;
+    setRole(next);
+    // 换了身份，当前这一页可能就进不去了：先回总览，别把人留在一个空白页上。
+    if (!allowed(next, page.id)) location.hash = "#/overview";
+    shell();
+  });
+  return sel;
+}
+
 export function topbar(page: Page, d: Data | null): HTMLElement {
   const menu = el("button", { class: "icon-btn menu-btn", type: "button", "aria-label": "打开导航" }, icon("menu", 15));
   menu.addEventListener("click", () => document.querySelector(".app")?.classList.toggle("nav-open"));
@@ -237,6 +269,7 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
   themeBtn.addEventListener("click", () => applyTheme(dark ? "light" : "dark"));
   const copy = el("button", { class: "icon-btn", type: "button", "aria-label": "复制本页链接", title: "复制本页链接" }, icon("copy", 15));
   copy.addEventListener("click", copyLink);
+  const roleSel = roleSwitcher(page);
   const i = d ? d.issues : null;
   const pill = el("span", { class: "status-pill " + (i ? healthState(i) : "warn") },
     el("span", { class: i ? statusDot(i) : "dot" }), i ? statusText(i) : "读取中");
@@ -250,6 +283,7 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
     cmd,
     el("div", { class: "top-actions" },
       live,
+      roleSel,
       pill,
       d?.board ? el("span", { class: "meta-pill" }, "生成 " + localTime(d.board.generated_at)) : "",
       themeBtn, refresh, copy));
@@ -275,14 +309,24 @@ const TABS: { id: string; label: string }[] = [
 ];
 
 export function tabbar(page: Page): HTMLElement {
+  const role = currentRole();
   return el("nav", { class: "tabs" },
-    ...TABS.map((t) =>
+    ...TABS.filter((t) => allowed(role, t.id)).map((t) =>
       el("a", { class: "tab" + (t.id === page.id ? " active" : ""), href: "#/" + t.id }, t.label)));
 }
 
 export function pageFooter(): HTMLElement {
   // 原来这一段是给评审看的「口径说明」，不是给使用者看的。删掉。
   return el("footer", { class: "note" });
+}
+
+// 进不去的一页，要说清是「你没这个权限」，不是「这里没东西」。
+export function deniedPage(page: Page, role: Role): HTMLElement {
+  return banner("warn", "看不到这一页", [
+    el("span", {}, deniedReason(role, page.label)),
+    el("br"),
+    el("span", { class: "quiet" }, "当前身份：" + roleLabel(role) + "。右上角可以切换角色（演示用，未接鉴权）。"),
+  ]);
 }
 
 export function loadingBlock(): HTMLElement {
@@ -317,9 +361,14 @@ export function shell(): void {
   closePalette();
 
   const col = el("div", { class: "col" });
+  const role = currentRole();
   col.append(pageHead(page));
   if (!d) {
     col.append(loadingBlock());
+  } else if (!allowed(role, page.id)) {
+    col.append(deniedPage(page, role));
+    col.append(pageFooter());
+    lastShellPage = page.id;
   } else {
     try {
       for (const kid of page.view(d)) col.append(kid);
