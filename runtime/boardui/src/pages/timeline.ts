@@ -1,9 +1,9 @@
-import type { Data, Kid } from "../core/types";
-import { PER_PAGE, pager, sliced } from "../ui/pager";
+import type { Data, Kid, TimelineCaseView } from "../core/types";
+import { pager, sliced } from "../ui/pager";
 import { banner, chip, dash, el, section, table } from "../core/dom";
 import { localTime } from "../core/format";
 import { hashQuery } from "../core/query";
-import { cannot, emptyNote, statCard } from "../ui/blocks";
+import { cannot, dist, dn, dsep, emptyNote } from "../ui/blocks";
 import { bandDot, bandLegend, bandWord, dotLine } from "../ui/status";
 
 // 状态原词照排（不翻译、不吞）：认不出的词也得让人看见它长什么样。
@@ -16,10 +16,27 @@ export function handOff(by: string | undefined, to: string | undefined): Kid {
   const b = (by ?? "").trim();
   const t = (to ?? "").trim();
   if (b === "" && t === "") return cannot("没写谁在跟、也没说交给谁");
-  return el("span", {},
+  return el("span", { class: "nw" },
     b === "" ? cannot("没写谁记的") : el("span", { class: "mono" }, b),
     el("span", {}, " → "),
     t === "" ? cannot("还没说交给谁") : el("strong", {}, t));
+}
+
+// 时间只写到分：一张 case 表扫的是「哪天、几点」，年份和秒每行都重复。
+// 完整时间挂在 title 上 —— 要精确的时候悬停就有，不用的时候不占宽度。
+function stamp(at: string): HTMLElement {
+  const full = localTime(at);
+  return el("span", { class: "mono nw", title: full }, full.slice(5, 16));
+}
+
+// case 一格写完：标识、一句话、它在哪个域/项目。
+// 原来这三样是三列，中间那列常常是「—」，空列比信息更响。
+function caseCell(c: TimelineCaseView): HTMLElement {
+  const where = [c.domain, c.project].filter((x) => (x ?? "").trim() !== "").join(" · ");
+  return el("div", {},
+    el("span", { class: "mono" }, dash(c.key)),
+    el("div", {}, dash(c.title)),
+    where === "" ? "" : el("div", { class: "quiet" }, where));
 }
 
 export function renderTimeline(d: Data): Kid[] {
@@ -44,34 +61,35 @@ export function renderTimeline(d: Data): Kid[] {
       v.bad.map((b) => el("span", { class: "mono" }, b))));
   }
 
-  out.push(section("三档",
-    "只按 status 配色，形状跟档走：done=实心圆 / running=带光环的圆 / blocked·failed=菱形 / 认不出的词=空心虚线圈（原样留着，不吞）",
-    el("div", { class: "figs" },
-      statCard(String(v.counts.green), "绿 · 已完成", "status=done", "dot ok"),
-      statCard(String(v.counts.yellow), "黄 · 运行中", "status=running", "dot warn"),
-      statCard(String(v.counts.red), "红 · 卡点 / 失败", "blocked · failed", "dot bad"),
-      statCard(String(v.counts.unknown), "灰 · 认不出的词",
-        v.counts.unknown === 0 ? "没有，词表没跑偏" : "原样保留，不吞", "dot gray"),
-      statCard(String(v.entries), "流水条数", "折叠成 " + v.total + " 个 case")),
+  // 三档先给数，再给形状图例：数回答「有没有事」，图例回答「这个圆圈是什么意思」。
+  // 原来五张卡各带一句 sub（status=done 之类），把同一件事说了五遍 —— 归到图例里说一次。
+  out.push(section("三档", "",
+    dist(
+      dn(v.counts.green, "已完成"),
+      dn(v.counts.yellow, "运行中"),
+      dn(v.counts.red, "卡点 / 失败", true),
+      dn(v.counts.unknown, "认不出"),
+      dsep(),
+      dn(v.entries, "流水条"),
+      dn(v.total, "个 case"),
+    ),
     bandLegend()));
 
   const tl = sliced(v.cases, hashQuery());
   const rows: Kid[][] = tl.rows.map((c) => [
     dotLine(bandDot(c.band), statusCell(c.status)),
-    el("div", {}, el("span", { class: "mono" }, dash(c.key)), el("div", {}, dash(c.title))),
+    caseCell(c),
     handOff(c.by, c.to),
-    dash([c.domain, c.project].filter((x) => (x ?? "").trim() !== "").join(" · ")),
     String(c.entries),
-    localTime(c.last_at),
+    stamp(c.last_at),
   ]);
-  out.push(section("每个 case 现在在哪一步",
-    "取最后一条当当前态 —— 它写着「遇到了什么、走到了哪一步、这一步是谁的决定」"
-      + (v.cases.length > PER_PAGE
-        ? "（共 " + v.cases.length + " 个 · 这一屏第 " + tl.cur + " / " + tl.pages + " 页）" : ""),
+  // 标题就是它的口径：取最后一条当当前态。
+  out.push(section("现在在哪一步",
+    "共 " + v.cases.length + " 个 case",
     tl.rows.length === 0
       ? emptyNote("时间线还是空的（`timeline/` 里一行都没有）。空不是错 —— 「还没开始记」是个真实状态。")
       : el("div", {},
-          table(["档 / status", "case", "谁 → 交给谁", "业务域 · 项目", "几条", "最近活动"], rows),
+          table(["档 / status", "case", "谁 → 交给谁", "几条", "最近活动"], rows),
           pager(v.cases.length, tl.cur, "timeline"))));
 
   const steps: Kid[] = tl.rows.map((c) => {
@@ -96,23 +114,18 @@ export function renderTimeline(d: Data): Kid[] {
       table(["档 / status", "时间", "这一步（kind + 一句话）", "谁 → 交给谁"], inner));
   });
   if (steps.length > 0) {
-    out.push(section("每一步都留着",
-      "每个 case 带最近几步（最新在上）；完整流水在 `timeline/*.jsonl` 里 —— 一行都没删"
-        + (v.cases.length > PER_PAGE ? "（跟上面那张表同一页）" : ""),
-      ...steps));
+    out.push(section("每一步都留着", "最近几步 · 最新在上", ...steps));
   }
 
   if (v.total > v.cases.length) {
-    out.push(section("还有更早的",
-      "按「最近动过的排前面」，这一页只铺了 " + v.cases.length + " 个（共 " + v.total + " 个）",
+    out.push(section("还有更早的", "按最近动过排前面",
       el("p", { class: "empty" },
         el("span", {}, "往后翻："), el("span", { class: "mono" }, "anc timeline list <vault> --before " + dash(v.next_before)),
         el("span", {}, "；按档筛："), el("span", { class: "mono" }, "anc timeline list <vault> --band red"))));
   }
 
-  out.push(section("这一页答不了什么", "答不了的照写 —— 这一页是「卡在哪、谁在跟」，不是审计",
-    v.missing.length === 0
-      ? emptyNote("后端没列缺。")
-      : el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
+  if (v.missing.length > 0) {
+    out.push(section("这一页答不了", "", el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
+  }
   return out;
 }
