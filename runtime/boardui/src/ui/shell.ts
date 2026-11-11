@@ -343,13 +343,23 @@ export function shell(): void {
   }
   document.title = page.label + " · " + (d?.board ? dash(d.board.company.name) : "ANC 看板");
 
+  // 跳到内容：侧栏有十几个导航项，键盘用户每次换页都要按 18 下 Tab 才到正文。
+  // 这是最便宜的修法（一行链接），也是唯一在不动导航结构的前提下能修的办法。
+  const skip = el("a", { class: "skip-link", href: "#main" }, "跳到内容");
+  skip.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    const main = document.getElementById("main");
+    main?.focus();
+    main?.scrollIntoView({ block: "start" });
+  });
   const app = el("div", { class: "app" },
+    skip,
     sidebar(page, d),
     el("div", { class: "side-scrim" }),
     el("div", { class: "main" },
       topbar(page, d),
       tabbar(page),
-      el("main", { class: "pagewrap" }, el("div", { class: "page page-" + page.id }, col)),
+      el("main", { class: "pagewrap", id: "main", tabindex: "-1" }, el("div", { class: "page page-" + page.id }, col)),
       el("footer", { class: "statusbar" },
         el("span", { class: "sb-item" }, el("i", { class: "sb-dot" }), d?.board ? dash(d.board.company.name) : "ANC 看板"),
         el("span", { class: "sb-item" }, "schema ", el("b", {}, d?.board ? d.board.schema : "—")),

@@ -35,7 +35,13 @@ export function table(headers: string[], rows: Kid[][]): HTMLElement {
   const body = el("tbody");
   for (const r of rows) {
     const tr = el("tr");
-    for (const c of r) tr.append(el("td", {}, c));
+    // 每个格子带上表头当作 data-label：窄屏把表拆成一行一行的「标签：值」，
+    // 没有它，拆开以后那一列是谁的值就没人知道了。
+    r.forEach((c, i) => {
+      const td = el("td", {}, c);
+      if (headers[i] !== undefined) td.dataset.label = headers[i];
+      tr.append(td);
+    });
     body.append(tr);
   }
   // 套一层滚动容器：窄屏（比如嵌在侧栏里）表格不该把整页撑破。

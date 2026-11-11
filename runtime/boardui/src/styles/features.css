@@ -1,5 +1,8 @@
 /* ---------- 抽屉 / 命令面板 / 提示 ---------- */
-.drawer-layer { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
+/* 收起时用 visibility 拿掉整个抽屉：光靠 pointer-events: none 挡不住键盘 ——
+   抽屉里那个「关闭详情」按钮会留在 Tab 序里，Tab 到它就点不到任何看得见的东西。 */
+.drawer-layer { position: fixed; inset: 0; z-index: 80; pointer-events: none; visibility: hidden; }
+.drawer-layer[data-open="1"] { visibility: visible; }
 .drawer-layer[data-open="1"] { pointer-events: auto; }
 .drawer-scrim { position: absolute; inset: 0; background: rgba(4,5,5,0.48); opacity: 0; transition: opacity 0.22s ease; }
 .drawer-layer[data-open="1"] .drawer-scrim { opacity: 1; }
