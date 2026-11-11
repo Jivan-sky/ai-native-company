@@ -145,16 +145,15 @@ export function navBadge(p: Page, d: Data | null): Kid {
     const n = d.runtime.bots.filter((b) => b.state === "fail").length;
     if (n > 0) return el("span", { class: "nav-badge hot" }, String(n));
   }
-  if (p.id === "cases" && d.timeline?.wired) {
-    const n = d.timeline.cases.filter((c) => c.band === "red").length;
+  // 「记录」页里既有卡点也有审计：两个角标并成一个，取更重的那个数。
+  if (p.id === "records") {
+    const cases = d.timeline?.wired ? d.timeline.cases.filter((c) => c.band === "red").length : 0;
+    const audit = d.audit ? d.audit.bands.denied + d.audit.bands.failed : 0;
+    const n = Math.max(cases, audit);
     if (n > 0) return el("span", { class: "nav-badge hot" }, String(n));
   }
   if (p.id === "system" && d.hot?.wired && d.hot.stale > 0) {
     return el("span", { class: "nav-badge gold" }, String(d.hot.stale));
-  }
-  if (p.id === "audit" && d.audit) {
-    const n = d.audit.bands.denied + d.audit.bands.failed;
-    if (n > 0) return el("span", { class: "nav-badge hot" }, String(n));
   }
   return "";
 }

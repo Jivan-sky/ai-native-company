@@ -1,22 +1,14 @@
 import { icon } from "./core/icons";
 import type { Page } from "./core/types";
-import { renderApps } from "./pages/apps";
 import { renderData } from "./pages/data";
 import { renderApprovals } from "./pages/approvals";
-import { renderAssets, renderCases, renderSediment } from "./pages/assets";
-import { renderAudit } from "./pages/audit";
 import { renderContext } from "./pages/context";
-import { renderGraph } from "./pages/graph";
-import { renderDomains, renderMembers, renderProjects } from "./pages/org";
-import { renderIntake } from "./pages/intake";
-import { renderJobs } from "./pages/jobs";
 import { renderRun } from "./pages/run";
-import { renderModels } from "./pages/models";
+import { renderProjects } from "./pages/org";
 import { renderOverview } from "./pages/overview";
+import { renderAssetGroup, renderOrgGroup, renderRecordGroup } from "./pages/groups";
 import { renderOverviewV2 } from "./pages/overview-v2";
-import { renderSearch } from "./pages/search";
 import { renderSystem } from "./pages/system";
-import { renderTimeline } from "./pages/timeline";
 
 // 页面注册表。顺序就是侧栏顺序；分组是「问题」，页名是「答案」。
 // 这一版把导航收敛成六组：基础设施不再各占一条，组织关系落到「成员与 Agent」。
@@ -30,22 +22,6 @@ export const approvalsPage: Page = {
   id: "approvals", group: "总览", label: "待批", icon: "check", wired: true,
   question: "哪几件事在等人点头、该谁点？", view: renderApprovals,
 };
-export const graphPage: Page = {
-  id: "graph", group: "组织", label: "关系图谱", icon: "graph", wired: true,
-  question: "业务域、项目、成员、bot 是怎么挂在一起的？",
-  sub: "节点全部来自真相源与运行态投影；连线只表示「挂在哪」，不表示业务流。",
-  view: renderGraph,
-};
-export const membersPage: Page = {
-  id: "members", group: "组织", label: "成员管理", icon: "users", wired: true,
-  question: "谁在负责什么、身上挂着哪些 Agent、现在在做什么？",
-  sub: "一人一张卡，点开是身份、名下 Agent 的接入与在线状态、当前在做的事；每一段关系都标了推导依据。",
-  view: renderMembers,
-};
-export const domainsPage: Page = {
-  id: "domains", group: "组织", label: "业务域", icon: "grid", wired: true,
-  question: "一块业务是什么、谁在做、数据在哪？", view: renderDomains,
-};
 export const projectsPage: Page = {
   id: "projects", group: "工作", label: "项目", icon: "layers", wired: true,
   question: "谁在做什么、到几号、卡住找谁、进度到哪？",
@@ -55,6 +31,21 @@ export const projectsPage: Page = {
 export const contextPage: Page = {
   id: "context", group: "工作", label: "上下文", icon: "context", wired: true,
   question: "一个 agent 的工作上下文是什么？", view: renderContext,
+};
+export const assetsGroupPage: Page = {
+  id: "assets", group: "资产", label: "资产", icon: "box", wired: true,
+  question: "手上有什么料、能搜到什么、哪些能沉淀成技能？",
+  view: renderAssetGroup,
+};
+export const orgGroupPage: Page = {
+  id: "org", group: "组织", label: "组织", icon: "users", wired: true,
+  question: "谁在负责什么、业务域怎么划、它们怎么挂在一起？",
+  view: renderOrgGroup,
+};
+export const recordsGroupPage: Page = {
+  id: "records", group: "记录", label: "记录", icon: "clock", wired: true,
+  question: "谁写下了什么、现在卡在哪、系统记了哪些行使？",
+  view: renderRecordGroup,
 };
 export const runPage: Page = {
   id: "run", group: "运行", label: "运行", icon: "flow", wired: true,
@@ -67,32 +58,6 @@ export const dataPage: Page = {
   sub: "只连不搬：数据在客户库里；这里看目录、分级、策略，并跑只读查询。",
   view: renderData,
 };
-export const timelinePage: Page = {
-  id: "timeline", group: "记录", label: "时间线", icon: "clock", wired: true,
-  question: "卡在哪、谁在跟、下一步是谁的决定？", view: renderTimeline,
-};
-export const casesPage: Page = {
-  id: "cases", group: "记录", label: "卡点", icon: "alert", wired: true,
-  question: "现在哪几件事正在卡住、谁该动？", view: renderCases,
-};
-export const auditPage: Page = {
-  id: "audit", group: "记录", label: "审计", icon: "shield", wired: true,
-  question: "谁在什么时候、对谁、行使了什么（含被拒的）？", view: renderAudit,
-};
-export const assetsPage: Page = {
-  id: "assets", group: "资产", label: "原料", icon: "box", wired: true,
-  question: "手上有什么料、多久没动了？", view: renderAssets,
-};
-export const searchPage: Page = {
-  id: "search", group: "资产", label: "检索", icon: "search", wired: true,
-  question: "按我现在的可见范围，知识库里哪几篇相关？",
-  sub: "给指针 + 片段，不给正文结论；先按域过滤再打分，查不到就说没入库。",
-  view: renderSearch,
-};
-export const sedimentPage: Page = {
-  id: "sediment", group: "资产", label: "沉淀", icon: "strata", wired: true,
-  question: "料怎么分层、哪一层现在是真数？", view: renderSediment,
-};
 export const systemPage: Page = {
   id: "system", group: "系统", label: "运行与连接", icon: "pulse", wired: true,
   question: "基础设施还健康吗、执行面和授权有没有缺口？",
@@ -103,10 +68,10 @@ export const systemPage: Page = {
 export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage, contextPage,
-  graphPage, membersPage, domainsPage,
+  orgGroupPage,
   runPage, dataPage,
-  timelinePage, casesPage, auditPage,
-  assetsPage, searchPage, sedimentPage,
+  recordsGroupPage,
+  assetsGroupPage,
   systemPage,
 ];
 
@@ -114,9 +79,14 @@ export const PAGES: Page[] = [
 // 只改写落点，不改语义 —— 页面自己会按 tab 参数决定显示哪一段。
 export const LEGACY: Record<string, string> = {
   runtime: "system", dataflow: "system", gateway: "system", hot: "system", grants: "system",
-  roles: "members", org: "overview",
-  // 应用 / 模型 / 作业 / 接入 并进了「运行」；旧链接落到那一页，由它按 hash 选中标签。
+  // 应用 / 模型 / 作业 / 接入 → 运行
   apps: "run", models: "run", jobs: "run", intake: "run",
+  // 成员 / 业务域 / 图谱 → 组织；原料 / 检索 / 沉淀 → 资产；时间线 / 卡点 / 审计 → 记录
+  members: "org", domains: "org", graph: "org", roles: "org",
+  assets: "assets", search: "assets", sediment: "assets",
+  timeline: "records", cases: "records", audit: "records",
+  // 注意：这里**不能**再有 `org: "overview"` —— 「组织」这一页自己就叫 org，
+  // 再留一条旧映射会让它永远打不开（pageFor 先查 LEGACY）。
 };
 
 export function pageFor(id: string): Page {

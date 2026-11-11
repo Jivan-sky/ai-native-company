@@ -159,7 +159,8 @@ window.addEventListener("hashchange", () => {
     void loadContext();
     return;
   }
-  if (pageFor(currentId()).id === "search") {
+  // 资产页把「检索」并成了标签：按 hash 认标签，不按页 id
+  if (currentId() === "search") {
     void loadSearch();
     return;
   }
