@@ -39,7 +39,8 @@ export function table(headers: string[], rows: Kid[][]): HTMLElement {
     body.append(tr);
   }
   // 套一层滚动容器：窄屏（比如嵌在侧栏里）表格不该把整页撑破。
-  return el("div", { class: "tw" }, el("table", {}, el("thead", {}, head), body));
+  // .vt 只管度量（5 档间距/字号、等宽数字），底色仍走主题变量。
+  return el("div", { class: "tw vt" }, el("table", {}, el("thead", {}, head), body));
 }
 
 export function section(title: string, hint: string, ...body: Kid[]): HTMLElement {

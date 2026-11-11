@@ -122,6 +122,13 @@ func TestAuditDoesNotLeakLocalLayout(t *testing.T) {
 	if strings.Contains(raw2, filepath.ToSlash(vault)) {
 		t.Error("vault 根的绝对路径不该出现")
 	}
+	// 单段的是标识不是路径：不该被加上 …/ 前缀（`ds:demo-pg` 不是「某个目录下的文件」）。
+	auditWrite(t, vault, audit.Record{ID: "c", At: "2026-10-08T13:00:00+08:00", Actor: "alice",
+		Action: audit.ActionRead, Object: "ds:demo-pg", Result: audit.ResultOK})
+	v3, _ := auditOf(t, &Server{Vault: vault}, "/api/audit")
+	if got := v3.Records[0].Object; got != "ds:demo-pg" {
+		t.Errorf("单段标识要原样保留，得到 %q", got)
+	}
 }
 
 func TestAuditFilters(t *testing.T) {
