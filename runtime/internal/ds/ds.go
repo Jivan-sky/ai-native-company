@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/mysqlproto"
 	"anc/internal/pgwire"
 )
 
@@ -61,8 +62,8 @@ func Load(vault, name string) (Source, error) {
 	if !reName.MatchString(s.Name) || s.Name != name {
 		return s, fmt.Errorf("%s：name 必须与文件名一致且是小写 ASCII", name)
 	}
-	if s.Type != "postgres" {
-		return s, fmt.Errorf("%s：type=%q（这一版只会 postgres）", name, s.Type)
+	if s.Type != "postgres" && s.Type != "mysql" {
+		return s, fmt.Errorf("%s：type=%q（只支持 postgres / mysql）", name, s.Type)
 	}
 	if !reSecret.MatchString(s.Secret) {
 		return s, fmt.Errorf("%s：secret=%q 必须是一个密钥名（值是密码，别写进注册表）", name, s.Secret)
@@ -127,6 +128,9 @@ func QueryMany(ctx context.Context, s Source, password string, sqls []string) ([
 			return nil, err
 		}
 	}
+	if s.Type == "mysql" {
+		return queryManyMySQL(ctx, s, password, sqls)
+	}
 	dsn, err := pgwire.ParseDSN(s.DSN)
 	if err != nil {
 		return nil, err
@@ -155,6 +159,37 @@ func QueryMany(ctx context.Context, s Source, password string, sqls []string) ([
 	return out, nil
 }
 
+// queryMySQL 是 MySQL 那条腿：协议不同，但守卫与上限是同一套。
+func queryMySQL(ctx context.Context, s Source, password, sql string, res Result) (Result, error) {
+	dsn, err := mysqlproto.ParseDSN(s.DSN)
+	if err != nil {
+		return res, err
+	}
+	dsn.Password = password
+	c, err := mysqlproto.Dial(ctx, dsn, s.timeout())
+	if err != nil {
+		return res, err
+	}
+	defer c.Close()
+	ctx2, cancel := context.WithTimeout(ctx, s.timeout())
+	defer cancel()
+	start := time.Now()
+	cols, rows, err := c.Query(ctx2, sql)
+	res.Duration = time.Since(start)
+	if err != nil {
+		return res, err
+	}
+	res.Columns = cols
+	if len(rows) > s.MaxRows {
+		res.Rows = rows[:s.MaxRows]
+		res.Truncated = true
+	} else {
+		res.Rows = rows
+	}
+	res.Returned = len(res.Rows)
+	return res, nil
+}
+
 // Query 连上去跑一条只读查询。密码从调用方给的值里取（它从 secrets 来）。
 func Query(ctx context.Context, s Source, password, sql string) (Result, error) {
 	if err := Guard(sql); err != nil {
@@ -163,6 +198,9 @@ func Query(ctx context.Context, s Source, password, sql string) (Result, error) 
 	sum := sha256.Sum256([]byte(sql))
 	res := Result{SQLHash: hex.EncodeToString(sum[:8])}
 
+	if s.Type == "mysql" {
+		return queryMySQL(ctx, s, password, sql, res)
+	}
 	dsn, err := pgwire.ParseDSN(s.DSN)
 	if err != nil {
 		return res, err
@@ -196,4 +234,34 @@ func Query(ctx context.Context, s Source, password, sql string) (Result, error) 
 	}
 	res.Returned = len(res.Rows)
 	return res, nil
+}
+
+func queryManyMySQL(ctx context.Context, s Source, password string, sqls []string) ([]Result, error) {
+	for _, q := range sqls {
+		if err := Guard(q); err != nil {
+			return nil, err
+		}
+	}
+	dsn, err := mysqlproto.ParseDSN(s.DSN)
+	if err != nil {
+		return nil, err
+	}
+	dsn.Password = password
+	c, err := mysqlproto.Dial(ctx, dsn, s.timeout())
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	// MySQL 没有「事务级只读」的 SET，用会话变量兜底（服务端也应按账号只读）。
+	_ = c.Exec(ctx, "SET SESSION TRANSACTION READ ONLY")
+	out := make([]Result, 0, len(sqls))
+	for _, q := range sqls {
+		start := time.Now()
+		cols, rows, err := c.Query(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Result{Columns: cols, Rows: rows, Returned: len(rows), Duration: time.Since(start)})
+	}
+	return out, nil
 }

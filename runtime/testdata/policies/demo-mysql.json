@@ -1,0 +1,10 @@
+{
+  "schema": "anc.policy/v1",
+  "datasource": "demo-mysql",
+  "default": "deny",
+  "derived": "allow",
+  "rules": [
+    { "subject": "alice", "table": "orders", "columns": ["id", "name"], "action": "allow" },
+    { "subject": "alice", "table": "orders", "columns": ["amount"], "action": "mask" }
+  ]
+}

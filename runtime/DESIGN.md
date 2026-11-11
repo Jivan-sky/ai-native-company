@@ -5123,6 +5123,39 @@ $ … --as bob --sql "SELECT total FROM orders LIMIT 1"
 - 没有行级过滤（`WHERE` 注入），只有列级。
 - 看板还没读策略；`/api/query` 还没做。
 
+### 7.1.99 MySQL 连接器：另一套线协议（2026-11-11）
+
+MySQL 与 PG 的协议没有一处相同，所以另写了一个 `internal/mysqlproto`（零依赖）：
+握手、`mysql_native_password` 认证、`COM_QUERY` 简单查询、结果集解析、错误包映射。
+
+| 件 | 落点 |
+|---|---|
+| 协议客户端 | `internal/mysqlproto`（握手 / native auth / 查询 / ERR 映射） |
+| 数据源 | `type: "mysql"`，`ds.Query` 按类型分派；**守卫、只读、上限、策略是同一套** |
+| 目录 | `catalog.Scan` 对 MySQL 走 `information_schema`（表/列/主键/类型/注释） |
+| 开发用真库 | `dev/mysql/`（apt 装 MariaDB，不依赖 Docker Hub） |
+
+**真跑（MariaDB 11.8）**：
+
+```
+$ anc catalog scan … demo-mysql
+✅ 已扫 demo-mysql：1 张表 / 3 列 · 指纹 59c5be77f9953e51
+   建议 sensitive  orders.amount（列名命中金额/收入）
+
+$ anc db query … demo-mysql --as alice --sql "SELECT id, name, amount FROM orders ORDER BY id"
+id	name	amount
+1	alice	***
+2	bob	***
+3	carol	***
+```
+
+**踩到的坑（值得记）**：MySQL 的**包序号**在每条命令前必须重置为 0，而握手响应要用服务端的序号 +1。
+第一版没重置，真库直接回 `1156 Got packets out of order`；假服务端没有这条约束，所以单测是绿的——
+**假服务端证明不了协议兼容**，这条只能靠真库抓。
+
+**没做的**：`caching_sha2_password` 完整认证（要 TLS 或 RSA 交换，现在明确报错）；
+TLS；预处理语句；MySQL 与 MariaDB 的行为差异没有单独验（已知 MariaDB 11.8 通过）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

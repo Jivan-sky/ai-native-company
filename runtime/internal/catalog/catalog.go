@@ -72,6 +72,9 @@ WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog','information_schema')`
 
 // Scan 内省一个数据源，产出快照（不含行数据）。
 func Scan(ctx context.Context, src ds.Source, password string) (Snapshot, error) {
+	if src.Type == "mysql" {
+		return scanMySQL(ctx, src, password)
+	}
 	res, err := ds.QueryMany(ctx, src, password, []string{qTables, qColumns, qPK})
 	if err != nil {
 		return Snapshot{}, err
@@ -272,4 +275,49 @@ func val(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+const myTables = `SELECT table_name, COALESCE(table_comment, '')
+FROM information_schema.tables
+WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY 1`
+
+const myColumns = `SELECT table_name, column_name, column_type,
+  CASE WHEN is_nullable = 'YES' THEN '1' ELSE '0' END,
+  COALESCE(column_comment, ''),
+  CASE WHEN column_key = 'PRI' THEN '1' ELSE '0' END
+FROM information_schema.columns
+WHERE table_schema = DATABASE() ORDER BY 1, ordinal_position`
+
+func scanMySQL(ctx context.Context, src ds.Source, password string) (Snapshot, error) {
+	res, err := ds.QueryMany(ctx, src, password, []string{myTables, myColumns})
+	if err != nil {
+		return Snapshot{}, err
+	}
+	snap := Snapshot{Schema: Schema, DataSource: src.Name, ScannedAt: time.Now().UTC()}
+	ptrs := map[string]*Table{}
+	for _, row := range res[0].Rows {
+		if len(row) < 2 {
+			continue
+		}
+		snap.Tables = append(snap.Tables, Table{Name: val(row[0]), Comment: val(row[1])})
+	}
+	for i := range snap.Tables {
+		ptrs[snap.Tables[i].Name] = &snap.Tables[i]
+	}
+	for _, row := range res[1].Rows {
+		if len(row) < 6 {
+			continue
+		}
+		t, ok := ptrs[val(row[0])]
+		if !ok {
+			continue
+		}
+		t.Columns = append(t.Columns, Column{
+			Name: val(row[1]), Type: val(row[2]), Nullable: val(row[3]) == "1",
+			Comment: val(row[4]), IsPK: val(row[5]) == "1",
+		})
+	}
+	sort.Slice(snap.Tables, func(i, j int) bool { return snap.Tables[i].Name < snap.Tables[j].Name })
+	snap.Fingerprint = Fingerprint(snap)
+	return snap, nil
 }
