@@ -107,3 +107,24 @@ func TestPrefixMatchForPaths(t *testing.T) {
 		t.Fatalf("别人应当拒绝：%s", got)
 	}
 }
+
+// 行过滤：只包一层，不解析 SQL；表名出现才套。
+func TestWrapRowFilters(t *testing.T) {
+	p := &Policy{Schema: Schema, DataSource: "demo", Default: "deny",
+		RowFilters: []RowFilter{{Table: "orders", Where: "region = 'cn'"}}}
+	wrapped, applied := p.Wrap("SELECT id FROM orders WHERE id > 0")
+	if len(applied) != 1 || !strings.Contains(wrapped, "anc_rls") || !strings.Contains(wrapped, "region = 'cn'") {
+		t.Fatalf("没套上行过滤：%s %v", wrapped, applied)
+	}
+	// 别的表：不套
+	if out, ap := p.Wrap("SELECT id FROM users"); out != "SELECT id FROM users" || len(ap) != 0 {
+		t.Fatalf("不该套：%s %v", out, ap)
+	}
+}
+
+func TestRowFilterValidation(t *testing.T) {
+	p := Policy{Schema: Schema, DataSource: "demo", RowFilters: []RowFilter{{Table: "t", Where: "a=1; DROP"}}}
+	if err := p.validate("demo"); err == nil {
+		t.Fatal("where 里有分号必须被拒")
+	}
+}

@@ -29,5 +29,11 @@
       "action": "allow"
     }
   ],
-  "derived": "allow"
+  "derived": "allow",
+  "row_filters": [
+    {
+      "table": "orders",
+      "where": "region = 'cn'"
+    }
+  ]
 }

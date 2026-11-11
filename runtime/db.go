@@ -124,14 +124,17 @@ func cmdDBQuery(args []string) int {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	res, err := ds.Query(ctx, src, password, *sqlText)
 
-	// 策略：默认拒绝；拒绝是整条查询失败，脱敏是保留列、替换值。
+	// 行级过滤：先套一层，再执行。策略读不到 = 不放行（fail-closed）。
 	pol, perr := policy.Load(filepath.Join(filepath.Dir(vault), "policies"), name)
 	if perr != nil {
 		fmt.Fprintf(os.Stderr, "错误：策略读不动：%v\n", perr)
 		return 1
 	}
+	effectiveSQL, appliedFilters := pol.Wrap(*sqlText)
+	res, err := ds.Query(ctx, src, password, effectiveSQL)
+
+	// 列级策略：默认拒绝；拒绝是整条查询失败，脱敏是保留列、替换值。
 	var dec policy.Decision
 	if err == nil {
 		var aerr error
@@ -148,6 +151,9 @@ func cmdDBQuery(args []string) int {
 	}
 	if len(dec.Derived) > 0 {
 		why += " · 派生列 " + strings.Join(dec.Derived, ",")
+	}
+	if len(appliedFilters) > 0 {
+		why += " · 行过滤 " + strings.Join(appliedFilters, "；")
 	}
 	if err != nil {
 		result, why = audit.ResultFailed, err.Error()

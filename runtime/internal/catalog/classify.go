@@ -56,9 +56,6 @@ const MinRate = 0.30
 
 // ScanValues 对候选文本列做值形状检测，返回证据（可直接用于建议）。
 func ScanValues(ctx context.Context, src ds.Source, password string, snap Snapshot) ([]Evidence, error) {
-	if src.Type != "postgres" {
-		return nil, fmt.Errorf("值形状分类目前只实现了 PostgreSQL（MySQL 的 REGEXP 写法不同，下一刀）")
-	}
 	rules := DefaultRules()
 	var out []Evidence
 	for _, t := range snap.Tables {
@@ -66,7 +63,15 @@ func ScanValues(ctx context.Context, src ds.Source, password string, snap Snapsh
 			if !isTexty(c.Type) {
 				continue
 			}
-			sql := buildValueSQL(t.Name, c.Name, rules)
+			var sql string
+			switch src.Type {
+			case "postgres":
+				sql = buildValueSQL(t.Name, c.Name, rules)
+			case "mysql":
+				sql = buildValueSQLMySQL(t.Name, c.Name, rules)
+			default:
+				return nil, fmt.Errorf("值形状分类不支持 %q（postgres / mysql）", src.Type)
+			}
 			res, err := ds.Query(ctx, src, password, sql)
 			if err != nil {
 				return nil, fmt.Errorf("%s.%s：%v", t.Name, c.Name, err)
@@ -143,4 +148,22 @@ func atoi(p *string) int64 {
 	var n int64
 	_, _ = fmt.Sscanf(*p, "%d", &n)
 	return n
+}
+
+// buildValueSQLMySQL 生成 MySQL 版聚合 SQL：REGEXP 返回 1/0，用 SUM 计数。
+func buildValueSQLMySQL(table, col string, rules ValueRules) string {
+	var aggs []string
+	for _, p := range rules.Patterns {
+		aggs = append(aggs, fmt.Sprintf(`SUM(%s REGEXP '%s')`, quoteIdentMySQL(col), escapeLiteral(p.Regex)))
+	}
+	sel := "COUNT(*)"
+	if len(aggs) > 0 {
+		sel += ", " + strings.Join(aggs, ", ")
+	}
+	return fmt.Sprintf(`SELECT %s FROM (SELECT %s FROM %s WHERE %s IS NOT NULL LIMIT %d) s`,
+		sel, quoteIdentMySQL(col), quoteIdentMySQL(table), quoteIdentMySQL(col), rules.SampleRows)
+}
+
+func quoteIdentMySQL(s string) string {
+	return "`" + strings.ReplaceAll(s, "`", "``") + "`"
 }

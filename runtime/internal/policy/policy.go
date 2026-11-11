@@ -28,6 +28,10 @@ type Policy struct {
 	// 默认拒绝是安全的；客户显式写 allow 才能查聚合，且这些列会作为「派生列」进台账。
 	Derived string `json:"derived,omitempty"`
 	Rules   []Rule `json:"rules"`
+	// RowFilters 是行级过滤：把查询结果再套一层 WHERE。
+	// 写法是**包装**而不是拼接：SELECT * FROM (你的查询) rls WHERE (条件) ——
+	// 这样不需要解析 SQL，也不会被用户的 WHERE/ORDER BY 位置影响。
+	RowFilters []RowFilter `json:"row_filters,omitempty"`
 }
 
 type Rule struct {
@@ -72,6 +76,14 @@ func (p Policy) validate(ds string) error {
 	case "", "deny", "allow":
 	default:
 		return fmt.Errorf("derived=%q（deny | allow）", p.Derived)
+	}
+	for i, f := range p.RowFilters {
+		if strings.TrimSpace(f.Table) == "" || strings.TrimSpace(f.Where) == "" {
+			return fmt.Errorf("第 %d 条行过滤缺 table / where", i+1)
+		}
+		if strings.Contains(f.Where, ";") {
+			return fmt.Errorf("第 %d 条行过滤的 where 里不许有分号", i+1)
+		}
 	}
 	for i, r := range p.Rules {
 		if strings.TrimSpace(r.Subject) == "" || strings.TrimSpace(r.Table) == "" || len(r.Columns) == 0 {
@@ -178,4 +190,32 @@ func indexOf(xs []string, v string) int {
 		}
 	}
 	return -1
+}
+
+type RowFilter struct {
+	Table string `json:"table"`
+	Where string `json:"where"`
+}
+
+// Wrap 如果命中了行过滤，把查询包一层并要求只返回满足条件的行。
+// 命中判据：SQL 文本里出现了那条过滤的表名（大小写不敏感）。
+// 这是**保守**的启发式：宁可多套一层（可能报列不存在），也不放过。
+func (p *Policy) Wrap(sql string) (string, []string) {
+	if p == nil || len(p.RowFilters) == 0 {
+		return sql, nil
+	}
+	low := strings.ToLower(sql)
+	var conds, applied []string
+	for _, f := range p.RowFilters {
+		if !strings.Contains(low, strings.ToLower(f.Table)) {
+			continue
+		}
+		conds = append(conds, "("+f.Where+")")
+		applied = append(applied, f.Table+": "+f.Where)
+	}
+	if len(conds) == 0 {
+		return sql, nil
+	}
+	return "SELECT * FROM (" + strings.TrimSuffix(strings.TrimSpace(sql), ";") + ") AS anc_rls WHERE " +
+		strings.Join(conds, " AND "), applied
 }
