@@ -183,16 +183,20 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
   const cases = d && d.timeline && d.timeline.wired ? d.timeline.cases.filter((x) => x.band === "red").length : null;
   const bots = d && d.runtime && d.runtime.wired ? d.runtime.bots : [];
   const botRed = d && d.runtime && d.runtime.wired ? bots.filter((x) => x.state === "fail").length : null;
-  const meter = (label: string, n: number | null, cls: string): HTMLElement =>
-    el("div", { class: "side-meter " + cls },
-      el("span", {}, label), el("b", {}, n === null ? "—" : String(n)));
+  // 计数器同样按身份过滤：给成员看「卡点 3」等于告诉他有一件他打不开的事。
+  const meter = (label: string, n: number | null, cls: string, pageId: string): Kid =>
+    allowed(role, pageId)
+      ? el("div", { class: "side-meter " + cls }, el("span", {}, label), el("b", {}, n === null ? "—" : String(n)))
+      : "";
   const foot = el("div", { class: "side-foot" },
     el("div", { class: "side-health" },
       el("span", { class: status ? statusDot(status) : "dot" }),
       el("span", {}, status ? statusText(status) : "读取中"),
       el("span", { class: "micro" }, d?.board ? localTime(d.board.generated_at) : "")),
     el("div", { class: "side-meters" },
-      meter("待批", pending, "gold"), meter("卡点", cases, "red"), meter("bot 红", botRed, "red")),
+      meter("待批", pending, "gold", "approvals"),
+      meter("卡点", cases, "red", "cases"),
+      meter("bot 红", botRed, "red", "system")),
     el("div", { class: "micro env" }, d?.board ? d.board.schema : "vault · waiting"),
     el("div", { class: "foot-links" },
       el("a", { href: "#/overview" }, "总览"),
