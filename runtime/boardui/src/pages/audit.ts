@@ -1,38 +1,68 @@
 import type { AuditEntryView, Data, Kid } from "../core/types";
-import { PER_PAGE, pager, sliced } from "../ui/pager";
+import { pager, sliced } from "../ui/pager";
 import { banner, chip, dash, el, section, table } from "../core/dom";
 import { localTime } from "../core/format";
 import { hashQuery } from "../core/query";
-import { cannot, emptyNote, statCard } from "../ui/blocks";
+import { cannot, dist, dn, dsep, emptyNote } from "../ui/blocks";
 import { dotLine } from "../ui/status";
 
-// 四档配色：ok 绿实心圆 / denied 菱形（被拦下）/ failed 菱形（真失败）/ 判不出的虚线圈。
+// 四档结果：ok 实心圆 / denied 菱形 / failed 菱形 / 认不出的词虚线空圈。
 // denied 与 failed 是两个词、两件事 —— 「权限没给」不能说成「故障」（后端同一条纪律）。
+// 形状已经承担了颜色那的信息，所以文字只写「是什么」，「红 · 绿 · 」是废话。
 export const AUDIT_DOT: Record<string, string> = {
   ok: "dot ok", denied: "dot bad", failed: "dot bad", unknown: "dot gray",
 };
 export const AUDIT_WORD: Record<string, string> = {
-  ok: "绿 · 成功", denied: "红 · 被拦下", failed: "红 · 失败", unknown: "灰 · 判不出",
+  ok: "成功", denied: "被拦下", failed: "失败", unknown: "判不出",
 };
 export const auditDot = (b: string): string => AUDIT_DOT[b] ?? "dot gray";
-export const auditWord = (b: string): string => AUDIT_WORD[b] ?? "灰 · 判不出";
+export const auditWord = (b: string): string => AUDIT_WORD[b] ?? "判不出";
 
 // 「对谁」那一栏。四类各自是什么见后端 Zone 常量 ——
 // 关键是**「判不出」不许显示成「不跨域」**：把「没判」画成「没事」是最坏的一种假绿。
 export function zoneCell(e: AuditEntryView): Kid {
   switch (e.zone) {
     case "domain":
-      if (!e.known) return el("span", {}, chip(e.actee, true), cannot(" 跨域未判（行使者没配域）"));
+      if (!e.known) return el("span", {}, chip(e.actee, true), cannot(" 跨域未判"));
       if (e.cross) return el("span", {}, chip(e.actee, true), el("strong", {}, " ⚠ 跨域"));
       return chip(e.actee, true);
     case "vault":
-      return cannot("vault 内 · 不属于任何域");
+      return cannot("vault 内 · 非域");
     case "outside":
       return el("strong", {}, "⚠ 域外");
     default:
-      return cannot("判不出（目标抽不出）");
+      return cannot("判不出");
   }
 }
+
+// 一行流水只有一个长相：被拦下的那张表跟主流水用同一个渲染，
+// 否则两张表的列会悄悄长歪，读的人得自己对齐。
+// 一张流水扫的是「哪天、几点、谁、干了什么」。年份和秒在每一行都重复，
+// 完整时间挂在 title 上 —— 要精确的时候悬停就有，不用的时候不占宽度。
+function stamp(at: string): HTMLElement {
+  const full = localTime(at);
+  return el("span", { class: "mono", title: full }, full.slice(5, 16));
+}
+
+function auditRow(e: AuditEntryView): Kid[] {
+  return [
+    dotLine(auditDot(e.band), el("span", {}, auditWord(e.band))),
+    stamp(e.at),
+    el("span", { class: "mono" }, dash(e.actor)),
+    el("span", { class: "chip mono" }, dash(e.action)),
+    zoneCell(e),
+    targetCell(e.object),
+  ];
+}
+// 目标只有一格宽：一行一条，长的省略，完整值在 title 上。
+// 让一格折成三行，整张表的行高就会忽高忽低，扫起来更慢。
+function targetCell(obj: string | undefined): HTMLElement {
+  const s = dash(obj);
+  return el("span", { class: "mono wide", title: s }, s);
+}
+const HEAD = ["结果", "时间", "谁", "类别", "对谁", "目标"];
+// 顶部「要看的」只摆这几条：再多就不是提示，是糊墙。
+const FLAG_CAP = 5;
 
 export function renderAudit(d: Data): Kid[] {
   const v = d.audit;
@@ -56,86 +86,49 @@ export function renderAudit(d: Data): Kid[] {
       v.bad.map((b) => el("span", { class: "mono" }, b))));
   }
 
-  out.push(section("结果四档",
-    "只按 result 分形状：ok=实心圆 / denied=菱形（被拦下）/ failed=菱形（真失败）/ 认不出的词=空心虚线圈（原样留着，不吞）",
-    el("div", { class: "figs" },
-      statCard(String(v.bands.ok), "绿 · 成功", "result=ok", "dot ok"),
-      statCard(String(v.bands.denied), "红 · 被拦下", "result=denied", "dot bad"),
-      statCard(String(v.bands.failed), "红 · 失败", "result=failed", "dot bad"),
-      statCard(String(v.bands.unknown), "灰 · 判不出",
-        v.bands.unknown === 0 ? "没有，结果都认得" : "原样保留，不吞", "dot gray"))));
-
-  out.push(section("这次行使跨出去没有",
-    "「跨域」按 SPEC §6 的严格含义用：域与域之间。域外与 vault 内非域目录不叫跨域 —— 它们各自是独立的信号",
-    el("div", { class: "figs" },
-      statCard(String(v.scopes.domain), "域内", "目标落在某个业务域"),
-      statCard(String(v.scopes.cross), "⚠ 跨域", "目标域不是自己的",
-        v.scopes.cross > 0 ? "dot bad" : "dot ok"),
-      statCard(String(v.scopes.outside), "⚠ 域外", "目标是 vault 之外",
-        v.scopes.outside > 0 ? "dot bad" : "dot ok"),
-      statCard(String(v.scopes.vault), "vault 内 · 非域", "结构目录 / 还没划域"),
-      statCard(String(v.scopes.unknown), "判不出", "目标抽不出（Bash 这类）", "dot gray"))));
-
-  const au = sliced(v.records, hashQuery());
-  const rows: Kid[][] = au.rows.map((e) => [
-    dotLine(auditDot(e.band), el("span", {}, auditWord(e.band))),
-    localTime(e.at),
-    el("span", { class: "mono" }, dash(e.actor)),
-    el("span", { class: "chip mono" }, dash(e.action)),
-    zoneCell(e),
-    el("div", {}, el("span", { class: "mono" }, dash(e.object)),
-      (e.tool ?? "").trim() === "" ? "" : el("span", { class: "chip mono" }, dash(e.tool)),
-      e.has_why ? el("span", { class: "chip" }, "原话见 CLI") : ""),
-  ]);
-  out.push(section("流水（最新在上）",
-    "共 " + v.total + " 条，看板手上 " + v.records.length + " 条。完整流水在 audit/*.jsonl 里 —— 一行一条，一行都没删。" +
-    "原话（工具结果 / 命令行）不带到看板：它是本机排查资料、夹着本机路径，要看用 anc audit log",
-    au.rows.length === 0
-      ? emptyNote("审计还是空的（audit/ 里一行都没有）。跑 anc audit collect <vault> --write 从 harness 记录归集，" +
-        "或用 anc audit add 补记一条。空不是错 —— 「还没有行使」是个真实状态。")
-      : el("div", {},
-          table(["结果", "何时", "谁", "类别", "对谁", "目标（+ 原话）"], rows),
-          pager(v.records.length, au.cur, "audit"))));
-
-  // 被拦下/失败是一个**横切视图**（不是主流水的一段），所以它自己不分页：
-  // 列前 PER_PAGE 条，超出的写清去哪儿看，不假装这就是全部。
+  // 要处理的排在最前：被拦下 = 权没给（查授权），失败 = 执行失败（查环境）。
+  // 这两类才是「看完要动手」的；四档分布是读数，不是任务。
   const flaggedAll = v.records.filter((e) => e.band === "denied" || e.band === "failed");
-  const flagged = flaggedAll.slice(0, PER_PAGE);
+  const flagged = flaggedAll.slice(0, FLAG_CAP);
   if (flagged.length > 0) {
-    out.push(section("被拦下的与失败的",
-      "这两类要分开读：denied = 权没给（去查授权，不是查故障）；failed = 真的执行失败（去查环境）。" +
-      "原话不带到看板，要看用 anc audit log <vault> --result denied",
-      el("div", { class: "figs" },
-        statCard(String(v.bands.denied), "被拦下", "权没给 —— 查授权，不是查故障", "dot bad"),
-        statCard(String(v.bands.failed), "失败", "真执行失败 —— 查环境", "dot bad")),
-      table(["结果", "何时", "谁", "类别", "对谁", "目标（+ 原话）"],
-        flagged.map((e) => [
-          dotLine(auditDot(e.band), el("span", {}, auditWord(e.band))),
-          localTime(e.at),
-          el("span", { class: "mono" }, dash(e.actor)),
-          el("span", { class: "chip mono" }, dash(e.action)),
-          zoneCell(e),
-          el("div", {}, el("span", { class: "mono" }, dash(e.object)),
-            e.has_why ? el("span", { class: "chip" }, "原话见 CLI") : ""),
-        ])),
+    out.push(section("要看的",
+      "被拦下 " + v.bands.denied + " · 失败 " + v.bands.failed,
+      table(HEAD, flagged.map(auditRow)),
       flaggedAll.length > flagged.length
-        ? el("p", { class: "empty" }, "这里只列前 " + PER_PAGE + " 条（共 " + flaggedAll.length +
-            " 条）—— 完整的用 anc audit log <vault> --result denied")
+        ? el("p", { class: "quiet" }, "余下 " + (flaggedAll.length - flagged.length) + " 条在下面流水里。")
         : ""));
   }
 
-  if (v.total > v.records.length) {
-    out.push(section("还有更早的",
-      "这一页只铺最近 " + v.records.length + " 条（共 " + v.total + " 条）",
-      el("p", { class: "empty" },
-        el("span", {}, "往后翻："), el("span", { class: "mono" }, "anc audit log <vault> --limit 200"),
-        el("span", {}, "；只看被拒的："), el("span", { class: "mono" }, "anc audit log <vault> --result denied"))));
-  }
+  const au = sliced(v.records, hashQuery());
+  out.push(section("流水",
+    "共 " + v.total + " 条",
+    au.rows.length === 0
+      ? emptyNote("audit/ 里一行都没有。跑 anc audit collect <vault> --write 从 harness 记录归集，或用 anc audit add 补记一条。")
+      : el("div", {},
+          table(HEAD, au.rows.map(auditRow)),
+          pager(v.records.length, au.cur, "audit")),
+    el("p", { class: "quiet" },
+      "原话（工具结果 / 命令行）留在本机，不带上看板：",
+      el("span", { class: "mono" }, "anc audit log <vault>"))));
 
-  out.push(section("这一页答不了什么",
-    "答不了的照写 —— 这一页是「系统记下来的行使」，不是「全部行使」",
-    v.missing.length === 0
-      ? emptyNote("后端没列缺。")
-      : el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
+  // 分布压成一行：它回答「有没有事」，不回答「怎么读」。
+  out.push(section("分布", "",
+    dist(
+      dn(v.bands.ok, "成功"),
+      dn(v.bands.denied, "被拦下", true),
+      dn(v.bands.failed, "失败", true),
+      dn(v.bands.unknown, "结果认不出"),
+      dsep(),
+      dn(v.scopes.domain, "域内"),
+      dn(v.scopes.cross, "跨域", true),
+      dn(v.scopes.outside, "域外", true),
+      dn(v.scopes.vault, "vault 内"),
+      dn(v.scopes.unknown, "目标抽不出"),
+    )));
+
+  // 答不了的照写 —— 这一页是「系统记下来的行使」，不是「全部行使」。
+  if (v.missing.length > 0) {
+    out.push(section("这一页答不了", "", el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
+  }
   return out;
 }

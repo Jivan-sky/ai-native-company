@@ -61,11 +61,25 @@ export function alertBanners(i: Issues): Kid[] {
 // 第 4 个参数是可选的状态灯：数字旁的形状和下面表里读到的**一模一样** —— 图例跟实际用的是同一套，
 // 不另画一套「好看的图例」（形状与含义见 index.html 的 .dot）。
 export function statCard(n: string, k: string, sub: string, dot?: string): HTMLElement {
-  return el("div", { class: "card stat" },
+  const card = el("div", { class: "card stat" },
     el("div", { class: "n" }, n),
     el("div", { class: "k" },
-      dot ? el("span", { class: "st" }, el("span", { class: dot }), el("span", {}, k)) : k),
-    el("div", { class: "sub" }, sub));
+      dot ? el("span", { class: "st" }, el("span", { class: dot }), el("span", {}, k)) : k));
+  // 没有补充句就不留那一行空档：空行只是占位，不是留白。
+  if (sub !== "") card.append(el("div", { class: "sub" }, sub));
+  return card;
+}
+
+// 分布条：一串「数字 + 一个词」。0 自然变灰 —— 没发生的事不该抢眼；
+// bad 只在真出事时上红（跨域、被拦下），不是装饰。
+export function dn(n: number | string, label: string, bad = false): HTMLElement {
+  const num = typeof n === "number" ? n : Number(n);
+  const cls = "dn" + (bad && num > 0 ? " bad" : num === 0 || Number.isNaN(num) ? " none" : "");
+  return el("div", { class: cls }, el("b", {}, String(n)), el("span", {}, label));
+}
+export const dsep = (): HTMLElement => el("span", { class: "sep" });
+export function dist(...kids: Kid[]): HTMLElement {
+  return el("div", { class: "dist" }, ...kids);
 }
 
 export function statSection(v: BoardView): Kid {

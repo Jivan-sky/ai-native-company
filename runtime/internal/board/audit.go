@@ -159,6 +159,12 @@ func (s *Server) relTo(object string) string {
 	if len(parts) == 0 {
 		return ""
 	}
+	// 只有一段的是标识（`ds:demo-pg`、`file:kb:.`），不是路径。
+	// 给它加 `…/` 会把它说成「某个目录下的文件」，那是在编一个不存在的层级。
+	if len(parts) == 1 {
+		return parts[0]
+	}
+	// 两段以上是路径：只留尾巴，前面用省略号——既说清「这不是全路径」，也不摊本机布局。
 	return "…/" + strings.Join(parts, "/")
 }
 
