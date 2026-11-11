@@ -31,6 +31,9 @@ type Snapshot struct {
 	ScannedAt   time.Time `json:"scanned_at"`
 	Fingerprint string    `json:"fingerprint"`
 	Tables      []Table   `json:"tables"`
+	// Classifications 是**人拍板**的分级（键：table.column）。
+	// 建议（值形状/列名）不写在这里 —— 只有 confirm 过的才落盘，避免「猜的当成定的」。
+	Classifications map[string]Decision `json:"classifications,omitempty"`
 }
 
 type Table struct {
@@ -320,4 +323,44 @@ func scanMySQL(ctx context.Context, src ds.Source, password string) (Snapshot, e
 	sort.Slice(snap.Tables, func(i, j int) bool { return snap.Tables[i].Name < snap.Tables[j].Name })
 	snap.Fingerprint = Fingerprint(snap)
 	return snap, nil
+}
+
+// Decision 是一次「人拍板」的分级。
+type Decision struct {
+	Level string `json:"level"` // pii | sensitive | internal | public
+	By    string `json:"by"`
+	At    string `json:"at"`
+	Why   string `json:"why,omitempty"`
+}
+
+// Confirm 记录一次人工分级，返回更新后的快照（调用方负责 Save）。
+func Confirm(s Snapshot, table, column, level, by, why string) (Snapshot, error) {
+	valid := map[string]bool{"pii": true, "sensitive": true, "internal": true, "public": true}
+	if !valid[level] {
+		return s, fmt.Errorf("level=%q（pii | sensitive | internal | public）", level)
+	}
+	if strings.TrimSpace(by) == "" {
+		return s, fmt.Errorf("必须记谁拍的板")
+	}
+	found := false
+	for _, t := range s.Tables {
+		if t.Name != table {
+			continue
+		}
+		for _, c := range t.Columns {
+			if c.Name == column {
+				found = true
+			}
+		}
+	}
+	if !found {
+		return s, fmt.Errorf("目录里没有 %s.%s（先 scan）", table, column)
+	}
+	if s.Classifications == nil {
+		s.Classifications = map[string]Decision{}
+	}
+	s.Classifications[table+"."+column] = Decision{
+		Level: level, By: by, At: time.Now().UTC().Format(time.RFC3339), Why: why,
+	}
+	return s, nil
 }

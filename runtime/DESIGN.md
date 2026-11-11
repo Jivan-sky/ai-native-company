@@ -5192,6 +5192,39 @@ $ … --as bob
 
 读与拒都进 audit（`object=file:<ds>:<path>`、`actor=主体`）。
 
+### 7.1.101 值形状分类：证据在库里，行不出门（2026-11-11）
+
+分级从「猜列名」升级到「有证据」：对候选文本列跑一条**聚合计数**，得到命中率；
+建议带证据，拍板仍然要人。
+
+```sql
+SELECT count(*), count(*) FILTER (WHERE col::text ~ '邮箱'), … 
+FROM (SELECT col FROM t WHERE col IS NOT NULL LIMIT 2000) s
+```
+
+阈值 30%：低于它只能算巧合。四类出厂规则：email / phone / idcard / bankcard。
+
+**真跑（PG 17，加了 email/phone 两列假数据）**：
+
+```
+$ anc catalog classify … demo-pg
+值形状证据（库内聚合计数，未取回任何行）：
+  orders.email  pii  email  3/3（100%）
+  orders.phone  pii  phone  3/3（100%）
+
+$ anc catalog confirm … demo-pg orders.email pii --by alice --why "值形状 email 命中 3/3"
+✅ 已记：orders.email = pii（alice）
+
+$ anc catalog confirm … demo-pg orders.nope pii --by alice
+错误：目录里没有 orders.nope（先 scan）
+```
+
+拍板落进快照的 `classifications`（键 `表.列`），带**谁、何时、依据**；
+建议本身不落盘 —— 猜的不许当成定的。
+
+**没做的**：MySQL 的值形状（`REGEXP` 写法不同）；正则只覆盖四类；采样是「前 N 行」，
+不是全表统计（大表上要改成分批聚合）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
