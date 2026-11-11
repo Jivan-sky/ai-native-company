@@ -20,6 +20,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"anc/internal/apply"
+	"anc/internal/queryexec"
 )
 
 // 模板与资产清单**编进 exe**（议题 #19）：装机第一步就是 `anc init`，而它原来只认
@@ -94,6 +97,13 @@ var tplMap = []tplEntry{
 // ---------- 入口 ----------
 
 func main() {
+	queryexec.SetSecretsLoader(func(path string) map[string]string {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return map[string]string{}
+		}
+		return apply.ParseSecrets(path, string(b)).Values
+	})
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)

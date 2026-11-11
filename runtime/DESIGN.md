@@ -5258,6 +5258,33 @@ $ anc catalog classify … demo-mysql
 **没做的**：行过滤的命中是启发式（表名出现在文本里），多表 JOIN 时可能套错层；
 `where` 引用结果里没有的列会直接报错（宁可报错，不静默放行）。
 
+### 7.1.103 数据面 HTTP 出口：/api/datasources 与 /api/query（2026-11-11）
+
+CLI 与 HTTP 共用**同一个执行器**（`internal/queryexec`）——判定只有一份，
+否则「命令行拦了、接口没拦」是必然。
+
+| 端点 | 口径 |
+|---|---|
+| `GET /api/datasources` | 数据源 + 目录摘要（表/列/指纹）+ 已拍板数 + 有没有策略 |
+| `POST /api/query` | 要 `Bearer` 票（`aud=query`、`scope` 含数据源名）；主体取票上的 `sub` |
+
+服务端做三件事：行过滤包装 → 执行 → 列级策略（allow/mask/deny）与派生列判定；全部进台账。
+
+**真跑（PG 17，alice 的查询票）**：
+
+```
+POST /api/query {"datasource":"demo-pg","sql":"SELECT id, region, total FROM orders ORDER BY id"}
+→ rows [["1","cn","***"]] · masked ["total"] · filters ["orders: region = 'cn'"]
+```
+
+**改前的一个坑**：看板的 `Gate` 原来只在「配了模型端点」时才建，导致 `/api/query` 把
+带票请求当成「没票」（401）。现在改成「有密钥就建闸」，与配没配模型无关。
+
+**行过滤的可操作性**：过滤条件引用的列必须出现在查询结果里，否则**执行前**就返回
+「行过滤需要列 "region" 出现在查询里（策略：region = 'cn'）」——不让数据库报列不存在。
+
+**没做的**：`/api/files/*`；看板的数据页（下一刀）；查询票在 UI 里还得用 CLI 签（没有 SSO）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

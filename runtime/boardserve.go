@@ -158,17 +158,15 @@ func cmdBoardServe(args []string) int {
 	// 看不到待批不等于真相源坏了，投影照样该看得到。
 	bs := &board.Server{Vault: abs, DataDir: dataDir, Now: time.Now, UIFS: uiFS}
 	bs.Chat = &board.ChatConfig{BaseURL: *chatBaseURL, Model: *chatModel, KeyEnv: *chatKeyEnv}
-	if strings.TrimSpace(*chatBaseURL) != "" {
-		// 配了模型出口，就**必须**有闸 —— 没有闸的出口一律 503（fail-closed）。
-		keys := *gateKeys
-		if keys == "" {
-			keys = filepath.Join(filepath.Dir(abs), "data", "authz")
-		}
-		pub, privRaw, kerr := authz.Keys{Dir: keys}.Load()
-		if kerr != nil {
-			fmt.Fprintf(os.Stderr, "错误：授权密钥读不出来（%v）。先跑一次 `anc delegate issue <vault> …` 生成。\n", kerr)
-			return 1
-		}
+	// 闸与数据查询都需要密钥：**有密钥就建**，不依赖「配没配模型」。
+	// （之前只在配了 chat 时才建 Gate，结果 /api/query 把带票请求当成没票。）
+	keys := *gateKeys
+	if keys == "" {
+		keys = filepath.Join(filepath.Dir(abs), "data", "authz")
+	}
+	kf := authz.Keys{Dir: keys}
+	pub, privRaw, kerr := kf.Load()
+	if kerr == nil {
 		modelID := *gateModelID
 		if modelID == "" {
 			modelID = *chatModel
@@ -188,7 +186,11 @@ func cmdBoardServe(args []string) int {
 			RPM:     rpm,
 			ModelID: modelID,
 		}
+	} else if strings.TrimSpace(*chatBaseURL) != "" {
+		fmt.Fprintf(os.Stderr, "错误：授权密钥读不出来（%v）。先跑一次 `anc delegate issue <vault> …` 生成。\n", kerr)
+		return 1
 	}
+
 	if st, err := hot.Open(hot.Config{
 		Addr:       firstNonEmpty(*hotAddr, os.Getenv("ANC_HOT_ADDR"), hot.DefaultAddr),
 		Prefix:     firstNonEmpty(*hotPrefix, os.Getenv("ANC_HOT_PREFIX")),

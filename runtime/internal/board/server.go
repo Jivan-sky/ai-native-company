@@ -100,7 +100,7 @@ func (s *Server) Handler() http.Handler {
 // 报出一个「Content-Type 不对」的假原因（真原因是动词不对）—— 2026-10-10 实测踩到。
 func readOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if k, ok := routeKind(r.URL.Path); ok && k == KindModel {
+		if k, ok := routeKind(r.URL.Path); ok && (k == KindModel || k == KindQuery) {
 			if r.Method != http.MethodPost && r.Method != http.MethodGet {
 				w.Header().Set("Allow", "GET, POST")
 				http.Error(w, "这个口只认 GET/POST", http.StatusMethodNotAllowed)

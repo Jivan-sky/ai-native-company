@@ -112,12 +112,15 @@ func TestPrefixMatchForPaths(t *testing.T) {
 func TestWrapRowFilters(t *testing.T) {
 	p := &Policy{Schema: Schema, DataSource: "demo", Default: "deny",
 		RowFilters: []RowFilter{{Table: "orders", Where: "region = 'cn'"}}}
-	wrapped, applied := p.Wrap("SELECT id FROM orders WHERE id > 0")
+	wrapped, applied, werr := p.Wrap("SELECT id, region FROM orders WHERE id > 0")
+	if werr != nil {
+		t.Fatalf("不该报错：%v", werr)
+	}
 	if len(applied) != 1 || !strings.Contains(wrapped, "anc_rls") || !strings.Contains(wrapped, "region = 'cn'") {
 		t.Fatalf("没套上行过滤：%s %v", wrapped, applied)
 	}
 	// 别的表：不套
-	if out, ap := p.Wrap("SELECT id FROM users"); out != "SELECT id FROM users" || len(ap) != 0 {
+	if out, ap, _ := p.Wrap("SELECT id FROM users"); out != "SELECT id FROM users" || len(ap) != 0 {
 		t.Fatalf("不该套：%s %v", out, ap)
 	}
 }
@@ -126,5 +129,14 @@ func TestRowFilterValidation(t *testing.T) {
 	p := Policy{Schema: Schema, DataSource: "demo", RowFilters: []RowFilter{{Table: "t", Where: "a=1; DROP"}}}
 	if err := p.validate("demo"); err == nil {
 		t.Fatal("where 里有分号必须被拒")
+	}
+}
+
+// 行过滤引用的列不在查询里：执行前就给可操作的理由，而不是让数据库报列不存在。
+func TestWrapRequiresColumn(t *testing.T) {
+	p := &Policy{Schema: Schema, DataSource: "demo", Default: "deny",
+		RowFilters: []RowFilter{{Table: "orders", Where: "region = 'cn'"}}}
+	if _, _, err := p.Wrap("SELECT id FROM orders"); err == nil || !strings.Contains(err.Error(), "region") {
+		t.Fatalf("应当提示缺列：%v", err)
 	}
 }
