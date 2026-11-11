@@ -1,0 +1,68 @@
+/* ---------------------------------------------------------------
+   v2 设计系统：先立 tokens，再谈页面。
+   颜色只表达状态（ok / warn / block / unknown），不做装饰色。
+   基调沿用现状：暖白纸感、低饱和、安静。
+   --------------------------------------------------------------- */
+.v2 {
+  /* 间距：4 的倍数，只有 5 档 */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 20px; --s5: 32px;
+  /* 字号：只有 5 档 */
+  --t1: 11px; --t2: 12px; --t3: 14px; --t4: 18px; --t5: 28px;
+  /* 语义色：状态，不是装饰 */
+  --ink: #1f1d1a; --ink-2: #5a554e; --ink-3: #8c867c;
+  --paper: #fbfaf6; --paper-2: #f4f1ea; --line: #e4dfd4;
+  --ok: #2f6b4f; --warn: #8a6d1f; --block: #a33a2f; --unknown: #8c867c;
+  --radius: 10px; --radius-s: 6px;
+  --shadow: 0 1px 2px rgba(31,29,26,.06), 0 8px 24px rgba(31,29,26,.06);
+
+  color: var(--ink);
+}
+.v2 h1 { font-size: var(--t5); line-height: 1.25; margin: 0 0 var(--s2); font-weight: 600; letter-spacing: -.01em; }
+.v2 h2 { font-size: var(--t4); margin: 0 0 var(--s2); font-weight: 600; }
+.v2 p { margin: 0 0 var(--s2); color: var(--ink-2); }
+.v2 .kicker { font-size: var(--t1); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+
+/* 简报条：一行话 + 三个数 */
+.v2 .brief { display: grid; grid-template-columns: 1fr auto; gap: var(--s4);
+  padding: var(--s4); background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: var(--s4); }
+.v2 .brief .answer { font-size: var(--t5); line-height: 1.3; font-weight: 600; letter-spacing: -.01em; }
+.v2 .brief .answer.block { color: var(--block); }
+.v2 .brief .answer.warn { color: var(--warn); }
+.v2 .brief .answer.ok { color: var(--ok); }
+.v2 .brief .asof { font-size: var(--t2); color: var(--ink-3); margin-top: var(--s2); }
+.v2 .stats { display: flex; gap: var(--s4); align-items: flex-end; }
+.v2 .stat { text-align: right; }
+.v2 .stat .n { font-size: var(--t5); font-weight: 600; line-height: 1; }
+.v2 .stat .k { font-size: var(--t1); color: var(--ink-3); margin-top: var(--s1); }
+.v2 .stat.block .n { color: var(--block); }
+.v2 .stat.warn .n { color: var(--warn); }
+
+/* 三栏：要我做 / 东西在哪 / 出过什么事 */
+.v2 .cols { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: var(--s3); }
+.v2 .card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); }
+.v2 .card h3 { font-size: var(--t3); margin: 0 0 var(--s2); font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
+.v2 .card h3 .hint { font-size: var(--t1); color: var(--ink-3); font-weight: 400; }
+.v2 .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2);
+  padding: var(--s2) 0; border-top: 1px solid var(--line); font-size: var(--t2); }
+.v2 .row:first-of-type { border-top: 0; }
+.v2 .row .what { flex: 1 1 60%; min-width: 0; overflow-wrap: anywhere; }
+.v2 .row .what b { font-weight: 600; }
+.v2 .row .meta { flex: 0 1 auto; color: var(--ink-3); font-size: var(--t1); }
+.v2 .pill { flex: none; margin-left: auto; display: inline-block; font-size: var(--t1); padding: 1px var(--s2); border-radius: 999px; border: 1px solid var(--line); color: var(--ink-2); }
+.v2 .pill.block { color: var(--block); border-color: color-mix(in srgb, var(--block) 35%, var(--line)); }
+.v2 .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
+.v2 .pill.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+.v2 .empty-state { font-size: var(--t2); color: var(--ink-3); padding: var(--s2) 0; }
+.v2 .denied { font-size: var(--t2); color: var(--block); }
+.v2 .links { display: flex; gap: var(--s3); flex-wrap: wrap; margin-top: var(--s4); font-size: var(--t2); }
+.v2 .links a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line); }
+
+@media (max-width: 1280px) { .v2 .cols { grid-template-columns: 1fr 1fr; } .v2 .cols .card:first-child { grid-column: 1 / -1; } }
+@media (max-width: 1024px) { .v2 .cols { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px) {
+  .v2 .brief { grid-template-columns: 1fr; }
+  .v2 .cols { grid-template-columns: 1fr; }
+  .v2 .stats { justify-content: flex-start; }
+  .v2 .stat { text-align: left; }
+}

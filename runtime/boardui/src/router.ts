@@ -11,6 +11,7 @@ import { renderDomains, renderMembers, renderProjects } from "./pages/org";
 import { renderJobs } from "./pages/jobs";
 import { renderModels } from "./pages/models";
 import { renderOverview } from "./pages/overview";
+import { renderOverviewV2 } from "./pages/overview-v2";
 import { renderSearch } from "./pages/search";
 import { renderSystem } from "./pages/system";
 import { renderTimeline } from "./pages/timeline";
@@ -21,7 +22,7 @@ export const overviewPage: Page = {
   id: "overview", group: "总览", label: "总览", icon: "overview", wired: true,
   question: "现在有没有事、要不要我动手？",
   sub: "一张运营态势图：校验、待批、运行、热层、资产，五路信号汇到同一个视野里。",
-  view: renderOverview,
+  view: renderOverviewV2,
 };
 export const approvalsPage: Page = {
   id: "approvals", group: "总览", label: "待批", icon: "check", wired: true,
