@@ -39,6 +39,13 @@ export function zoneCell(e: AuditEntryView): Kid {
 
 // 一行流水只有一个长相：被拦下的那张表跟主流水用同一个渲染，
 // 否则两张表的列会悄悄长歪，读的人得自己对齐。
+// 去向只看顶层目录：`<vault>/reports/x.md` 与 `…/reports/y.md` 是同一个去向。
+function topDir(object: string): string {
+  const s = object.replace(/^\.\.\.\//, "").replace(/^<vault>\/?/, "").replace(/^\.\//, "");
+  const i = s.indexOf("/");
+  return i < 0 ? "" : s.slice(0, i);
+}
+
 // 一张流水扫的是「哪天、几点、谁、干了什么」。年份和秒在每一行都重复，
 // 完整时间挂在 title 上 —— 要精确的时候悬停就有，不用的时候不占宽度。
 function stamp(at: string): HTMLElement {
@@ -113,6 +120,44 @@ export function renderAudit(d: Data): Kid[] {
     el("p", { class: "quiet" },
       "原话（工具结果 / 命令行）留在本机，不带上看板：",
       el("span", { class: "mono" }, "anc audit log <vault>"))));
+
+  // 数据流入去向：**声明**（路由目录）与实际（audit 里写到了哪）并排放。
+  // 两列必须分开 —— 声明是「应该去哪」，实际是「真去了哪」，混成一列就再也看不出偏差。
+  const routing = d.board?.routing ?? [];
+  const hits = new Map<string, { n: number; last: string }>();
+  for (const e of v.records) {
+    if ((e.action ?? "").trim() !== "write") continue;
+    const top = topDir(e.object ?? "");
+    if (top === "") continue;
+    const cur = hits.get(top) ?? { n: 0, last: "" };
+    hits.set(top, { n: cur.n + 1, last: e.at > cur.last ? e.at : cur.last });
+  }
+  out.push(section("数据流入去向",
+    el("span", {}, "声明 ", String(routing.length), " 个目录 · 实际记下 ", metricButton("routing-hits", String(hits.size)), " 个"),
+    routing.length === 0 && hits.size === 0
+      ? emptyState("还没有声明路由，审计里也没有 write 记录。",
+          el("span", {}, "路由目录写在真相源的 routing 段；流向由 agent 写文件时进 audit。"))
+      : el("div", {},
+          // 不放「这一格放什么」：这台机器上 6 条路由的说明都是空的，
+          // 一列全是「—」比没有这一列更响。说明在「业务域」页看。
+          table(["目录", "实到", "最近一笔"], [
+            ...routing.map((r) => [
+              el("span", { class: "mono nw" }, dash(r.dir)),
+              metricButton("routing-hits", String(hits.get(dash(r.dir))?.n ?? 0)),
+              (hits.get(dash(r.dir))?.last ?? "") === ""
+                ? cannot("还没有")
+                : el("span", { class: "mono nw" }, shortTime(hits.get(dash(r.dir))?.last ?? "")),
+            ]),
+            // 落到了声明之外的地方也要列出来：那是分类没做好的证据，不能因为「不在表里」就看不见。
+            ...[...hits.entries()].filter(([k]) => !routing.some((r) => dash(r.dir) === k)).map(([k, h]) => [
+              el("span", { class: "mono nw" }, k),
+              metricButton("routing-hits", String(h.n)),
+              el("span", { class: "mono nw" }, shortTime(h.last)),
+            ]),
+          ]),
+          hits.size === 0
+            ? el("p", { class: "quiet" }, "声明了去向，但 audit 里还没有一笔 write —— 「还没东西流进来」和「流进来了但没记」在这里长得一样。")
+            : "")));
 
   // 分布压成一行：它回答「有没有事」，不回答「怎么读」。
   out.push(section("分布", "",
