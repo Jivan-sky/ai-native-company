@@ -43,7 +43,7 @@ export function renderTimeline(d: Data): Kid[] {
   const v = d.timeline;
   if (!v) {
     return [banner("bad", "读不到时间线", [
-      el("span", {}, d.timelineErr === "" ? "服务没回 anc.timeline/v1" : d.timelineErr),
+      el("span", {}, d.timelineErr === "" ? "服务没回 anc.timeline/v2" : d.timelineErr),
     ])];
   }
   if (!v.wired) {
@@ -65,13 +65,13 @@ export function renderTimeline(d: Data): Kid[] {
   // 原来五张卡各带一句 sub（status=done 之类），把同一件事说了五遍 —— 归到图例里说一次。
   out.push(section("三档", "",
     dist(
-      dn(v.counts.green, "已完成"),
-      dn(v.counts.yellow, "运行中"),
-      dn(v.counts.red, "卡点 / 失败", true),
-      dn(v.counts.unknown, "认不出"),
+      dn(v.counts.green, "已完成", false, "tl-bands"),
+      dn(v.counts.yellow, "运行中", false, "tl-bands"),
+      dn(v.counts.red, "卡点 / 失败", true, "tl-bands"),
+      dn(v.counts.unknown, "认不出", false, "tl-bands"),
       dsep(),
-      dn(v.entries, "流水条"),
-      dn(v.total, "个 case"),
+      dn(v.entries, "流水条", false, "tl-bands"),
+      dn(v.total, "个 case", false, "tl-bands"),
     ),
     bandLegend()));
 

@@ -1,6 +1,8 @@
 import type { Data, Kid } from "../core/types";
 import { el } from "../core/dom";
 import { allowed, currentRole } from "../core/roles";
+import { metricButton } from "../core/metrics";
+import { efficiencyBlock } from "../ui/spark";
 
 // 第一屏 = 一份 10 秒简报。
 //
@@ -114,11 +116,12 @@ export function renderOverviewV2(d: Data): Kid[] {
           (issueCount(d) > 0 ? ` · 校验 ${issueCount(d)} 处` : "")),
       ),
       el("div", { class: "stats" },
-        el("div", { class: "stat block" }, el("div", { class: "n" }, String(redBots(d))), el("div", { class: "k" }, "bot 红")),
-        el("div", { class: "stat warn" }, el("div", { class: "n" }, String(pendingCount(d))), el("div", { class: "k" }, "待批")),
-        el("div", { class: "stat" }, el("div", { class: "n" }, String(b?.projects?.length ?? 0)), el("div", { class: "k" }, "项目")),
+        el("div", { class: "stat block" }, el("div", { class: "n" }, metricButton("bot-red", String(redBots(d)))), el("div", { class: "k" }, "bot 红")),
+        el("div", { class: "stat warn" }, el("div", { class: "n" }, metricButton("pending", String(pendingCount(d)))), el("div", { class: "k" }, "待批")),
+        el("div", { class: "stat" }, el("div", { class: "n" }, metricButton("projects", String(b?.projects?.length ?? 0))), el("div", { class: "k" }, "项目")),
       ),
     ),
+    efficiencyBlock(d) ?? "",
     el("div", { class: "cols" }, todoCard(d), whereCard(d), historyCard(d)),
     el("div", { class: "links" },
       ...SHORTCUTS.filter((s) => allowed(role, s.id))

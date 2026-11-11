@@ -329,7 +329,7 @@ export function renderSediment(d: Data): Kid[] {
 export function renderCases(d: Data): Kid[] {
   const v = d.timeline;
   if (!v) {
-    return [banner("bad", "读不到时间线", [el("span", {}, d.timelineErr === "" ? "服务没回 anc.timeline/v1" : d.timelineErr)])];
+    return [banner("bad", "读不到时间线", [el("span", {}, d.timelineErr === "" ? "服务没回 anc.timeline/v2" : d.timelineErr)])];
   }
   if (!v.wired) {
     return [banner("warn", "时间线还没接上", [el("span", {}, dash(v.error))])];

@@ -1847,7 +1847,7 @@ body::before {
    所以压到一行的次要位置，不占卡片、不再配说明段。 */
 .dist { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2) var(--s4); }
 .dist .dn { display: inline-flex; align-items: baseline; gap: var(--s2); }
-.dist .dn b { font-size: var(--t4); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.dist .dn b, .dist .dn .metric { font-size: var(--t4); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .dist .dn span { font-size: var(--t1); color: var(--muted); }
 .dist .dn.bad b { color: var(--red); }
 .dist .dn.none b { color: var(--muted); font-weight: 400; }
@@ -1962,3 +1962,41 @@ details[open] summary::after { transform: rotate(90deg); }
 .state-unknown .state-word { color: var(--warn); }
 .state-denied { border-left-color: var(--block); }
 .state-denied .state-word { color: var(--block); }
+
+/* 可点的数字：平时看着就是数字，悬停才露出「这能点」。
+   用虚下划线而不是按钮边框 —— 一屏上十几个数字，每个都套个框就没法看了。 */
+.metric {
+  font: inherit; color: inherit; background: transparent; border: 0; padding: 0;
+  cursor: pointer; border-bottom: 1px dashed color-mix(in srgb, currentColor 30%, transparent);
+}
+.metric:hover { border-bottom-color: currentColor; }
+.metric.quiet { border-bottom-style: dotted; }
+
+/* 效率（每日）：柱子不是折线 —— 三个点连成线会假装它是趋势。
+   高度按 done 归一，达成率单独一行，口径写在最下面。 */
+.eff {
+  display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  gap: var(--s4) var(--s5); align-items: start;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius, 10px);
+  padding: var(--s4); margin-bottom: var(--s4);
+}
+@media (max-width: 900px) { .eff { grid-template-columns: minmax(0, 1fr); } }
+.eff-head { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s3); }
+.eff-head h2 { margin: 0; font-size: var(--t3); font-weight: 600; }
+.eff-head .hint { font-size: var(--t1); color: var(--muted); }
+.eff .sp { display: flex; align-items: flex-end; gap: var(--s5); min-height: 84px; }
+.eff .sp-col { display: flex; flex-direction: column; align-items: center; gap: var(--s1); }
+.eff .sp-bar { width: 34px; height: 56px; display: flex; align-items: flex-end;
+  background: color-mix(in srgb, var(--text) 5%, transparent); border-radius: var(--radius-s, 6px) var(--radius-s, 6px) 0 0; }
+.eff .sp-bar i { display: block; width: 100%; background: var(--green); border-radius: inherit; }
+.eff .sp-n { font-size: var(--t4); font-weight: 600; line-height: 1.2; }
+.eff .sp-d { font-size: var(--t1); color: var(--muted); }
+.eff .sp-r { font-size: var(--t1); }
+.eff-note { font-size: var(--t1); color: var(--muted); line-height: 1.9; padding-top: var(--s4); }
+.eff-note .quiet { color: var(--muted); opacity: .8; }
+
+/* 抽屉里的指标合同：标签与值两列对齐，五行一眼扫完 */
+.drawer-body dl { display: grid; grid-template-columns: 5em minmax(0, 1fr); gap: var(--s2) var(--s3); margin: 0; }
+.drawer-body dt { color: var(--muted); font-size: var(--t1); padding-top: 2px; }
+.drawer-body dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.drawer-body pre.file-content { margin: var(--s1) 0 0; white-space: pre-wrap; }

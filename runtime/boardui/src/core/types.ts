@@ -149,7 +149,7 @@ export type GrantsView = {
   findings: Finding[]; missing: string[]; note: string; error?: string;
 };
 
-// 决策与执行的留存（`/api/timeline`，schema = anc.timeline/v1）—— 读者：跟进的人 / 老板。
+// 决策与执行的留存（`/api/timeline`，schema = anc.timeline/v2）—— 读者：跟进的人 / 老板。
 // 这一页给的是**人和 agent 自己写下来的**记录（`anc timeline add`），不是从会话里推出来的。
 // 三档只按 status 配色、形状跟「档」走（实心圆 / 带光环的圆 / 菱形 / 空心虚线圈，见 index.html 的 .dot）；
 // **认不出的词原样留着、画空心虚线圈** —— 以后加词只改数据，不用改这里。
@@ -170,6 +170,9 @@ export type TimelineView = {
   total: number; entries: number; cases: TimelineCaseView[];
   bad: string[]; limit: number; next_before?: string;
   missing: string[]; note: string; error?: string;
+  // 每日效率序列（功效 v0）。按**条目**算，不按 case 算：case 折叠后跨天的只会落最后一天。
+  // 只有真数据、不补零：这台机器上只有三天，就给三个点。
+  series: { day: string; done: number; failed: number; other: number }[];
 };
 
 // 行使的流水（`/api/audit`，schema = anc.audit/v1）—— 读者：管理者 / 合规感的人。

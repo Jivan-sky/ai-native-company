@@ -116,16 +116,16 @@ export function renderAudit(d: Data): Kid[] {
   // 分布压成一行：它回答「有没有事」，不回答「怎么读」。
   out.push(section("分布", "",
     dist(
-      dn(v.bands.ok, "成功"),
-      dn(v.bands.denied, "被拦下", true),
-      dn(v.bands.failed, "失败", true),
-      dn(v.bands.unknown, "结果认不出"),
+      dn(v.bands.ok, "成功", false, "audit-bands"),
+      dn(v.bands.denied, "被拦下", true, "audit-bands"),
+      dn(v.bands.failed, "失败", true, "audit-bands"),
+      dn(v.bands.unknown, "结果认不出", false, "audit-bands"),
       dsep(),
-      dn(v.scopes.domain, "域内"),
-      dn(v.scopes.cross, "跨域", true),
-      dn(v.scopes.outside, "域外", true),
-      dn(v.scopes.vault, "vault 内"),
-      dn(v.scopes.unknown, "目标抽不出"),
+      dn(v.scopes.domain, "域内", false, "audit-scopes"),
+      dn(v.scopes.cross, "跨域", true, "audit-scopes"),
+      dn(v.scopes.outside, "域外", true, "audit-scopes"),
+      dn(v.scopes.vault, "vault 内", false, "audit-scopes"),
+      dn(v.scopes.unknown, "目标抽不出", false, "audit-scopes"),
     )));
 
   // 答不了的照写 —— 这一页是「系统记下来的行使」，不是「全部行使」。
