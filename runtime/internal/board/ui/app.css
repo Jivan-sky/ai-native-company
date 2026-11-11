@@ -1241,7 +1241,10 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
 .page .sec .card:hover { border-color: rgba(236,236,232,0.16); }
 
 /* 宽屏：每一节改成「左侧标题栏 + 右侧内容」的编辑式版面，留白变成结构而不是空洞 */
-@media (min-width: 1100px) {
+/* 编辑式两栏（左标题、右内容）只在 1280 以上开：
+   1100–1280 这一段，左栏 236px 会把表格挤到 440px 宽 —— 六列的表必然横向滚动。
+   宁可这一段用单栏，也不要让人在卡片里横着滑。 */
+@media (min-width: 1280px) {
   .page:not(.page-overview) > .col > .sec {
     display: grid; grid-template-columns: 236px minmax(0, 1fr);
     column-gap: 38px; row-gap: 16px; align-items: start;
@@ -2034,3 +2037,10 @@ details[open] summary::after { transform: rotate(90deg); }
 .intake-side h4:first-child { margin-top: 0; }
 .dryrun { margin: 0; padding-left: 1.2em; font-size: var(--t2); color: var(--text-2); line-height: 1.85; }
 .dryrun li::marker { color: var(--muted); }
+
+/* 1280 以下：长值那一列再收窄一档。
+   六列的表在这一档只剩 ~660px，46ch 的目标列会把整张表顶出卡片；
+   全文仍在 title 上，收窄不丢信息。 */
+@media (max-width: 1280px) {
+  .vt .wide { max-width: 28ch; }
+}
