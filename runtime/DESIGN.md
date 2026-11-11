@@ -5156,6 +5156,42 @@ id	name	amount
 **没做的**：`caching_sha2_password` 完整认证（要 TLS 或 RSA 交换，现在明确报错）；
 TLS；预处理语句；MySQL 与 MariaDB 的行为差异没有单独验（已知 MariaDB 11.8 通过）。
 
+### 7.1.100 文件目录数据源：只读、防穿越、防软链（2026-11-11）
+
+第三个数据源类型：本地目录（`type: "file"`，`root` 由客户指定）。没有 SQL，
+所以安全边界必须自己写死：
+
+| 约束 | 做法 | 用例 |
+|---|---|---|
+| 路径穿越 | 先钉在 `/` 上清理 `..`，再解析真实路径确认仍在根下 | `../etc/passwd`、`/etc/passwd`、`a/../../x` 全拒 |
+| 软链逃逸 | `Lstat` + `EvalSymlinks` 后比对根；读软链直接拒绝 | 根内放指向根外的软链 → 拒绝，列目录时标 `→ 软链（不跟随）` |
+| 无限读 | `max_bytes` / `max_entries`，超了明说「截断」 | 100 字节文件、上限 10 → 返回 10 字节 + `truncated` |
+
+策略按**路径前缀**判：规则 `"table": "10-knowledge/*"`，`"columns": ["*"]`；
+`dir/*` 同时匹配 `dir` 本身（列目录时传的是目录路径）。
+
+**真跑（本机 Obsidian 知识库）**：
+
+```
+$ anc file ls … kb --as alice
+  目录  608  2026-11-08 00:38  Obsidian_database          ← 根下别的项被策略挡掉
+
+$ anc file ls … kb Obsidian_database --as alice
+  目录  …  Obsidian_database/00_Inbox
+  目录  …  Obsidian_database/01_Daily
+  … 共 9 项
+
+$ anc file cat … kb "Obsidian_database/_词表.md" --as alice --max-bytes 200
+---
+title: "标签受控词表"
+…（已截断到 200 字节）
+
+$ … --as bob
+错误：策略拒绝：bob 不能访问 .
+```
+
+读与拒都进 audit（`object=file:<ds>:<path>`、`actor=主体`）。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

@@ -88,3 +88,22 @@ func TestDerivedColumns(t *testing.T) {
 		t.Fatal("已知列不该被 derived 放行")
 	}
 }
+
+// 文件目录用前缀规则：dir/* → allow。
+func TestPrefixMatchForPaths(t *testing.T) {
+	p := &Policy{Schema: Schema, DataSource: "kb", Default: "deny", Rules: []Rule{
+		{Subject: "alice", Table: "10-knowledge/*", Columns: []string{"*"}, Action: "allow"},
+	}}
+	if got := p.Action("alice", "10-knowledge", "*"); got != "allow" {
+		t.Fatalf("目录本身也应当命中前缀：%s", got)
+	}
+	if got := p.Action("alice", "10-knowledge/a/b.md", "*"); got != "allow" {
+		t.Fatalf("前缀应当命中：%s", got)
+	}
+	if got := p.Action("alice", "20-private/x.md", "*"); got != "deny" {
+		t.Fatalf("前缀外应当拒绝：%s", got)
+	}
+	if got := p.Action("bob", "10-knowledge/a.md", "*"); got != "deny" {
+		t.Fatalf("别人应当拒绝：%s", got)
+	}
+}

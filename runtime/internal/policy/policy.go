@@ -114,8 +114,20 @@ func (p *Policy) derivedAction() string {
 	return p.Derived
 }
 
+// match 支持三种：`*`（全通）、前缀 `dir/*`（文件目录用）、精确匹配。
 func match(pattern, v string) bool {
-	return pattern == "*" || strings.EqualFold(pattern, v)
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasSuffix(pattern, "*") {
+		prefix := strings.TrimSuffix(pattern, "*")
+		// `dir/*` 也要匹配 `dir` 本身（列目录时传的是目录路径，没有结尾斜杠）。
+		if strings.EqualFold(strings.TrimSuffix(prefix, "/"), v) {
+			return true
+		}
+		return strings.HasPrefix(strings.ToLower(v), strings.ToLower(prefix))
+	}
+	return strings.EqualFold(pattern, v)
 }
 
 // Decision 是对一条查询的判定结果。
