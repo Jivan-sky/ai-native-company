@@ -2000,3 +2000,8 @@ details[open] summary::after { transform: rotate(90deg); }
 .drawer-body dt { color: var(--muted); font-size: var(--t1); padding-top: 2px; }
 .drawer-body dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .drawer-body pre.file-content { margin: var(--s1) 0 0; white-space: pre-wrap; }
+
+/* 时间线的「按人搜」：输入框与按钮一行，输入框不该铺满整栏 */
+.tl-search { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.tl-search input.by { width: 320px; max-width: 100%; padding: 0 var(--s3); height: 34px; }
+.tl-search .act { height: 34px; }

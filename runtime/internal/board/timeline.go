@@ -81,7 +81,8 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		},
 		Note: "记录是人和 agent 自己写下来的，不是从会话里推出来的。三档只按 status 配色" +
 			"（done=绿 / running=黄 / blocked·failed=红）；认不出的词原样保留、画灰 —— " +
-			"以后加词只改数据，不用改代码。一个 case 多行 = 一次推进，看板取最后一条当当前态，历史一行不删。",
+			"以后加词只改数据，不用改代码。一个 case 多行 = 一次推进，看板取最后一条当当前态，历史一行不删。" +
+			"带 by 时只统计这个人写下的条目，分布与曲线都跟着变。",
 	}
 
 	q := r.URL.Query()
@@ -115,10 +116,18 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view.Wired = true
-	view.Entries = doc.Len()
 	view.Bad = orEmptyStrings(doc.Bad)
 
-	all := timeline.Fold(doc.Entries)
+	// ?by=<谁> —— 「这个人（这个情况下的团队）留下了什么」。
+	// 筛的是**条目**再折叠，不是筛折叠后的 case：一个人可能只参与了某个 case 的中间几步，
+	// 按 case 筛会把整个 case 端上来，那回答的就不是「他留下了什么」。
+	entries := doc.Entries
+	if who := strings.TrimSpace(q.Get("by")); who != "" {
+		entries = filterBy(entries, who)
+	}
+	view.Entries = len(entries)
+
+	all := timeline.Fold(entries)
 	view.Counts = timeline.Tally(all)
 
 	cases := all
@@ -146,8 +155,21 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	view.Cases = toCaseViews(shown)
 	// 序列用**全量**条目，不受 limit / before / band 影响：
 	// 曲线回答「这几天怎么样」，不是「这一页怎么样」。
-	view.Series = daySeries(doc.Entries)
+	view.Series = daySeries(entries)
 	writeJSON(w, http.StatusOK, view)
+}
+
+// filterBy 只留某个人写下的条目。大小写不敏感、两侧去空格 —— 人名是手写的，
+// `Alice` 与 `alice ` 是同一个人，不该因为一个空格搜不到。
+func filterBy(in []timeline.Entry, who string) []timeline.Entry {
+	want := strings.ToLower(strings.TrimSpace(who))
+	out := make([]timeline.Entry, 0, len(in))
+	for _, e := range in {
+		if strings.ToLower(strings.TrimSpace(e.By)) == want {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // SeriesPoint 是一天的效率读数。三个计数加起来 = 当天的条目总数。

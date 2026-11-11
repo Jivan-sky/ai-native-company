@@ -33,6 +33,16 @@ export function searchQuery(): string {
   const s = p.toString();
   return s === "" ? "" : "?" + s;
 }
+// 时间线的「只看这个人」（`#/timeline?by=alice`）。
+// 与检索、上下文同一条纪律：筛谁进 URL —— 刷新、后退、把链接发给别人，都还停在同一个人身上。
+export function timelineQuery(): string {
+  const p = new URLSearchParams();
+  p.set("limit", "200");
+  const by = (hashQuery().get("by") ?? "").trim();
+  if (by !== "") p.set("by", by);
+  return "?" + p.toString();
+}
+
 export function currentId(): string {
   return location.hash.replace(/^#\/?/, "").split("?")[0]!.trim();
 }

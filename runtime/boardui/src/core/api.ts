@@ -1,4 +1,4 @@
-import { ctxQuery, grantsQuery, searchQuery } from "./query";
+import { ctxQuery, grantsQuery, searchQuery, timelineQuery } from "./query";
 import type { AgentsView, ApprovalView, AssetsView, AuditView, BoardView, ContextView, Data, DataflowView, DistillView, GrantsView, HotView, Issues, RuntimeView, SearchView, TimelineView } from "./types";
 
 // ---------- 取数 ----------
@@ -66,7 +66,7 @@ export async function fetchData(): Promise<Data> {
     getJSON<DistillView>("/api/distill"),
     // 长列表按接口给的上限一次取回（timeline 上限 200 / audit 上限 500），翻页在视图里切。
     // 不这么取的话，翻页每翻一页要重取一次，而这一页只看得到 20 行 —— 划不来。
-    getJSON<TimelineView>("/api/timeline?limit=200"),
+    getJSON<TimelineView>("/api/timeline" + timelineQuery()),
     getJSON<AuditView>("/api/audit?limit=500"),
     getJSON<ApprovalView>("/api/approvals"),
     getJSON<HotView>("/api/hot"),
