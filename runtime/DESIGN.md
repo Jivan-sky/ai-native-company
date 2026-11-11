@@ -5072,6 +5072,44 @@ $ anc catalog diff … demo-pg
 **分级只是建议**：现在只按列名规则（email/phone → pii，amount/salary → sensitive），
 **拍板要人确认**——值形状扫描（库内聚合计数）是下一刀。
 
+### 7.1.98 策略强制点：默认拒绝，拒绝是整条查询（2026-11-11）
+
+策略是数据，住在 `<vault>/../policies/<ds>.json`：
+
+```json
+{"schema":"anc.policy/v1","datasource":"demo-pg","default":"deny","rules":[
+ {"subject":"alice","table":"orders","columns":["id","name"],"action":"allow"},
+ {"subject":"alice","table":"orders","columns":["total"],"action":"mask"},
+ {"subject":"bob","table":"orders","columns":["id"],"action":"allow"}]}
+```
+
+三条口径：
+
+1. **默认拒绝**：没有策略文件 = 全部拒绝；没命中规则的列 = 拒绝。
+2. **拒绝是整条查询失败**，不悄悄丢列——静默少一列会让人以为查到了全部（假绿）。
+3. **脱敏保留列、替换值**（`***`），并且把「脱敏了哪几列」写进台账。
+
+**真跑（PG 17）**：
+
+```
+$ anc db query … --as alice --sql "SELECT id, name, total FROM orders ORDER BY id"
+id	name	total
+1	alice	***
+2	bob	***
+3	carol	***
+
+$ anc db query … --as bob --sql "SELECT id, total FROM orders"
+错误：策略拒绝：bob 不能看列 total
+
+台账：alice · read · ok · 「脱敏列 total」；bob · read · failed · 「不能看列 total」
+```
+
+**已知边界**（下一刀要处理）：
+
+- 策略按**列名**判，表名靠目录快照映射（列名在库里唯一才映射得上）；计算列（如 `count(*)`）不在目录里 → 按默认拒绝，安全但会挡掉聚合查询。
+- 没有行级过滤（`WHERE` 注入），只有列级。
+- 看板还没读策略；`/api/query` 还没做。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |

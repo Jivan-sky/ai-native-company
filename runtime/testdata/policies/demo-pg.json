@@ -1,0 +1,10 @@
+{
+  "schema": "anc.policy/v1",
+  "datasource": "demo-pg",
+  "default": "deny",
+  "rules": [
+    { "subject": "alice", "table": "orders", "columns": ["id", "name"], "action": "allow" },
+    { "subject": "alice", "table": "orders", "columns": ["total"], "action": "mask" },
+    { "subject": "bob",   "table": "orders", "columns": ["id"], "action": "allow" }
+  ]
+}
