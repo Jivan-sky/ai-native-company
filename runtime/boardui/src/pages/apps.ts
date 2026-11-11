@@ -1,5 +1,6 @@
 import type { AppRow, Data, Kid } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
+import { shortTime } from "../core/format";
 import { emptyNote } from "../ui/blocks";
 
 // 「应用」页：装了什么、审没审、内容对不对。
@@ -25,10 +26,11 @@ function rowCell(a: AppRow): Kid[] {
     el("span", { class: "mono nw" }, a.name),
     el("span", { class: "mono nw" }, a.version),
     appStateChip(a.state),
-    el("span", { class: "mono" }, a.sha256 + "…"),
+    // 内容 hash 全铺是 64 个字符，它会把这一列撑成一张纸。前 12 位足够对身份，全文在 title 上。
+    el("span", { class: "mono nw", title: a.sha256 }, a.sha256.slice(0, 12) + "…"),
     (a.approved_by ?? "") === ""
-      ? el("span", { class: "empty" }, "—")
-      : el("span", {}, `${a.approved_by} · ${a.approved_at ?? ""}`),
+      ? el("span", { class: "quiet" }, "—")
+      : el("span", { class: "nw" }, a.approved_by ?? "", " · ", shortTime(a.approved_at ?? "")),
   ];
 }
 
@@ -52,7 +54,7 @@ export function renderApps(d: Data): Kid[] {
   const pending = v.apps.filter((a) => a.state === "pending").length;
   if (pending > 0) {
     out.push(banner("warn", `有 ${pending} 个应用在等人审批`, [
-      el("span", {}, "它们在批准之前不会执行任何东西 —— 这是设计，不是故障。"),
+      el("span", {}, "批准之前它们不会执行任何东西。"),
     ]));
   }
   return out;

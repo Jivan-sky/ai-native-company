@@ -1,7 +1,7 @@
 import type { AuditEntryView, Data, Kid } from "../core/types";
 import { pager, sliced } from "../ui/pager";
 import { banner, chip, dash, el, section, table } from "../core/dom";
-import { localTime } from "../core/format";
+import { localTime, shortTime } from "../core/format";
 import { hashQuery } from "../core/query";
 import { cannot, dist, dn, dsep, emptyNote } from "../ui/blocks";
 import { dotLine } from "../ui/status";
@@ -40,8 +40,7 @@ export function zoneCell(e: AuditEntryView): Kid {
 // 一张流水扫的是「哪天、几点、谁、干了什么」。年份和秒在每一行都重复，
 // 完整时间挂在 title 上 —— 要精确的时候悬停就有，不用的时候不占宽度。
 function stamp(at: string): HTMLElement {
-  const full = localTime(at);
-  return el("span", { class: "mono nw", title: full }, full.slice(5, 16));
+  return el("span", { class: "mono nw", title: localTime(at) }, shortTime(at));
 }
 
 function auditRow(e: AuditEntryView): Kid[] {
