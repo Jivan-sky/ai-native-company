@@ -169,7 +169,9 @@ TASK_ID=$("$BIN" task pull "$ROOT" --who opsbot --limit 1 --json 2>"$LOG/task-pu
 	sed -n '1,30p' "$LOG/task-ack.log" >&2
 	fail "task ack 失败"
 }
-"$BIN" task ls "$ROOT" --who opsbot --stage done >"$LOG/task-ls.log" 2>&1 || fail "task ls 失败"
+# --limit 给足：沙箱是复用的，done 态会一轮一轮攒下来；
+# 用默认的 50 条上限，攒够 50 轮之后这条断言就会凭空变红 —— 那是测试的毛病，不是产品的。
+"$BIN" task ls "$ROOT" --who opsbot --stage done --limit 500 >"$LOG/task-ls.log" 2>&1 || fail "task ls 失败"
 has "$LOG/task-ls.log" "$TASK_ID" "ack 之后 done 态里没有这条"
 ok "任务 $TASK_ID 走完 add→pull→ack"
 

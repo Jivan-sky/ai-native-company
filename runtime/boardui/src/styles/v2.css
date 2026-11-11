@@ -295,10 +295,10 @@ details[open] summary::after { transform: rotate(90deg); }
 .dryrun { margin: 0; padding-left: 1.2em; font-size: var(--t2); color: var(--text-2); line-height: 1.85; }
 .dryrun li::marker { color: var(--muted); }
 
-/* 1280 以下：长值那一列再收窄一档。
-   六列的表在这一档只剩 ~660px，46ch 的目标列会把整张表顶出卡片；
-   全文仍在 title 上，收窄不丢信息。 */
-@media (max-width: 1280px) {
+/* 1500 以下：长值那一列收窄一档。
+   编辑式两栏（左栏 236px）开起来以后，六列的表在 1440 这一档只剩 ~740px，
+   46ch 的目标列会把整张表顶出卡片；全文仍在 title 上，收窄不丢信息。 */
+@media (max-width: 1500px) {
   .vt .wide { max-width: 28ch; }
 }
 

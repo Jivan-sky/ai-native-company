@@ -596,7 +596,7 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
 /* 编辑式两栏（左标题、右内容）只在 1280 以上开：
    1100–1280 这一段，左栏 236px 会把表格挤到 440px 宽 —— 六列的表必然横向滚动。
    宁可这一段用单栏，也不要让人在卡片里横着滑。 */
-@media (min-width: 1280px) {
+@media (min-width: 1360px) {
   .page:not(.page-overview) > .col > .sec {
     display: grid; grid-template-columns: 236px minmax(0, 1fr);
     column-gap: 38px; row-gap: 16px; align-items: start;
