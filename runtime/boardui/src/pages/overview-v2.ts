@@ -94,10 +94,12 @@ function historyCard(d: Data): Kid {
 }
 
 // 总览底部的快捷入口。同样按身份过滤 —— 详见 whereCard 的注释。
-const SHORTCUTS: { id: string; label: string }[] = [
+// 并页之后，「作业」这类入口要落到对应的**标签**，否则会停在那页的默认标签上
+// （点「作业」却看到「应用」，是最容易漏的一种导航错）。
+const SHORTCUTS: { id: string; label: string; href?: string }[] = [
   { id: "data", label: "数据" },
   { id: "projects", label: "项目" },
-  { id: "jobs", label: "作业" },
+  { id: "run", label: "作业", href: "#/run?tab=jobs" },
   { id: "cases", label: "卡点" },
   { id: "audit", label: "审计" },
   { id: "timeline", label: "时间线" },
@@ -125,7 +127,7 @@ export function renderOverviewV2(d: Data): Kid[] {
     el("div", { class: "cols" }, todoCard(d), whereCard(d), historyCard(d)),
     el("div", { class: "links" },
       ...SHORTCUTS.filter((s) => allowed(role, s.id))
-        .map((s) => el("a", { href: "#" + s.id }, s.label + " →"))),
+        .map((s) => el("a", { href: s.href ?? "#" + s.id }, s.label + " →"))),
   );
   return [summary as unknown as Kid];
 }

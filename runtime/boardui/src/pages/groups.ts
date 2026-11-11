@@ -5,6 +5,8 @@ import { allowed, currentRole } from "../core/roles";
 import { renderAssets, renderCases, renderSediment } from "./assets";
 import { renderAudit } from "./audit";
 import { renderDomains, renderMembers } from "./org";
+import { renderContext } from "./context";
+import { renderData } from "./data";
 import { renderGraph } from "./graph";
 import { renderSearch } from "./search";
 import { renderTimeline } from "./timeline";
@@ -68,6 +70,14 @@ export const RECORD_TABS: SubTab[] = [
   { id: "audit", label: "审计", hint: "系统记下来的行使", view: renderAudit },
 ];
 
+// 数据 = 数据源与策略 / 上下文。两者是同一件事的两端：
+// 一头是「库里有什么」，一头是「agent 拿到什么去干活」。
+export const DATA_TABS: SubTab[] = [
+  { id: "data", label: "数据源与策略", hint: "连了什么、目录、策略、查询", view: renderData },
+  { id: "context", label: "上下文", hint: "一个 agent 的工作上下文", view: renderContext },
+];
+
+export const renderDataGroup = (d: Data): Kid[] => renderGroup("data", DATA_TABS, "data", d);
 export const renderAssetGroup = (d: Data): Kid[] => renderGroup("assets", ASSET_TABS, "assets", d);
 export const renderOrgGroup = (d: Data): Kid[] => renderGroup("org", ORG_TABS, "members", d);
 export const renderRecordGroup = (d: Data): Kid[] => renderGroup("records", RECORD_TABS, "timeline", d);
