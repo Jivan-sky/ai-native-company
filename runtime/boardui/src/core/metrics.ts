@@ -87,6 +87,13 @@ export const METRICS: Metric[] = [
     owner: "记录",
   },
   {
+    id: "routing-hits", label: "去向命中",
+    formula: "按 audit 里 write 记录的 object 顶层目录分组计数（去掉 …/ 与 <vault>/ 前缀）",
+    source: "audit/*.jsonl + board.routing", fresh: "每次刷新",
+    bias: "只数**记下来**的 write；没进 audit 的流入看不到，所以 0 不代表没发生",
+    owner: "审计",
+  },
+  {
     id: "cases-red", label: "卡点数（红）",
     formula: "timeline 折叠后 band == \"red\" 的 case 数；按人分组时是同一条按 by 切",
     source: "timeline/*.jsonl", fresh: "每次刷新",
