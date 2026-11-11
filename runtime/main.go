@@ -157,6 +157,8 @@ func main() {
 		os.Exit(cmdModel(args))
 	case "app":
 		os.Exit(cmdApp(args))
+	case "file":
+		os.Exit(cmdFile(args))
 	case "catalog":
 		os.Exit(cmdCatalog(args))
 	case "db":
@@ -257,6 +259,7 @@ func usage() {
                                     按域可见范围搜知识（默认 BM25；给指针 + 片段，查不到就说没入库）
   anc model ask --socket <路径> --prompt "…"   沙箱里通过 unix socket 让 ANC 代调模型
   anc app install|ls|approve|revoke|run  脚本应用：装/审/沙箱跑/撤（未审不跑）
+  anc file ls|cat <vault> <数据源> ...      本地文件目录（只读；按路径前缀判策略）
   anc catalog scan|show|diff <vault> <数据源>   数据目录：内省 schema / 看快照 / 比漂移
   anc db ls|query <vault> ...       数据源（只读）：看有哪些、跑一条 SELECT
   anc delegate issue|revoke <vault>   发/撤委派令牌（EdDSA；私钥住 data/authz）
