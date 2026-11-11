@@ -1,5 +1,6 @@
 import type { Data, Kid } from "../core/types";
 import { el } from "../core/dom";
+import { allowed, currentRole } from "../core/roles";
 
 // 第一屏 = 一份 10 秒简报。
 //
@@ -66,15 +67,18 @@ function todoCard(d: Data): Kid {
 
 function whereCard(d: Data): Kid {
   const b = d.board;
-  const line = (k: string, v: number, href: string): Kid =>
-    row(el("a", { href, "data-link": "1" }, k), `${v}`, "");
+  const role = currentRole();
+  // 链接也要按身份过滤：成员点进「成员管理」只会看到一屏「看不到」，
+  // 那不如一开始就不给他这个入口 —— 导航里的每一项都该是能进去的。
+  const line = (k: string, v: number, id: string): Kid =>
+    allowed(role, id) ? row(el("a", { href: "#" + id, "data-link": "1" }, k), `${v}`, "") : "";
   return el("div", { class: "card" },
     el("h3", {}, "东西在哪"),
     b
       ? el("div", {},
-          line("成员与 Agent", b.members.length, "#members"),
-          line("业务域", b.domains.length, "#domains"),
-          line("项目", b.projects.length, "#projects"))
+          line("成员与 Agent", b.members.length, "members"),
+          line("业务域", b.domains.length, "domains"),
+          line("项目", b.projects.length, "projects"))
       : el("div", { class: "denied" }, "真相源读不到，这一栏为空不是没有。"));
 }
 
@@ -87,8 +91,19 @@ function historyCard(d: Data): Kid {
     items.length === 0 ? el("div", { class: "empty-state" }, "还没有流水。") : el("div", {}, ...items));
 }
 
+// 总览底部的快捷入口。同样按身份过滤 —— 详见 whereCard 的注释。
+const SHORTCUTS: { id: string; label: string }[] = [
+  { id: "data", label: "数据" },
+  { id: "projects", label: "项目" },
+  { id: "jobs", label: "作业" },
+  { id: "cases", label: "卡点" },
+  { id: "audit", label: "审计" },
+  { id: "timeline", label: "时间线" },
+];
+
 export function renderOverviewV2(d: Data): Kid[] {
   const v = verdict(d);
+  const role = currentRole();
   const b = d.board;
   const summary = el("div", { class: "v2" },
     el("div", { class: "brief" },
@@ -106,12 +121,8 @@ export function renderOverviewV2(d: Data): Kid[] {
     ),
     el("div", { class: "cols" }, todoCard(d), whereCard(d), historyCard(d)),
     el("div", { class: "links" },
-      el("a", { href: "#data" }, "数据 →"),
-      el("a", { href: "#apps" }, "应用 →"),
-      el("a", { href: "#jobs" }, "作业 →"),
-      el("a", { href: "#audit" }, "审计 →"),
-      el("a", { href: "#timeline" }, "时间线 →"),
-    ),
+      ...SHORTCUTS.filter((s) => allowed(role, s.id))
+        .map((s) => el("a", { href: "#" + s.id }, s.label + " →"))),
   );
   return [summary as unknown as Kid];
 }
