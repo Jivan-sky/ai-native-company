@@ -4,6 +4,16 @@ export function localTime(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? dash(iso) : d.toLocaleString();
 }
+// 表格里的时间：只到分。年份和秒在每一行都重复，扫表的人不需要；
+// 要精确的时候悬停看 title（那边仍是 localTime 的完整值）。
+// 不切 localTime 的字符串：那一天是 8 号时它给出的是 "2026/11/8 00:38:12"，
+// 位数一变，切出来的就是 "11/8 00:38:" 这种带半截冒号的尾巴。自己拼，恒定 11 个字符。
+export function shortTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return dash(iso);
+  const p = (n: number): string => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 // 体积给人看，不给机器看（机器那份在接口里，是字节数）。
 export function humanBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return "—";

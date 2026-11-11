@@ -1,5 +1,6 @@
 import type { CatalogView, Data, DSRow, Kid } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
+import { localTime, shortTime } from "../core/format";
 import { emptyNote } from "../ui/blocks";
 
 // 「数据」页：数据源 → 目录 → 分级/策略；右边可以直接跑一条只读查询。
@@ -67,13 +68,15 @@ function fileBrowser(d: Data): Kid {
       ? `#data?ds=${encodeURIComponent(snap.datasource)}&p=${encodeURIComponent(e.path)}`
       : `#data?ds=${encodeURIComponent(snap.datasource)}&p=${encodeURIComponent(d.filePath)}`;
     const cell = el("a", { class: "mono", href, "data-file": e.dir ? "" : e.path }, label);
-    rows.push([cell, e.dir ? "目录" : `${e.size} B`, e.mtime]);
+    rows.push([cell, e.dir ? "目录" : `${e.size} B`,
+      el("span", { class: "mono nw", title: localTime(e.mtime ?? "") }, shortTime(e.mtime ?? ""))]);
   }
   const crumb = el("div", { class: "empty" }, `路径：${d.filePath === "" ? "/" : "/" + d.filePath}`);
   return el("div", {},
     el("div", { class: "empty" },
-      `指纹 ${snap.fingerprint ?? "—"} · 扫于 ${(snap.scanned_at ?? "").slice(0, 19)} · ` +
-      `${snap.files.length} 个文件 / ${snap.dirs.length} 个目录`),
+      "扫于 " + ((snap.scanned_at ?? "") === "" ? "—" : shortTime(snap.scanned_at ?? "")) +
+      " · 指纹 " + (snap.fingerprint ?? "").slice(0, 12) +
+      ` · ${snap.files.length} 个文件 / ${snap.dirs.length} 个目录`),
     crumb,
     (d.fileErr ?? "") !== ""
       ? banner("warn", "列目录失败", [el("span", {}, d.fileErr)])
@@ -102,16 +105,17 @@ export function renderData(d: Data): Kid[] {
       : el("div", { class: "ds-list" }, ...v.datasources.map((x) => dsCard(x, x.name === active)))));
 
   if (active !== "" && v.datasources.some((x) => x.name === active && x.type === "file")) {
-    out.push(section(`文件目录：${active}`, "只连不搬：这里只读元数据；文件内容按策略放行", fileBrowser(d)));
+    out.push(section(`文件目录：${active}`, "只读元数据 · 文件内容按策略放行", fileBrowser(d)));
     return out;
   }
 
   if (d.cat && d.cat.wired) {
     out.push(section(`目录：${d.cat.datasource}`,
-      `指纹 ${d.cat.fingerprint ?? "—"} · 扫于 ${d.cat.scanned_at ?? "—"}`,
+      "扫于 " + ((d.cat.scanned_at ?? "") === "" ? "—" : shortTime(d.cat.scanned_at ?? "")) +
+        " · 指纹 " + (d.cat.fingerprint ?? "").slice(0, 12),
       catalogTable(d.cat)));
-    out.push(section("策略", "目录与执行读同一份策略", policyBlock(d.cat)));
-    out.push(section("查询", "走同一道闸：列级策略 + 行过滤 + 额度都生效",
+    out.push(section("策略", "", policyBlock(d.cat)));
+    out.push(section("查询", "只读 · 列策略 + 行过滤仍然生效",
       el("div", { id: "data-query", class: "query-box" },
         el("textarea", { class: "query-input", rows: "2", placeholder: "SELECT …（只读）" }),
         el("button", { class: "query-run" }, "运行"),

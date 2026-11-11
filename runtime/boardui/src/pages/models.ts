@@ -13,7 +13,7 @@ function rowCell(m: ModelRow): Kid[] {
     m.configured ? chip("已配", true) : chip("未配", true),
     chip(m.status === "disabled" ? "停用" : "启用", true),
     (m.apps ?? []).length === 0
-      ? el("span", { class: "empty" }, "—")
+      ? el("span", { class: "quiet" }, "—")
       : el("span", {}, (m.apps ?? []).join("、")),
   ];
 }
@@ -38,7 +38,7 @@ export function renderModels(d: Data): Kid[] {
   const missing = v.entries.filter((m) => !m.configured).length;
   if (missing > 0) {
     out.push(banner("warn", `有 ${missing} 条还没配密钥`, [
-      el("span", {}, "它们被调用时会明确失败 —— 不会静默用别的 key 顶上。"),
+      el("span", {}, "被调用时会明确失败，不会拿别的密钥顶上。"),
     ]));
   }
   return out;

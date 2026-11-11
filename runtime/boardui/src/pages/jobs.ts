@@ -1,5 +1,6 @@
 import type { Data, JobRow, Kid } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
+import { localTime, shortTime } from "../core/format";
 import { emptyNote } from "../ui/blocks";
 
 // 「作业」页：什么时候跑、上次成没成、下次几点。
@@ -15,9 +16,9 @@ function schedText(j: JobRow): string {
 }
 
 function lastCell(j: JobRow): Kid {
-  if ((j.last_at ?? "") === "") return el("span", { class: "empty" }, "从没跑过");
-  const when = (j.last_at ?? "").replace("T", " ").slice(0, 16);
-  return el("span", {}, when, " ", j.last_ok ? chip("成功", true) : chip("失败", true));
+  if ((j.last_at ?? "") === "") return el("span", { class: "quiet" }, "从没跑过");
+  return el("span", { class: "nw" }, shortTime(j.last_at ?? ""), " ",
+    j.last_ok ? chip("成功", true) : chip("失败", true));
 }
 
 function rowCell(j: JobRow): Kid[] {
@@ -26,9 +27,9 @@ function rowCell(j: JobRow): Kid[] {
     el("span", { class: "mono nw" }, j.kind === "app" ? "应用" : "HTTP"),
     el("span", { class: "mono nw" }, schedText(j)),
     lastCell(j),
-    el("span", { class: "mono nw" }, (j.next_at ?? "").replace("T", " ").slice(0, 16) || "—"),
+    el("span", { class: "mono nw", title: localTime(j.next_at ?? "") }, (j.next_at ?? "") === "" ? "—" : shortTime(j.next_at ?? "")),
     j.last_ok || (j.last_error ?? "") === ""
-      ? el("span", { class: "empty" }, "—")
+      ? el("span", { class: "quiet" }, "—")
       : el("span", {}, j.last_error ?? ""),
   ];
 }
@@ -53,7 +54,7 @@ export function renderJobs(d: Data): Kid[] {
   const failed = v.jobs.filter((j) => !j.last_ok && (j.last_at ?? "") !== "").length;
   if (failed > 0) {
     out.push(banner("warn", `有 ${failed} 个作业上次失败`, [
-      el("span", {}, "它们会按计划重试；连续失败要看原因，不是等它自己好。"),
+      el("span", {}, "按计划会重试；连续失败看右列的失败原因。"),
     ]));
   }
   return out;
