@@ -256,20 +256,31 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
 }
 
 export function pageHead(page: Page): HTMLElement {
+  // 页头只留「这是什么页」+ 动作。原来那句 question / sub 是给作者看的，不是给读者的。
   const copy = el("button", { class: "ghost-btn", type: "button" }, icon("copy", 14), "复制链接");
   copy.addEventListener("click", copyLink);
-  const idx = PAGES.findIndex((x) => x.id === page.id) + 1;
-  const no = String(Math.max(idx, 1)).padStart(2, "0");
-  return el("section", { class: "page-head" },
-    el("div", { class: "ph-main" },
-      el("p", { class: "eyebrow" },
-        el("span", { class: "ph-no" }, no), page.group, el("span", { class: "ph-sep" }, "/"), el("span", {}, page.id)),
-      el("h1", {}, page.label),
-      el("p", { class: "ask" }, page.question),
-      page.sub ? el("p", { class: "ph-sub" }, page.sub) : ""),
+  const inTabs = TABS.some((t) => t.id === page.id);
+  return el("section", { class: "page-head" + (inTabs ? " no-title" : "") },
+    el("div", { class: "ph-main" }, inTabs ? "" : el("h1", {}, page.label)),
     el("div", { class: "page-actions" },
       page.id === "overview" ? "" : el("a", { class: "ghost-btn", href: "#/overview" }, icon("overview", 14), "总览"),
       copy));
+}
+
+// 顶部标签页：常去的几页，一次点击就能跳。侧栏仍是全量导航，标签是「高频入口」。
+const TABS: { id: string; label: string }[] = [
+  { id: "overview", label: "总览" },
+  { id: "approvals", label: "待批" },
+  { id: "data", label: "数据" },
+  { id: "apps", label: "应用" },
+  { id: "jobs", label: "作业" },
+  { id: "audit", label: "审计" },
+];
+
+export function tabbar(page: Page): HTMLElement {
+  return el("nav", { class: "tabs" },
+    ...TABS.map((t) =>
+      el("a", { class: "tab" + (t.id === page.id ? " active" : ""), href: "#/" + t.id }, t.label)));
 }
 
 export function pageFooter(): HTMLElement {
@@ -343,13 +354,13 @@ export function shell(): void {
     el("div", { class: "side-scrim" }),
     el("div", { class: "main" },
       topbar(page, d),
+      tabbar(page),
       el("main", { class: "pagewrap" }, el("div", { class: "page page-" + page.id }, col)),
       el("footer", { class: "statusbar" },
         el("span", { class: "sb-item" }, el("i", { class: "sb-dot" }), d?.board ? dash(d.board.company.name) : "ANC 看板"),
         el("span", { class: "sb-item" }, "schema ", el("b", {}, d?.board ? d.board.schema : "—")),
         el("span", { class: "sb-item" }, d?.board ? "生成 " + localTime(d.board.generated_at) : "等待投影"),
         el("span", { class: "sb-grow" }),
-        el("span", { class: "sb-item" }, "几乎只读 · 写口：待批 / 归档"),
         el("span", { class: "sb-item" }, "Ctrl K"))));
   try {
     if (localStorage.getItem("anc.rail.min") === "1") app.classList.add("rail-min");

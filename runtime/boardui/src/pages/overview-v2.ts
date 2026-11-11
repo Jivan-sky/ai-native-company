@@ -60,7 +60,7 @@ function todoCard(d: Data): Kid {
     items.push(el("div", { class: "denied" }, "运行态与待批都读不到 —— 不是没事，是看不见。"));
   }
   return el("div", { class: "card" },
-    el("h3", {}, "要我做", el("span", { class: "hint" }, "卡点 + 待批")),
+    el("h3", {}, "要我做"),
     items.length === 0 ? el("div", { class: "empty-state" }, "没有卡点，也没有待批。") : el("div", {}, ...items));
 }
 
@@ -69,7 +69,7 @@ function whereCard(d: Data): Kid {
   const line = (k: string, v: number, href: string): Kid =>
     row(el("a", { href, "data-link": "1" }, k), `${v}`, "");
   return el("div", { class: "card" },
-    el("h3", {}, "东西在哪", el("span", { class: "hint" }, "按动词找")),
+    el("h3", {}, "东西在哪"),
     b
       ? el("div", {},
           line("成员与 Agent", b.members.length, "#members"),
@@ -83,7 +83,7 @@ function historyCard(d: Data): Kid {
     row(el("b", {}, `${a.actor ?? "?"} ${a.action ?? ""}`), (a.at ?? "").slice(5, 16),
       a.result === "ok" ? "ok" : "block"));
   return el("div", { class: "card" },
-    el("h3", {}, "出过什么事", el("span", { class: "hint" }, "最近三条")),
+    el("h3", {}, "出过什么事"),
     items.length === 0 ? el("div", { class: "empty-state" }, "还没有流水。") : el("div", {}, ...items));
 }
 
@@ -91,7 +91,6 @@ export function renderOverviewV2(d: Data): Kid[] {
   const v = verdict(d);
   const b = d.board;
   const summary = el("div", { class: "v2" },
-    el("div", { class: "kicker" }, "现在"),
     el("div", { class: "brief" },
       el("div", {},
         el("div", { class: "answer " + v.tone }, v.text),
