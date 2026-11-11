@@ -5015,11 +5015,30 @@ $ anc db query … --sql "UPDATE orders SET amount=0"
 错误：只读数据源：只许 SELECT / WITH 开头          （台账记 failed，理由原样）
 ```
 
-**没做的（照实列）**：
+**真 PostgreSQL 验过了（2026-11-11 补）**：用 `dev/pg/` 里那套（本地基础镜像 + apt 装 PG 17.11，
+不依赖 Docker Hub）起了一个真库，账号 `reader`，`scram-sha-256`：
 
-- **真实 PostgreSQL 没验过**：本机没有 PG，Docker Hub 拉不到镜像；线协议的正确性目前只由假服务端证明。
+```
+$ anc db query … --sql "SELECT id, name, amount FROM orders ORDER BY id"
+id	name	amount
+1	alice	18.00
+2	bob	42.50
+3	carol	7.25
+
+$ … --sql "SELECT current_setting('default_transaction_read_only') AS ro, current_setting('statement_timeout') AS st, current_user"
+ro	 st	 current_user
+on	 10s	 reader          ← 服务端确认：只读会话 + 语句超时都生效了
+
+$ … --sql "SELECT * FROM nope"
+错误：PG 错误 42P01：relation "nope" does not exist   ← 服务端错误原样带回
+```
+
+也就是说：**SCRAM-SHA-256 认证、只读会话、语句超时、错误映射**四件事在真 PG 上成立。
+仍然没做：TLS（`sslmode=disable` 以外拒）、参数化查询、HTTP 出口。
+
+**还欠的**：
+：本机没有 PG，Docker Hub 拉不到镜像；线协议的正确性目前只由假服务端证明。
 - **不支持 TLS**：`sslmode=disable` 以外的连接串直接拒绝（不假装加密）。
-- **SCRAM 只实现了客户端**，没有和真 PG 对过一次。
 - 没有参数化查询（`$1` 走扩展协议），现在只有简单查询 + 守卫。
 - 没有 HTTP 出口（`/api/query`），只有 CLI；MySQL 与本地文件目录还没接。
 
