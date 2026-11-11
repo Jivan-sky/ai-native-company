@@ -236,10 +236,10 @@
 [data-theme="light"] .column { background: linear-gradient(180deg, rgba(255,255,255,0.90), rgba(246,245,240,0.72)); }
 [data-theme="light"] .tk { background: rgba(255,255,255,0.92); border-color: rgba(28,31,26,0.16); }
 [data-theme="light"] .tk.masked { border-color: rgba(80,95,192,0.30); color: #3f4a9e; }
-[data-theme="light"] .page .field input.by, [data-theme="light"] .page .field input.why {
+[data-theme="light"] .page input.by, [data-theme="light"] .page input.why {
   background: rgba(255,255,255,0.86); border-color: rgba(28,31,26,0.14);
 }
-[data-theme="light"] .page .field input.by:focus, [data-theme="light"] .page .field input.why:focus {
+[data-theme="light"] .page input.by:focus, [data-theme="light"] .page input.why:focus {
   border-color: rgba(158,118,38,0.42); box-shadow: 0 0 0 3px rgba(158,118,38,0.10);
 }
 
