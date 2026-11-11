@@ -3,6 +3,7 @@ import { banner, chip, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { emptyNote } from "../ui/blocks";
 import { currentRole, visible } from "../core/roles";
+import { metricButton } from "../core/metrics";
 
 // 「数据」页：数据源 → 目录 → 分级/策略；右边可以直接跑一条只读查询。
 //
@@ -10,9 +11,10 @@ import { currentRole, visible } from "../core/roles";
 // 策略仍然按列判、按行过滤，和 CLI 走同一个执行器。
 
 function dsCard(d: DSRow, active: boolean): HTMLElement {
+  // 表 / 列 / 已拍板 这三个数只在「目录」标题那边出现一次（可点开看合同），
+  // 卡片里重复一遍等于把同一个数说两次，还多一个不可点的数。
   const meta = [
     d.type,
-    `${d.tables ?? 0} 表 / ${d.columns ?? 0} 列`,
     d.classified ? `已拍板 ${d.classified}` : "未分级",
     d.has_policy ? "有策略" : "无策略（全拒）",
   ].join(" · ");
@@ -111,9 +113,13 @@ export function renderData(d: Data): Kid[] {
   }
 
   if (d.cat && d.cat.wired) {
+    const t = d.cat.tables ?? [];
+    const cols = t.reduce((n, x) => n + x.columns.length, 0);
     out.push(section(`目录：${d.cat.datasource}`,
-      "扫于 " + ((d.cat.scanned_at ?? "") === "" ? "—" : shortTime(d.cat.scanned_at ?? "")) +
-        " · 指纹 " + (d.cat.fingerprint ?? "").slice(0, 12),
+      el("span", {},
+        metricButton("catalog", String(t.length)), " 表 · ",
+        metricButton("catalog", String(cols)), " 列 · 扫于 ",
+        (d.cat.scanned_at ?? "") === "" ? "—" : shortTime(d.cat.scanned_at ?? "")),
       catalogTable(d.cat)));
     // 段落级门禁：成员能看目录（哪些表、哪几列），看不到策略规则本身。
     if (visible(currentRole(), "data.policy")) out.push(section("策略", "", policyBlock(d.cat)));

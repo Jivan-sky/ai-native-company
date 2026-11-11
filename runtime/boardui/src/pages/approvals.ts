@@ -5,6 +5,7 @@ import { localTime, sinceText } from "../core/format";
 import { reload, rerender } from "../core/refresh";
 import { cannot } from "../ui/blocks";
 import { emptyState } from "../ui/states";
+import { metricButton } from "../core/metrics";
 import { byWho, setByWho } from "../ui/bywho";
 import { bandDot, bandWord, dotLine } from "../ui/status";
 
@@ -122,7 +123,7 @@ export function pendingSection(v: ApprovalView): Kid {
   if (v.pending.length === 0) {
     return section("队列", "", emptyState("队列里没有等点头的提案。", "有提案进来会自己出现在这里。"));
   }
-  return section("队列", "共 " + v.count + " 条 · 早提的在前",
+  return section("队列", el("span", {}, "共 ", metricButton("pending", String(v.count)), " 条 · 早提的在前"),
     el("div", { class: "grid props" }, ...v.pending.map((p) => pendingCard(v, p))));
 }
 

@@ -5,6 +5,7 @@ import { localTime, shortTime } from "../core/format";
 import { hashQuery } from "../core/query";
 import { cannot, dist, dn, dsep } from "../ui/blocks";
 import { cmd, emptyState } from "../ui/states";
+import { metricButton } from "../core/metrics";
 import { dotLine } from "../ui/status";
 
 // 四档结果：ok 实心圆 / denied 菱形 / failed 菱形 / 认不出的词虚线空圈。
@@ -101,7 +102,7 @@ export function renderAudit(d: Data): Kid[] {
 
   const au = sliced(v.records, hashQuery());
   out.push(section("流水",
-    "共 " + v.total + " 条",
+    el("span", {}, "共 ", metricButton("audit-total", String(v.total)), " 条"),
     au.rows.length === 0
       ? emptyState("audit/ 里一行都还没有。",
           el("span", {}, "从 harness 记录归集：", cmd("anc audit collect <vault> --write"),
