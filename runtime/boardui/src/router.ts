@@ -1,12 +1,12 @@
 import { icon } from "./core/icons";
 import type { Page } from "./core/types";
-import { renderData } from "./pages/data";
+
 import { renderApprovals } from "./pages/approvals";
-import { renderContext } from "./pages/context";
+
 import { renderRun } from "./pages/run";
 import { renderProjects } from "./pages/org";
 import { renderOverview } from "./pages/overview";
-import { renderAssetGroup, renderOrgGroup, renderRecordGroup } from "./pages/groups";
+import { renderAssetGroup, renderDataGroup, renderOrgGroup, renderRecordGroup } from "./pages/groups";
 import { renderOverviewV2 } from "./pages/overview-v2";
 import { renderSystem } from "./pages/system";
 
@@ -27,10 +27,6 @@ export const projectsPage: Page = {
   question: "谁在做什么、到几号、卡住找谁、进度到哪？",
   sub: "周期时间消耗按原文日期推算；交付进度没有真相源时明确留白。",
   view: renderProjects,
-};
-export const contextPage: Page = {
-  id: "context", group: "工作", label: "上下文", icon: "context", wired: true,
-  question: "一个 agent 的工作上下文是什么？", view: renderContext,
 };
 export const assetsGroupPage: Page = {
   id: "assets", group: "资产", label: "资产", icon: "box", wired: true,
@@ -53,10 +49,9 @@ export const runPage: Page = {
   view: renderRun,
 };
 export const dataPage: Page = {
-  id: "data", group: "运行", label: "数据", icon: "layers", wired: true,
-  question: "我们连了哪些数据、目录里有什么、谁能看哪一列？",
-  sub: "只连不搬：数据在客户库里；这里看目录、分级、策略，并跑只读查询。",
-  view: renderData,
+  id: "data", group: "数据", label: "数据", icon: "layers", wired: true,
+  question: "连了哪些数据、目录里有什么、谁能看哪一列、agent 拿什么去干活？",
+  view: renderDataGroup,
 };
 export const systemPage: Page = {
   id: "system", group: "系统", label: "运行与连接", icon: "pulse", wired: true,
@@ -67,7 +62,7 @@ export const systemPage: Page = {
 
 export const PAGES: Page[] = [
   overviewPage, approvalsPage,
-  projectsPage, contextPage,
+  projectsPage,
   orgGroupPage,
   runPage, dataPage,
   recordsGroupPage,
@@ -85,6 +80,8 @@ export const LEGACY: Record<string, string> = {
   members: "org", domains: "org", graph: "org", roles: "org",
   assets: "assets", search: "assets", sediment: "assets",
   timeline: "records", cases: "records", audit: "records",
+  // 上下文并进了「数据」页的第二个标签
+  context: "data",
   // 注意：这里**不能**再有 `org: "overview"` —— 「组织」这一页自己就叫 org，
   // 再留一条旧映射会让它永远打不开（pageFor 先查 LEGACY）。
 };

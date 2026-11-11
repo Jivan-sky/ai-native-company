@@ -155,7 +155,8 @@ setReloader((force) => void boot(force));
 window.addEventListener("hashchange", () => {
   if (loadForPage()) return;
   // 这一页的「选中谁」在 hash 里：进了这一页就按 URL 重取一次，别的页照旧（取数只在启动 / 刷新）。
-  if (pageFor(currentId()).id === "context") {
+  // 上下文已并成「数据」页的标签：按 hash 认标签，不按页 id
+  if (currentId() === "context") {
     void loadContext();
     return;
   }
