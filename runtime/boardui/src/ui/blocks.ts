@@ -1,6 +1,7 @@
 import type { BoardView, CtxEvidence, Data, Finding, Issues, Kid, RuntimeBot, TimelineEntryView } from "../core/types";
 import { banner, el, section } from "../core/dom";
 import { runState } from "./status";
+import { metricButton } from "../core/metrics";
 
 export const emptyNote = (s: string): HTMLElement => el("p", { class: "empty" }, s);
 
@@ -72,10 +73,12 @@ export function statCard(n: string, k: string, sub: string, dot?: string): HTMLE
 
 // 分布条：一串「数字 + 一个词」。0 自然变灰 —— 没发生的事不该抢眼；
 // bad 只在真出事时上红（跨域、被拦下），不是装饰。
-export function dn(n: number | string, label: string, bad = false): HTMLElement {
+export function dn(n: number | string, label: string, bad = false, metricId = ""): HTMLElement {
   const num = typeof n === "number" ? n : Number(n);
   const cls = "dn" + (bad && num > 0 ? " bad" : num === 0 || Number.isNaN(num) ? " none" : "");
-  return el("div", { class: cls }, el("b", {}, String(n)), el("span", {}, label));
+  // 给了指标 id 就让这个数能点开看合同；没给就还是死的数字。
+  const numEl = metricId === "" ? el("b", {}, String(n)) : metricButton(metricId, String(n));
+  return el("div", { class: cls }, numEl, el("span", {}, label));
 }
 export const dsep = (): HTMLElement => el("span", { class: "sep" });
 export function dist(...kids: Kid[]): HTMLElement {

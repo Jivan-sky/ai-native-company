@@ -2,6 +2,7 @@ package board
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 
 // TimelineSchema 是这一份视图的版本号（同 /api/assets 的理由：字段增删一律改版本号，
 // 前端据此判断能不能吃）。
-const TimelineSchema = "anc.timeline/v1"
+const TimelineSchema = "anc.timeline/v2"
 
 // 每页默认 / 上限。上限不是门禁，是防「?limit=100000」把一次请求变成全库扫描。
 const (
@@ -51,12 +52,17 @@ type TimelineView struct {
 	Total   int                `json:"total"` // 折叠后的 case 总数（不受 limit 影响）
 	Entries int                `json:"entries"`
 	Cases   []TimelineCaseView `json:"cases"`
-	Bad     []string           `json:"bad"`
-	Limit   int                `json:"limit"`
-	Next    string             `json:"next_before,omitempty"`
-	Missing []string           `json:"missing"`
-	Note    string             `json:"note"`
-	Error   string             `json:"error,omitempty"`
+	// Series 是「每日一条」的效率序列（功效 v0）。按**条目**算，不按 case 算：
+	// case 是折叠后的，跨天的一条 case 只会落到最后一天，按它算会把前面的天抹平。
+	// 日期取条目原文的前 10 位（自带时区的本地日）—— 与 docs/METRICS.md 里那条 jq
+	// 校验命令取的是同一个字段，两边必须逐日相等。
+	Series  []SeriesPoint `json:"series"`
+	Bad     []string      `json:"bad"`
+	Limit   int           `json:"limit"`
+	Next    string        `json:"next_before,omitempty"`
+	Missing []string      `json:"missing"`
+	Note    string        `json:"note"`
+	Error   string        `json:"error,omitempty"`
 }
 
 // handleTimeline 读 `timeline/*.jsonl` 并折叠成 case。
@@ -138,7 +144,49 @@ func (s *Server) handleTimeline(w http.ResponseWriter, r *http.Request) {
 		view.Next = shown[len(shown)-1].LastAt
 	}
 	view.Cases = toCaseViews(shown)
+	// 序列用**全量**条目，不受 limit / before / band 影响：
+	// 曲线回答「这几天怎么样」，不是「这一页怎么样」。
+	view.Series = daySeries(doc.Entries)
 	writeJSON(w, http.StatusOK, view)
+}
+
+// SeriesPoint 是一天的效率读数。三个计数加起来 = 当天的条目总数。
+type SeriesPoint struct {
+	Day    string `json:"day"`    // 2026-11-10
+	Done   int    `json:"done"`   // status=done
+	Failed int    `json:"failed"` // status=failed
+	Other  int    `json:"other"`  // ok / 认不出的词：**不进达成率的分子分母**
+}
+
+// daySeries 按天汇总。天数可能很少（这台机器上只有三天）—— 少就少报，不补零、不插值。
+func daySeries(in []timeline.Entry) []SeriesPoint {
+	byDay := map[string]*SeriesPoint{}
+	for _, e := range in {
+		day := strings.TrimSpace(e.At)
+		if len(day) < 10 {
+			continue
+		}
+		day = day[:10]
+		p := byDay[day]
+		if p == nil {
+			p = &SeriesPoint{Day: day}
+			byDay[day] = p
+		}
+		switch e.Status {
+		case "done":
+			p.Done++
+		case "failed":
+			p.Failed++
+		default:
+			p.Other++
+		}
+	}
+	out := make([]SeriesPoint, 0, len(byDay))
+	for _, p := range byDay {
+		out = append(out, *p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Day < out[j].Day })
+	return out
 }
 
 // toCaseViews 把折叠结果搬进视图：给每一条流水补上配色档。
