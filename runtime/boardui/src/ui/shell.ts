@@ -10,6 +10,7 @@ import { paintSediment } from "../pages/sediment";
 import { PAGES, pageFor } from "../router";
 import { healthState, statusDot, statusText } from "./blocks";
 import { closeDrawer, mountDrawer } from "./drawer";
+import { deniedState } from "./states";
 import { mountField, stopField } from "./field";
 import { mountOrgGraph, stopOrgGraph } from "./orggraph";
 import { closePalette, mountPalette, openPalette } from "./palette";
@@ -326,11 +327,9 @@ export function pageFooter(): HTMLElement {
 
 // 进不去的一页，要说清是「你没这个权限」，不是「这里没东西」。
 export function deniedPage(page: Page, role: Role): HTMLElement {
-  return banner("warn", "看不到这一页", [
-    el("span", {}, deniedReason(role, page.label)),
-    el("br"),
-    el("span", { class: "quiet" }, "当前身份：" + roleLabel(role) + "。右上角可以切换角色（演示用，未接鉴权）。"),
-  ]);
+  return deniedState(
+    deniedReason(role, page.label),
+    "当前身份：" + roleLabel(role) + "。右上角可以切换角色（演示用，未接鉴权）。");
 }
 
 export function loadingBlock(): HTMLElement {

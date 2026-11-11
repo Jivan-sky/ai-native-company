@@ -1,6 +1,6 @@
 import type { Data, Kid, ModelRow } from "../core/types";
 import { banner, chip, el, section, table } from "../core/dom";
-import { emptyNote } from "../ui/blocks";
+import { cmd, emptyState } from "../ui/states";
 
 // 「模型」页：注册表 + 谁绑了它。**密钥只以名字与「配没配」出现** —— 连尾巴四位都不给。
 
@@ -31,7 +31,7 @@ export function renderModels(d: Data): Kid[] {
   const out: Kid[] = [];
   out.push(section("注册表", `共 ${v.entries.length} 条`,
     v.entries.length === 0
-      ? emptyNote("注册表是空的：写一份 registry.json 放在 vault 旁边。")
+      ? emptyState("注册表是空的。", el("span", {}, "写一份 ", cmd("registry.json"), " 放在 vault 旁边。"))
       : table(["注册名", "提供方", "模型", "密钥（名字）", "密钥状态", "状态", "被谁绑定"],
           v.entries.map((m) => rowCell(m)))));
 

@@ -1915,7 +1915,10 @@ details[open] summary::after { transform: rotate(90deg); }
    面包屑一行到底（超出用省略号），搜索框按需收窄；再窄就直接只留图标 + Ctrl K。 */
 .crumbs { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cmd-btn { flex: 1 1 180px; min-width: 0; width: auto; max-width: 430px; }
-@media (max-width: 1180px) {
+/* 搜索框里的字一行到底：折成两行会把顶栏撑高，把 Ctrl K 挤到第二行 */
+.cmd-btn .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 到 1280 就只留图标：再往上收，那一栏会先折行再溢出 */
+@media (max-width: 1280px) {
   .cmd-btn { flex: 0 0 auto; width: 36px; padding: 0; justify-content: center; }
   .cmd-btn .label, .cmd-btn .kbd { display: none; }
 }
@@ -1939,3 +1942,23 @@ details[open] summary::after { transform: rotate(90deg); }
 }
 .role-switch:hover { border-color: var(--line-2); color: var(--text); }
 @media (max-width: 900px) { .role-switch { display: none; } }
+
+/* 三态块（空 / 读不到 / 没有权限）：同一副骨架，只换左边那道 2px 的颜色和开头的词。
+   颜色不单独承载意思 —— 每个块开头都写了它是什么状态。 */
+.state {
+  display: flex; gap: var(--s3); align-items: flex-start;
+  padding: var(--s3) var(--s4); border-radius: var(--radius, 10px);
+  border: 1px solid var(--line); border-left-width: 2px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  font-size: var(--t2);
+}
+.state .state-word { flex: none; font-size: var(--t1); color: var(--muted); padding-top: 2px; white-space: nowrap; }
+.state .state-body { min-width: 0; }
+.state .state-title { color: var(--text); line-height: 1.6; }
+.state .state-next { margin-top: var(--s1); color: var(--muted); line-height: 1.6; }
+.state .state-next .mono { color: var(--text-2); }
+.state-empty { border-left-color: var(--line-3); }
+.state-unknown { border-left-color: var(--warn); }
+.state-unknown .state-word { color: var(--warn); }
+.state-denied { border-left-color: var(--block); }
+.state-denied .state-word { color: var(--block); }

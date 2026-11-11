@@ -3,7 +3,8 @@ import { pager, sliced } from "../ui/pager";
 import { banner, chip, dash, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { hashQuery } from "../core/query";
-import { cannot, dist, dn, dsep, emptyNote } from "../ui/blocks";
+import { cannot, dist, dn, dsep } from "../ui/blocks";
+import { cmd, emptyState } from "../ui/states";
 import { dotLine } from "../ui/status";
 
 // 四档结果：ok 实心圆 / denied 菱形 / failed 菱形 / 认不出的词虚线空圈。
@@ -102,7 +103,9 @@ export function renderAudit(d: Data): Kid[] {
   out.push(section("流水",
     "共 " + v.total + " 条",
     au.rows.length === 0
-      ? emptyNote("audit/ 里一行都没有。跑 anc audit collect <vault> --write 从 harness 记录归集，或用 anc audit add 补记一条。")
+      ? emptyState("audit/ 里一行都还没有。",
+          el("span", {}, "从 harness 记录归集：", cmd("anc audit collect <vault> --write"),
+            "；补记一条：", cmd("anc audit add")))
       : el("div", {},
           table(HEAD, au.rows.map(auditRow)),
           pager(v.records.length, au.cur, "audit")),

@@ -3,7 +3,8 @@ import { pager, sliced } from "../ui/pager";
 import { banner, chip, dash, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { hashQuery } from "../core/query";
-import { cannot, dist, dn, dsep, emptyNote } from "../ui/blocks";
+import { cannot, dist, dn, dsep } from "../ui/blocks";
+import { cmd, emptyState } from "../ui/states";
 import { bandDot, bandLegend, bandWord, dotLine } from "../ui/status";
 
 // 状态原词照排（不翻译、不吞）：认不出的词也得让人看见它长什么样。
@@ -86,7 +87,8 @@ export function renderTimeline(d: Data): Kid[] {
   out.push(section("现在在哪一步",
     "共 " + v.cases.length + " 个 case",
     tl.rows.length === 0
-      ? emptyNote("时间线还是空的（`timeline/` 里一行都没有）。空不是错 —— 「还没开始记」是个真实状态。")
+      ? emptyState("timeline/ 里一行都还没有。",
+          el("span", {}, "记一条：", cmd("anc timeline add <vault> -by <谁> -title <一句话>")))
       : el("div", {},
           table(["档 / status", "case", "谁 → 交给谁", "几条", "最近活动"], rows),
           pager(v.cases.length, tl.cur, "timeline"))));
