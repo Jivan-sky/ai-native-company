@@ -120,6 +120,41 @@ type Result struct {
 	SQLHash   string        `json:"sql_hash"`
 }
 
+// QueryMany 复用同一条连接跑多条只读查询（内省要用；每条都过守卫）。
+func QueryMany(ctx context.Context, s Source, password string, sqls []string) ([]Result, error) {
+	for _, q := range sqls {
+		if err := Guard(q); err != nil {
+			return nil, err
+		}
+	}
+	dsn, err := pgwire.ParseDSN(s.DSN)
+	if err != nil {
+		return nil, err
+	}
+	dsn.Password = password
+	c, err := pgwire.Dial(ctx, dsn, s.timeout())
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	if err := c.Exec(ctx, "SET default_transaction_read_only = on"); err != nil {
+		return nil, fmt.Errorf("开不了只读会话：%v", err)
+	}
+	if err := c.Exec(ctx, fmt.Sprintf("SET statement_timeout = %d", s.timeout().Milliseconds())); err != nil {
+		return nil, fmt.Errorf("设不了语句超时：%v", err)
+	}
+	out := make([]Result, 0, len(sqls))
+	for _, q := range sqls {
+		start := time.Now()
+		cols, rows, err := c.Query(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, Result{Columns: cols, Rows: rows, Returned: len(rows), Duration: time.Since(start)})
+	}
+	return out, nil
+}
+
 // Query 连上去跑一条只读查询。密码从调用方给的值里取（它从 secrets 来）。
 func Query(ctx context.Context, s Source, password, sql string) (Result, error) {
 	if err := Guard(sql); err != nil {
