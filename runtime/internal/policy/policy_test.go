@@ -33,7 +33,8 @@ func TestApplyMasksAndDenies(t *testing.T) {
 	p := pol()
 	cols := []string{"id", "name", "total"}
 	rows := [][]*string{{strp("1"), strp("alice"), strp("18.00")}}
-	dec, err := p.Apply("alice", map[string]string{"id": "orders", "name": "orders", "total": "orders"}, cols, rows)
+	dec, err := p.Apply("alice", map[string]string{"id": "orders", "name": "orders", "total": "orders"},
+		map[string]bool{"id": true, "name": true, "total": true}, cols, rows)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,8 @@ func TestApplyMasksAndDenies(t *testing.T) {
 	}
 
 	// 越权列：整条拒绝，且报出是哪一列
-	_, err = p.Apply("bob", map[string]string{"name": "orders"}, []string{"id", "name"}, [][]*string{{strp("1"), strp("x")}})
+	_, err = p.Apply("bob", map[string]string{"name": "orders"}, map[string]bool{"id": true, "name": true},
+		[]string{"id", "name"}, [][]*string{{strp("1"), strp("x")}})
 	if err == nil || !strings.Contains(err.Error(), "name") {
 		t.Fatalf("应当拒绝并指出列名：%v", err)
 	}
@@ -63,3 +65,26 @@ func TestNilPolicyDeniesAll(t *testing.T) {
 }
 
 func strp(s string) *string { return &s }
+
+// 派生列（目录里没有的列，比如 count(*)）：默认拒绝；显式 derived=allow 才放行，且被标记。
+func TestDerivedColumns(t *testing.T) {
+	p := pol()
+	p.Rules = nil
+	p.Default = "deny"
+	rows := [][]*string{{strp("3")}}
+	if _, err := p.Apply("alice", nil, map[string]bool{"id": true}, []string{"count"}, rows); err == nil {
+		t.Fatal("默认应当拒绝派生列")
+	}
+	p.Derived = "allow"
+	dec, err := p.Apply("alice", nil, map[string]bool{"id": true}, []string{"count"}, rows)
+	if err != nil {
+		t.Fatalf("显式允许后应当放行：%v", err)
+	}
+	if len(dec.Derived) != 1 || dec.Derived[0] != "count" {
+		t.Fatalf("派生列要标出来：%+v", dec)
+	}
+	// 目录里已知的列不受 derived 影响，仍按策略（这里是默认拒绝）
+	if _, err := p.Apply("alice", nil, map[string]bool{"id": true}, []string{"id"}, [][]*string{{strp("1")}}); err == nil {
+		t.Fatal("已知列不该被 derived 放行")
+	}
+}

@@ -5104,9 +5104,22 @@ $ anc db query … --as bob --sql "SELECT id, total FROM orders"
 台账：alice · read · ok · 「脱敏列 total」；bob · read · failed · 「不能看列 total」
 ```
 
+**派生列（2026-11-11 补）**：目录里没有的列（`count(*)` 这类计算列）默认仍拒绝；
+客户显式写 `"derived": "allow"` 才放行，且这些列会作为「派生列」进台账：
+
+```
+$ anc db query … --as alice --sql "SELECT count(*) AS n FROM orders"
+n
+3
+台账：alice · read · ok ·「派生列 n」
+
+$ … --as bob --sql "SELECT total FROM orders LIMIT 1"
+错误：策略拒绝：bob 不能看列 total      ← 已知列仍按策略
+```
+
 **已知边界**（下一刀要处理）：
 
-- 策略按**列名**判，表名靠目录快照映射（列名在库里唯一才映射得上）；计算列（如 `count(*)`）不在目录里 → 按默认拒绝，安全但会挡掉聚合查询。
+- 策略按**列名**判，表名靠目录快照映射（列名在库里唯一才映射得上）。
 - 没有行级过滤（`WHERE` 注入），只有列级。
 - 看板还没读策略；`/api/query` 还没做。
 

@@ -24,6 +24,9 @@ type Policy struct {
 	DataSource string `json:"datasource"`
 	// Default 没写规则时的动作：deny（默认）| allow | mask
 	Default string `json:"default,omitempty"`
+	// Derived 决定「目录里没有的列」（计算列，如 count(*)）怎么办：deny（默认）| allow。
+	// 默认拒绝是安全的；客户显式写 allow 才能查聚合，且这些列会作为「派生列」进台账。
+	Derived string `json:"derived,omitempty"`
 	Rules   []Rule `json:"rules"`
 }
 
@@ -65,6 +68,11 @@ func (p Policy) validate(ds string) error {
 	default:
 		return fmt.Errorf("default=%q（deny | allow | mask）", p.Default)
 	}
+	switch p.Derived {
+	case "", "deny", "allow":
+	default:
+		return fmt.Errorf("derived=%q（deny | allow）", p.Derived)
+	}
 	for i, r := range p.Rules {
 		if strings.TrimSpace(r.Subject) == "" || strings.TrimSpace(r.Table) == "" || len(r.Columns) == 0 {
 			return fmt.Errorf("第 %d 条规则缺 subject / table / columns", i+1)
@@ -99,6 +107,13 @@ func (p *Policy) Action(subject, table, column string) string {
 	return p.Default
 }
 
+func (p *Policy) derivedAction() string {
+	if p == nil || p.Derived == "" {
+		return "deny"
+	}
+	return p.Derived
+}
+
 func match(pattern, v string) bool {
 	return pattern == "*" || strings.EqualFold(pattern, v)
 }
@@ -107,15 +122,19 @@ func match(pattern, v string) bool {
 type Decision struct {
 	Masked  []string `json:"masked,omitempty"`
 	Denied  string   `json:"denied,omitempty"`
-	Unknown []string `json:"unknown,omitempty"` // 目录里没有的列（可能是计算列）
+	Derived []string `json:"derived,omitempty"` // 目录里没有的列（计算列），按 derived 设置放行
 }
 
 // Apply 按列策略处理结果：deny → 整条拒绝；mask → 值替换成 ***；allow → 原样。
 // known 是目录里出现过的列名集合（表名 → 列集合）；用它来区分「计算列」与「策略外的列」。
-func (p *Policy) Apply(subject string, tables map[string]string, cols []string, rows [][]*string) (Decision, error) {
+func (p *Policy) Apply(subject string, tables map[string]string, known map[string]bool, cols []string, rows [][]*string) (Decision, error) {
 	var d Decision
 	for _, c := range cols {
 		table := tables[c] // 没映射到表就只有 table="*" 的规则能命中
+		if known != nil && !known[c] && p.derivedAction() == "allow" {
+			d.Derived = append(d.Derived, c)
+			continue
+		}
 		switch p.Action(subject, table, c) {
 		case "allow":
 		case "mask":
