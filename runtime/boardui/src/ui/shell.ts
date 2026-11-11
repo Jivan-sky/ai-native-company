@@ -3,7 +3,7 @@ import { banner, chip, dash, el, root } from "../core/dom";
 import { localTime } from "../core/format";
 import { icon, iconBox } from "../core/icons";
 import { currentId } from "../core/query";
-import { ROLES, type Role, allowed, currentRole, deniedReason, roleLabel, setRole } from "../core/roles";
+import { ROLES, type Role, allowed, currentDomain, currentRole, deniedReason, roleLabel, setDomain, setRole } from "../core/roles";
 import { reload } from "../core/refresh";
 import { cache } from "../core/state";
 import { paintSediment } from "../pages/sediment";
@@ -261,6 +261,26 @@ export function roleSwitcher(page: Page): HTMLElement {
   return sel;
 }
 
+// 负责人的「自己那一摊」：演示身份没有真组织关系，所以域由他自己选。
+// 只在负责人这一档出现 —— 别的角色选域没有意义。
+export function domainSwitcher(page: Page, d: Data | null): Kid {
+  if (currentRole() !== "lead") return "";
+  const doms = d?.board?.domains ?? [];
+  if (doms.length === 0) return "";
+  const sel = el("select", {
+    class: "role-switch",
+    "aria-label": "当前负责的业务域（演示用）",
+    title: "演示身份：选你负责的域；作业按写入目录反推归属",
+  }) as HTMLSelectElement;
+  for (const dm of doms) {
+    const o = el("option", { value: dm.slug }, dm.name || dm.slug) as HTMLOptionElement;
+    if (dm.slug === currentDomain()) o.selected = true;
+    sel.append(o);
+  }
+  sel.addEventListener("change", () => { setDomain(sel.value); shell(); });
+  return sel;
+}
+
 export function topbar(page: Page, d: Data | null): HTMLElement {
   const menu = el("button", { class: "icon-btn menu-btn", type: "button", "aria-label": "打开导航" }, icon("menu", 15));
   menu.addEventListener("click", () => document.querySelector(".app")?.classList.toggle("nav-open"));
@@ -289,6 +309,7 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
     cmd,
     el("div", { class: "top-actions" },
       live,
+      domainSwitcher(page, d),
       roleSel,
       pill,
       d?.board ? el("span", { class: "meta-pill" }, "生成 " + localTime(d.board.generated_at)) : "",

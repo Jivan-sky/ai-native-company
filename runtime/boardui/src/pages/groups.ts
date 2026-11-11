@@ -2,6 +2,7 @@ import type { Attrs, Data, Kid } from "../core/types";
 import { el } from "../core/dom";
 import { deniedState } from "../ui/states";
 import { currentId, hashQuery } from "../core/query";
+import type { Role } from "../core/roles";
 import { allowed, currentRole, roleLabel } from "../core/roles";
 import { renderAssets, renderCases, renderSediment } from "./assets";
 import { renderAudit } from "./audit";
@@ -35,6 +36,15 @@ function explicitSubTab(tabs: SubTab[]): SubTab | null {
   return tabs.find((t) => t.id === q) ?? tabs.find((t) => t.id === here) ?? null;
 }
 
+// 明确要了装不下的那个标签时，给一句话；没明说就返回空（落在能看的那个上）。
+// run 与三组共用同一份判定 —— 两处各写一遍，迟早长歪。
+export function gatedTabNotice(asked: SubTab | null, visible: SubTab[], role: Role): Kid[] {
+  if (asked === null || allowed(role, asked.id)) return [];
+  return [deniedState(
+    "「" + asked.label + "」对" + roleLabel(role) + "不开放。",
+    "这一组里你能看的是：" + visible.map((t) => t.label).join(" / ") + "。要更多权限找你的上级或超管。")];
+}
+
 export function subHref(page: string, id: string): string {
   return "#/" + page + "?tab=" + id;
 }
@@ -63,11 +73,7 @@ function renderGroup(page: string, tabs: SubTab[], fallback: string, d: Data): K
   // 要的那一个标签装不下时说清楚，**不要**静默换成第一个能看的：
   // 一个把「审计」加进书签的人，落到「时间线」会以为审计是空的。
   const shown = asked === null || !allowed(role, asked.id) ? visible[0]! : asked;
-  const denied = asked !== null && !allowed(role, asked.id)
-    ? [deniedState(
-        "「" + asked.label + "」对" + roleLabel(role) + "不开放。",
-        "这一组里你能看的是：" + visible.map((t) => t.label).join(" / ") + "。要更多权限找你的上级或超管。")]
-    : [];
+  const denied = gatedTabNotice(asked, visible, role);
   return [subTabs(page, tabs, shown), ...denied, ...(denied.length === 0 ? shown.view(d) : [])];
 }
 

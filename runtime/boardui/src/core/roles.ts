@@ -25,8 +25,12 @@ const GATED: Record<string, Role[]> = {
   // 控制面：谁能动别人的权限、谁的机器在跑什么 —— 只给管理岗
   members: ["super", "admin", "lead"],
   domains: ["super", "admin"],
-  // 应用 / 模型 / 作业 / 接入 是同一页（#/run）的四个标签 —— 权限按页判，不按标签判
-  run: ["super", "admin"],
+  // 运行页：负责人能进，但他只装得下「作业」这一个标签（见下面的标签级门）。
+  // 其余三个标签（应用 / 模型 / 接入）是管理动作，仍是管理员以上。
+  run: ["super", "admin", "lead"],
+  apps: ["super", "admin"],
+  models: ["super", "admin"],
+  intake: ["super", "admin"],
   system: ["super", "admin"],
   // 审计与沉淀：决策记录与可提炼资产，只有能拍板的人看
   audit: ["super", "admin"],
@@ -74,4 +78,16 @@ export function setRole(role: Role): void {
 export function deniedReason(role: Role, pageLabel: string): string {
   const gate = roleLabel(role);
   return `「${pageLabel}」对${gate}不开放。要看这一页，找你的上级或超管。`;
+}
+
+// 负责人的「自己那一摊」。演示身份没有真组织关系，所以域由他自己选（存在本机）。
+// 真身份接上后，这里换成从会话里取 —— 判据不动。
+const DOMAIN_KEY = "anc.domain";
+
+export function currentDomain(): string {
+  try { return localStorage.getItem(DOMAIN_KEY) ?? ""; } catch { return ""; }
+}
+
+export function setDomain(slug: string): void {
+  try { localStorage.setItem(DOMAIN_KEY, slug); } catch { /* 隐私模式不记 */ }
 }

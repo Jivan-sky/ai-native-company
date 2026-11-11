@@ -1,6 +1,8 @@
 import type { Attrs, Data, Kid } from "../core/types";
 import { el } from "../core/dom";
 import { currentId, hashQuery } from "../core/query";
+import { allowed, currentRole } from "../core/roles";
+import { gatedTabNotice } from "./groups";
 import { renderApps } from "./apps";
 import { renderIntake } from "./intake";
 import { renderJobs } from "./jobs";
@@ -33,9 +35,15 @@ export function runHref(id: string): string {
 }
 
 export function renderRun(d: Data): Kid[] {
-  const cur = activeRunTab();
+  // 标签也要按身份筛：负责人只装得下「作业」，不该看见应用 / 模型 / 接入的入口。
+  const role = currentRole();
+  const visible = RUN_TABS.filter((t) => allowed(role, t.id));
+  const asked = activeRunTab();
+  const allowedAsked = allowed(role, asked.id);
+  const cur = allowedAsked ? asked : visible[0]!;
+  const denied = gatedTabNotice(asked, visible, role);
   const tabs = el("div", { class: "subtabs", role: "tablist" },
-    ...RUN_TABS.map((t) => {
+    ...visible.map((t) => {
       const attrs: Attrs = {
         class: t.id === cur.id ? "subtab active" : "subtab",
         href: runHref(t.id), role: "tab",
@@ -43,5 +51,5 @@ export function renderRun(d: Data): Kid[] {
       if (t.id === cur.id) attrs["aria-selected"] = "true";
       return el("a", attrs, el("b", {}, t.label), el("small", {}, t.hint));
     }));
-  return [tabs, ...cur.view(d)];
+  return denied.length === 0 ? [tabs, ...cur.view(d)] : [tabs, ...denied];
 }
