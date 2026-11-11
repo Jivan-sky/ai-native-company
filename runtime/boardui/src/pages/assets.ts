@@ -1,11 +1,13 @@
+import { metricButton } from "../core/metrics";
+import { emptyState } from "../ui/states";
 import type { Data, HotEntryView, HotView, Kid, SettleReply } from "../core/types";
 import { postJSON } from "../core/api";
 import { banner, card, chip, dash, el, section, table } from "../core/dom";
-import { durText, humanBytes, localTime } from "../core/format";
+import { durText, humanBytes, localTime, shortTime } from "../core/format";
 import { reload } from "../core/refresh";
 import { sedimentSection } from "./sediment";
 import { handOff, statusCell } from "./timeline";
-import { cannot, emptyNote, statCard } from "../ui/blocks";
+import { cannot, emptyNote, statCard, dist, dn } from "../ui/blocks";
 import { byWho, setByWho } from "../ui/bywho";
 import { closeDrawer, openDrawer } from "../ui/drawer";
 import { bandDot, bandWord, dotLine } from "../ui/status";
@@ -336,12 +338,13 @@ export function renderCases(d: Data): Kid[] {
   }
   const rows = v.cases.filter((c) => c.band === "red" || c.band === "yellow" || c.band === "input-required");
   const out: Kid[] = [];
-  out.push(section("卡点口径", "这一页是时间线的派生视图：只筛，不另存",
-    el("div", { class: "figs" },
-      statCard(String(v.counts.red), "红 · 卡点 / 失败", "blocked · failed", "dot bad"),
-      statCard(String(v.counts.yellow), "黄 · 运行中", "running", "dot warn"),
-      statCard(String(rows.length), "这一页列出的 case", "红 / 黄 / 等人给一句话"),
-      statCard(d.audit ? String(d.audit.bands.denied + d.audit.bands.failed) : "—", "审计里的被拒 / 失败", "另一份数据源"))));
+  out.push(section("卡点数", "这一页是时间线的派生视图：只筛，不另存",
+    dist(
+      dn(v.counts.red, "卡点 / 失败", true, "cases-red"),
+      dn(v.counts.yellow, "运行中", false, "cases-red"),
+      dn(rows.length, "本页列出", false, "cases-red"),
+      dn(d.audit ? d.audit.bands.denied + d.audit.bands.failed : "—", "审计里的被拒 / 失败", false, "audit-bands"),
+    )));
   const cards = rows.map((c) => {
     const cardEl = el("div", { class: "card", tabindex: "0" },
       el("h3", {}, dotLine(bandDot(c.band), el("span", {}, c.title)), chip(c.key, true)),
@@ -371,9 +374,35 @@ export function renderCases(d: Data): Kid[] {
     cardEl.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); } });
     return cardEl;
   });
-  out.push(section("正在卡住的事", "按最近动过的排前面；完整历史在「时间线」",
+  // 上级视角：先看「谁手上卡着最多」，再看「具体卡在哪」。
+  // 现在没有身份层级，所以只能按「谁记的」分组 —— 不假装知道谁是上级。
+  const byWho = new Map<string, typeof rows>();
+  for (const c of rows) {
+    const who = (c.by ?? "").trim() === "" ? "没写谁记的" : (c.by ?? "").trim();
+    byWho.set(who, [...(byWho.get(who) ?? []), c]);
+  }
+  const whoRows: Kid[][] = [...byWho.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([who, list]) => {
+      const lastAt = list.reduce((m, c) => (c.last_at > m ? c.last_at : m), "");
+      const oldest = list.reduce((m, c) => (m === "" || c.last_at < m ? c.last_at : m), "");
+      return [
+        el("span", { class: "mono nw" }, who),
+        metricButton("cases-red", String(list.length)),
+        el("span", { class: "mono nw", title: localTime(oldest) }, shortTime(oldest)),
+        el("span", { class: "mono nw", title: localTime(lastAt) }, shortTime(lastAt)),
+        el("span", {}, list[0]?.title ?? ""),
+      ];
+    });
+  if (whoRows.length > 0) {
+    out.push(section("按人分组",
+      "谁记的卡点最多；没有身份层级，这里只能按「谁记的」分",
+      table(["谁", "卡点", "最早一条", "最近", "手上一条"], whoRows)));
+  }
+
+  out.push(section("正在卡住的事", "",
     cards.length === 0
-      ? emptyNote("没有红 / 黄 / 等人给一句话的 case —— 当前没有卡点。")
+      ? emptyState("当前没有卡点。", "红 / 黄 / 等人给一句话的 case 都为空；有新的会出现在这里。")
       : el("div", { class: "grid" }, ...cards)));
   return out;
 }

@@ -87,6 +87,13 @@ export const METRICS: Metric[] = [
     owner: "记录",
   },
   {
+    id: "cases-red", label: "卡点数（红）",
+    formula: "timeline 折叠后 band == \"red\" 的 case 数；按人分组时是同一条按 by 切",
+    source: "timeline/*.jsonl", fresh: "每次刷新",
+    bias: "红 = blocked / failed；一条 case 多行只算一次；没写 by 的会落进「没写谁」",
+    owner: "记录",
+  },
+  {
     id: "catalog", label: "表 / 列 / 已拍板",
     formula: "目录快照里的表数、列数、classifications 条数",
     source: "/api/catalog", fresh: "每次 catalog scan", bias: "快照过期后仍是旧数；屏上有「扫于」时间",

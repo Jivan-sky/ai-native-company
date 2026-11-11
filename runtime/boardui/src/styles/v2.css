@@ -265,3 +265,8 @@ details[open] summary::after { transform: rotate(90deg); }
 .tl-search { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
 .tl-search input.by { width: 320px; max-width: 100%; padding: 0 var(--s3); height: 34px; }
 .tl-search .act { height: 34px; }
+
+/* 卡点卡片：标题折行时，状态点要跟第一行对齐。
+   原来用 .st 的 align-items:center，三行标题会把点挤到第二行开头去。 */
+.card h3 > .st { align-items: flex-start; }
+.card h3 > .st > .dot { margin-top: 6px; }
