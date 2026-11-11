@@ -1929,3 +1929,13 @@ details[open] summary::after { transform: rotate(90deg); }
   color: var(--text); font-size: var(--t2); text-decoration: none;
 }
 .skip-link:focus { position: fixed; left: var(--s3); top: var(--s3); outline: 2px solid var(--gold); }
+
+/* 身份切换（框架版）：一个小 select，够用就行。
+   它是演示用的，所以不加任何「高级」装饰 —— 别让一个假开关长得像真开关。 */
+.role-switch {
+  height: 28px; padding: 0 var(--s1); border-radius: var(--radius-s, 6px);
+  border: 1px solid var(--line); background: transparent; color: var(--text-2);
+  font-size: var(--t1);
+}
+.role-switch:hover { border-color: var(--line-2); color: var(--text); }
+@media (max-width: 900px) { .role-switch { display: none; } }
