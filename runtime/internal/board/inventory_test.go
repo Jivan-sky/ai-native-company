@@ -46,6 +46,15 @@ func TestExactlyOneModelRoute(t *testing.T) {
 			t.Fatalf("多了一个模型入口：%s —— 每多一个就是一个不经过判定的面", m)
 		}
 	}
+	queries := 0
+	for _, k := range routeKindSet {
+		if k == KindQuery {
+			queries++
+		}
+	}
+	if queries != 1 {
+		t.Fatalf("查询面应当只有 /api/query，实际 %d 条", queries)
+	}
 }
 
 // 写口也只能是那两个（与 CLI 共用领域入口的那两个）。

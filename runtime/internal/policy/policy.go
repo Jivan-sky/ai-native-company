@@ -200,9 +200,9 @@ type RowFilter struct {
 // Wrap 如果命中了行过滤，把查询包一层并要求只返回满足条件的行。
 // 命中判据：SQL 文本里出现了那条过滤的表名（大小写不敏感）。
 // 这是**保守**的启发式：宁可多套一层（可能报列不存在），也不放过。
-func (p *Policy) Wrap(sql string) (string, []string) {
+func (p *Policy) Wrap(sql string) (string, []string, error) {
 	if p == nil || len(p.RowFilters) == 0 {
-		return sql, nil
+		return sql, nil, nil
 	}
 	low := strings.ToLower(sql)
 	var conds, applied []string
@@ -210,12 +210,35 @@ func (p *Policy) Wrap(sql string) (string, []string) {
 		if !strings.Contains(low, strings.ToLower(f.Table)) {
 			continue
 		}
+		// 行过滤套在外层，引用的列必须出现在结果里 —— 否则给可操作的理由，而不是让 PG 报列不存在。
+		for _, col := range whereColumns(f.Where) {
+			if !strings.Contains(low, strings.ToLower(col)) {
+				return "", nil, fmt.Errorf("行过滤需要列 %q 出现在查询里（策略：%s）", col, f.Where)
+			}
+		}
 		conds = append(conds, "("+f.Where+")")
 		applied = append(applied, f.Table+": "+f.Where)
 	}
 	if len(conds) == 0 {
-		return sql, nil
+		return sql, nil, nil
 	}
 	return "SELECT * FROM (" + strings.TrimSuffix(strings.TrimSpace(sql), ";") + ") AS anc_rls WHERE " +
-		strings.Join(conds, " AND "), applied
+		strings.Join(conds, " AND "), applied, nil
+}
+
+// whereColumns 从条件里粗略抽出「比较左边的标识符」（够用即可；抽不出就不检查）。
+func whereColumns(where string) []string {
+	var out []string
+	for _, part := range strings.FieldsFunc(where, func(r rune) bool {
+		return r == ' ' || r == '(' || r == ')' || r == '=' || r == '<' || r == '>' || r == '!'
+	}) {
+		if part == "" || strings.HasPrefix(part, "'") {
+			continue
+		}
+		if strings.ContainsAny(part, "='\"") {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }

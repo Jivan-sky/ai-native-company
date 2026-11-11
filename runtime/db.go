@@ -16,9 +16,8 @@ import (
 	"time"
 
 	"anc/internal/audit"
-	"anc/internal/catalog"
 	"anc/internal/ds"
-	"anc/internal/policy"
+	"anc/internal/queryexec"
 )
 
 const dbUsage = `anc db —— 数据源（只读）
@@ -125,35 +124,18 @@ func cmdDBQuery(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	// 行级过滤：先套一层，再执行。策略读不到 = 不放行（fail-closed）。
-	pol, perr := policy.Load(filepath.Join(filepath.Dir(vault), "policies"), name)
-	if perr != nil {
-		fmt.Fprintf(os.Stderr, "错误：策略读不动：%v\n", perr)
-		return 1
-	}
-	effectiveSQL, appliedFilters := pol.Wrap(*sqlText)
-	res, err := ds.Query(ctx, src, password, effectiveSQL)
-
-	// 列级策略：默认拒绝；拒绝是整条查询失败，脱敏是保留列、替换值。
-	var dec policy.Decision
-	if err == nil {
-		var aerr error
-		dec, aerr = pol.Apply(*subject, columnTableMap(vault, name), knownColumns(vault, name), res.Columns, res.Rows)
-		if aerr != nil {
-			err = aerr
-		}
-	}
+	res, err := queryexec.Run(ctx, vault, name, *subject, *sqlText, 60*time.Second)
 	at := time.Now().Format(time.RFC3339)
 	result := audit.ResultOK
-	why := fmt.Sprintf("%d 行 · %s · 主体 %s", res.Returned, res.Duration.Round(time.Millisecond), *subject)
-	if len(dec.Masked) > 0 {
-		why += " · 脱敏列 " + strings.Join(dec.Masked, ",")
+	why := fmt.Sprintf("%d 行 · 主体 %s", res.Returned, *subject)
+	if len(res.Masked) > 0 {
+		why += " · 脱敏列 " + strings.Join(res.Masked, ",")
 	}
-	if len(dec.Derived) > 0 {
-		why += " · 派生列 " + strings.Join(dec.Derived, ",")
+	if len(res.Derived) > 0 {
+		why += " · 派生列 " + strings.Join(res.Derived, ",")
 	}
-	if len(appliedFilters) > 0 {
-		why += " · 行过滤 " + strings.Join(appliedFilters, "；")
+	if len(res.Filters) > 0 {
+		why += " · 行过滤 " + strings.Join(res.Filters, "；")
 	}
 	if err != nil {
 		result, why = audit.ResultFailed, err.Error()
@@ -161,9 +143,8 @@ func cmdDBQuery(args []string) int {
 	_, _ = audit.Append(vault, audit.Record{
 		ID: fmt.Sprintf("db:%s:%d", name, time.Now().UnixNano()), At: at,
 		Actor: *subject, Action: audit.ActionRead, Object: "ds:" + name,
-		Result: result, Why: why, Tool: "db", Source: "db", Ref: res.SQLHash,
+		Result: result, Why: why, Tool: "db", Source: "db",
 	})
-
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
@@ -189,43 +170,6 @@ func cmdDBQuery(args []string) int {
 	if res.Truncated {
 		note = fmt.Sprintf("（截断到 %d 行）", res.Returned)
 	}
-	fmt.Fprintf(os.Stderr, "\n%d 行 · %s%s\n", res.Returned, res.Duration.Round(time.Millisecond), note)
+	fmt.Fprintf(os.Stderr, "\n%d 行 · %s%s\n", res.Returned, time.Duration(res.DurationNS).Round(time.Millisecond), note)
 	return 0
-}
-
-// knownColumns 是目录里出现过的列名集合（用来区分「派生列」与「策略外的列」）。
-func knownColumns(vault, dsName string) map[string]bool {
-	snap, err := catalog.Load(vault, dsName)
-	if err != nil {
-		return nil // 没有目录：所有列都按策略判（更严）
-	}
-	out := map[string]bool{}
-	for _, t := range snap.Tables {
-		for _, c := range t.Columns {
-			out[c.Name] = true
-		}
-	}
-	return out
-}
-
-func columnTableMap(vault, dsName string) map[string]string {
-	snap, err := catalog.Load(vault, dsName)
-	if err != nil {
-		return nil
-	}
-	count := map[string]int{}
-	owner := map[string]string{}
-	for _, t := range snap.Tables {
-		for _, c := range t.Columns {
-			count[c.Name]++
-			owner[c.Name] = t.Name
-		}
-	}
-	out := map[string]string{}
-	for col, n := range count {
-		if n == 1 {
-			out[col] = owner[col]
-		}
-	}
-	return out
 }

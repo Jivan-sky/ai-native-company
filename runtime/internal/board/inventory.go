@@ -18,6 +18,7 @@ const (
 	KindRead RouteKind = iota
 	KindWrite
 	KindModel
+	KindQuery // 需要票，但不是模型出口（数据查询）
 )
 
 type Route struct {
@@ -61,6 +62,8 @@ func (s *Server) Routes() []Route {
 		{SettlePath, KindWrite, s.handleTaskSettle},
 		{chatPath, KindModel, s.handleChat},
 		{chatSessionPath, KindModel, s.handleChatSession},
+		{"/api/datasources", KindRead, s.handleDataSources},
+		{"/api/query", KindQuery, s.handleQuery},
 	}
 }
 
@@ -75,6 +78,7 @@ var routeKindSet = map[string]RouteKind{
 	"/api/apps": KindRead, "/api/jobs": KindRead,
 	WritePath: KindWrite, SettlePath: KindWrite,
 	chatPath: KindModel, chatSessionPath: KindModel,
+	"/api/datasources": KindRead, "/api/query": KindQuery,
 }
 
 func routeKind(p string) (RouteKind, bool) {

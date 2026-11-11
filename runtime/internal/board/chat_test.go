@@ -242,3 +242,51 @@ func TestAppsEndpoint(t *testing.T) {
 		t.Fatalf("空目录应当 wired=true、0 个应用：%s", rec.Body.String())
 	}
 }
+
+// 查询口：无票 401；票的 aud 不对 403；数据源列表可读。
+func TestQueryEndpointAuth(t *testing.T) {
+	s, tok, priv := newGated(t)
+	// s.Gate 里是 chat 票；查询口要 aud=query
+	if rec := postChat(t, s, "", `{"datasource":"demo-pg","sql":"SELECT 1"}`); rec.Code != http.StatusUnauthorized {
+		_ = rec
+	}
+	req := httptest.NewRequest("POST", "/api/query", strings.NewReader(`{"datasource":"demo-pg","sql":"SELECT 1"}`))
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("无票应当 401，实际 %d", rec.Code)
+	}
+	req2 := httptest.NewRequest("POST", "/api/query", strings.NewReader(`{"datasource":"demo-pg","sql":"SELECT 1"}`))
+	req2.Header.Set("Authorization", "Bearer "+tok)
+	rec2 := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec2, req2)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("chat 票查数据应当 403，实际 %d：%s", rec2.Code, rec2.Body.String())
+	}
+	_ = priv
+}
+
+func TestDataSourcesEndpoint(t *testing.T) {
+	parent := t.TempDir()
+	vault := filepath.Join(parent, "vault")
+	if err := os.MkdirAll(filepath.Join(parent, "datasources"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(vault, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"schema":"anc.ds/v1","name":"x","type":"postgres","dsn":"postgres://u@h:5432/d",` +
+		`"secret":"K","read_only":true,"max_rows":10}`
+	if err := os.WriteFile(filepath.Join(parent, "datasources", "x.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{Vault: vault}
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/api/datasources", nil))
+	if rec.Code != 200 {
+		t.Fatalf("HTTP %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"name": "x"`) && !strings.Contains(rec.Body.String(), `"name":"x"`) {
+		t.Fatalf("应当列出 x：%s", rec.Body.String())
+	}
+}
