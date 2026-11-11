@@ -187,11 +187,30 @@ export function projectCard(d: Data, v: BoardView, p: ProjectRow): HTMLElement {
 export function renderProjects(d: Data): Kid[] {
   const v = d.board;
   if (!v) return [noBoard(d)];
+  // 在跑的在上、周期过了的在下。
+  // 这里**不叫「已完成」**：真相源里没有机器可读的完成态，周期过完不等于做完了（也可能就是延期）。
+  // 把「延期」标成「完成」是这一页最容易犯的错，宁可用一个不体面但说得准的名字。
+  const running: ProjectRow[] = [];
+  const pastDue: ProjectRow[] = [];
+  for (const p of v.projects) {
+    const st = periodState(p.period);
+    if (st !== null && st.pct >= 100) pastDue.push(p);
+    else running.push(p);
+  }
+  const grp = (title: string, list: ProjectRow[]): Kid =>
+    el("div", { class: "qgroup" },
+      el("h3", {}, el("span", {}, title), el("span", { class: "hint" }, list.length + " 个")),
+      el("div", { class: "entity-grid" }, ...list.map((p) => projectCard(d, v, p))));
   return [
-    section("全部项目", "一张卡一个项目；进度拆成「周期时间消耗」与「交付进度」两件事",
+    section("全部项目", "在跑的在上；周期过了不等于做完了",
       v.projects.length === 0
         ? emptyNote("项目表还是空的（projects.md 没有数据行）—— 由 agent 从立项书抽取后填。")
-        : el("div", { class: "entity-grid" }, ...v.projects.map((p) => projectCard(d, v, p)))),
+        : el("div", {},
+            running.length === 0 ? "" : grp("在跑", running),
+            pastDue.length === 0 ? "" : grp("周期已过", pastDue),
+            el("p", { class: "quiet" },
+              "「周期已过」只表示周期日期走完了 —— 可能做完了，也可能延期。",
+              "真相源没有机器可读的完成态，所以这一页不写「已完成」。"))),
     section("进度的口径", "两个数字不能混",
       el("div", { class: "grid" },
         card("周期时间消耗", "可推导", [["来源", "projects.md 的 period 原文"], ["算法", "起止日期之间消耗的比例"], ["含义", "只说明时间过去了多少"]]),
