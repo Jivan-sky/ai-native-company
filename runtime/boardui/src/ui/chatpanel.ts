@@ -79,13 +79,13 @@ export function mountChatPanel(): void {
   const list = el("div", { class: "chat-list" });
   const input = el("textarea", { class: "chat-input", rows: "2", placeholder: "问 ANC：现在有什么、谁在等、能不能做…" }) as HTMLTextAreaElement;
   const sendBtn = el("button", { class: "chat-send" }, "发送") as HTMLButtonElement;
-  const hint = el("div", { class: "chat-hint" }, "每条都会过闸、记账；被拒会写清理由。");
+  const empty = el("div", { class: "chat-empty" }, "还没有对话。");
   const panel = el("div", { class: "chat-panel", id: "anc-chat-panel" },
     el("div", { class: "chat-head" },
       el("span", {}, "和 ANC 说话"),
       el("button", { class: "chat-close", title: "收起" }, "×"),
     ),
-    list, hint,
+    empty, list,
     el("div", { class: "chat-compose" }, input, sendBtn),
   ) as HTMLElement;
 
@@ -104,6 +104,7 @@ export function mountChatPanel(): void {
     const text = input.value.trim();
     if (text === "") return;
     input.value = "";
+    empty.remove();
     messages.push({ role: "user", text });
     list.append(bubble({ role: "user", text }));
     const out = el("div", { class: "chat-text" }, "");

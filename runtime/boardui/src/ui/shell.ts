@@ -255,13 +255,13 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
       themeBtn, refresh, copy));
 }
 
-export function pageHead(page: Page): HTMLElement {
-  // 页头只留「这是什么页」+ 动作。原来那句 question / sub 是给作者看的，不是给读者的。
-  const inTabs = TABS.some((t) => t.id === page.id);
-  return el("section", { class: "page-head" + (inTabs ? " no-title" : "") },
-    el("div", { class: "ph-main" }, inTabs ? "" : el("h1", {}, page.label)),
-    el("div", { class: "page-actions" },
-      page.id === "overview" ? "" : el("a", { class: "ghost-btn", href: "#/overview" }, icon("overview", 14), "总览")));
+// 页头不再放大标题。
+//
+// 「我在哪」由三处回答：顶部标签、面包屑（组织 / 关系图谱）、左栏高亮。
+// 再来一个 40px 的大字，是同一句话的第三遍 —— 而且把第一屏的可用高度吃掉一截。
+// 这一节只剩上下留白；留着这个元素是为了不动的进场动效有个落点。
+export function pageHead(_page: Page): HTMLElement {
+  return el("section", { class: "page-head no-title" });
 }
 
 // 顶部标签页：常去的几页，一次点击就能跳。侧栏仍是全量导航，标签是「高频入口」。
