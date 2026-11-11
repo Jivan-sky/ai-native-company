@@ -27,6 +27,23 @@
         "id"
       ],
       "action": "allow"
+    },
+    {
+      "subject": "board-ui",
+      "table": "orders",
+      "columns": [
+        "id",
+        "region"
+      ],
+      "action": "allow"
+    },
+    {
+      "subject": "board-ui",
+      "table": "orders",
+      "columns": [
+        "total"
+      ],
+      "action": "mask"
     }
   ],
   "derived": "allow",

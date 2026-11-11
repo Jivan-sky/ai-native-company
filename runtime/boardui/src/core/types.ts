@@ -314,6 +314,21 @@ export type ModelRow = {
 };
 export type ModelsView = { schema?: string; wired: boolean; why?: string; entries: ModelRow[] };
 
+export type DSRow = {
+  name: string; type: string; read_only: boolean;
+  tables?: number; columns?: number; fingerprint?: string; classified?: number; has_policy: boolean;
+};
+export type DataSourcesView = { schema?: string; wired: boolean; why?: string; datasources: DSRow[] };
+
+export type CatalogColumn = { name: string; type: string; nullable: boolean; is_pk?: boolean; comment?: string };
+export type CatalogTable = { name: string; comment?: string; columns: CatalogColumn[] };
+export type CatalogView = {
+  schema?: string; wired: boolean; why?: string; datasource: string; fingerprint?: string; scanned_at?: string;
+  tables: CatalogTable[];
+  classifications?: Record<string, { level: string; by: string; at: string; why?: string }>;
+  policy?: { default: string; derived: string; rules: { subject: string; table: string; columns: string[]; action: string }[]; row_filters?: { table: string; where: string }[] };
+};
+
 export type Data = {
   board: BoardView | null; issues: Issues;
   agents: AgentsView | null; agentsErr: string;
@@ -331,6 +346,8 @@ export type Data = {
   apps: AppsView | null; appsErr: string;
   models: ModelsView | null; modelsErr: string;
   jobs: JobsView | null; jobsErr: string;
+  ds: DataSourcesView | null; dsErr: string;
+  cat: CatalogView | null; catErr: string;
   err: string;
 };
 

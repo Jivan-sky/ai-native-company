@@ -1,5 +1,5 @@
 import type { ContextView, GrantsView, SearchView } from "./core/types";
-import type { AppsView, JobsView, ModelsView } from "./core/types";
+import type { AppsView, CatalogView, DataSourcesView, JobsView, ModelsView } from "./core/types";
 import { mountChatPanel } from "./ui/chatpanel";
 import { contract, fetchData, getJSON } from "./core/api";
 import { ctxQuery, currentId, grantsQuery, hashQuery, searchQuery } from "./core/query";
@@ -54,11 +54,31 @@ async function loadJobs(): Promise<void> {
   shell();
 }
 
+async function loadDataSources(): Promise<void> {
+  const res = await getJSON<DataSourcesView>("/api/datasources");
+  const ds = contract(res, "数据源");
+  if (cache) setCache({ ...cache, ds: ds.v, dsErr: ds.err });
+  // 没选数据源就默认第一个
+  const q = hashQuery().get("ds") ?? "";
+  const first = ds.v?.datasources?.[0]?.name ?? "";
+  const want = q || first;
+  if (want !== "") await loadCatalog(want);
+  else shell();
+}
+
+async function loadCatalog(name: string): Promise<void> {
+  const res = await getJSON<CatalogView>("/api/catalog?ds=" + encodeURIComponent(name));
+  const cat = contract(res, "目录");
+  if (cache) setCache({ ...cache, cat: cat.v, catErr: cat.err });
+  shell();
+}
+
 function loadForPage(): boolean {
   const id = pageFor(currentId()).id;
   if (id === "apps") { void loadApps(); return true; }
   if (id === "models") { void loadModels(); return true; }
   if (id === "jobs") { void loadJobs(); return true; }
+  if (id === "data") { void loadDataSources(); return true; }
   return false;
 }
 
@@ -117,3 +137,54 @@ window.addEventListener("hashchange", () => {
 
 void boot();
 mountChatPanel();
+wireDataQuery();
+
+// ---------- 数据页的查询框 ----------
+// 票由看板自己签（query_token），主体是 board-ui；策略/行过滤在服务端生效。
+let queryToken = "";
+
+async function wireDataQuery(): Promise<void> {
+  // 每次渲染后重新挂（页面是整段重建的）
+  const box = document.getElementById("data-query");
+  if (!box || box.dataset.wired === "1") {
+    if (!box) setTimeout(() => void wireDataQuery(), 300);
+    return;
+  }
+  box.dataset.wired = "1";
+  const btn = box.querySelector(".query-run") as HTMLButtonElement | null;
+  const input = box.querySelector(".query-input") as HTMLTextAreaElement | null;
+  const out = box.querySelector(".query-out") as HTMLElement | null;
+  if (!btn || !input || !out) return;
+  btn.addEventListener("click", async () => {
+    const sql = input.value.trim();
+    if (sql === "") return;
+    out.textContent = "查询中…";
+    try {
+      if (queryToken === "") {
+        const sess = await fetch("/api/chat/session", { method: "POST" });
+        const j = (await sess.json()) as { query_token?: string };
+        queryToken = j.query_token ?? "";
+        if (queryToken === "") throw new Error("看板没签出查询票");
+      }
+      const ds = cache?.cat?.datasource ?? hashQuery().get("ds") ?? "";
+      const res = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + queryToken },
+        body: JSON.stringify({ datasource: ds, sql }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        out.textContent = "被拒/出错：" + (body.error ?? res.status);
+        return;
+      }
+      const head = (body.columns as string[]).join(" | ");
+      const lines = (body.rows as (string | null)[][]).map((r) => r.map((v) => (v === null ? "NULL" : v)).join(" | "));
+      const meta = `${body.returned} 行` +
+        (body.masked?.length ? ` · 脱敏 ${body.masked.join(",")}` : "") +
+        (body.filters?.length ? ` · 行过滤 ${body.filters.join("；")}` : "");
+      out.textContent = [head, ...lines, "", meta].join("\n");
+    } catch (e) {
+      out.textContent = "出错：" + (e instanceof Error ? e.message : String(e));
+    }
+  });
+}
