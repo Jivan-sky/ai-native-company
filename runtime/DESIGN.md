@@ -5042,6 +5042,36 @@ $ … --sql "SELECT * FROM nope"
 - 没有参数化查询（`$1` 走扩展协议），现在只有简单查询 + 守卫。
 - 没有 HTTP 出口（`/api/query`），只有 CLI；MySQL 与本地文件目录还没接。
 
+### 7.1.97 数据治理第一刀：目录 + 指纹 + 漂移（2026-11-11）
+
+**只要元数据，不要行。** `anc catalog scan` 只读 `pg_class / pg_attribute / pg_index`，
+拿到表、列、类型、可空、主键、注释；**不取任何行数据**。
+
+| 命令 | 做什么 |
+|---|---|
+| `anc catalog scan <vault> <ds>` | 内省 → 快照（带指纹）→ 存 `<vault>/../catalog/<ds>.json` |
+| `anc catalog show <vault> <ds>` | 看目录：表/列/类型/可空/主键/注释 |
+| `anc catalog diff <vault> <ds>` | 重扫并与上一份比：增表/删表/增列/删列/**改名**/改类型 |
+
+**真跑（dev/pg 那台 PG 17）**：
+
+```
+$ anc catalog scan … demo-pg
+✅ 已扫 demo-pg：1 张表 / 3 列 · 指纹 1fecc76e24a7d9a1
+   建议 sensitive  orders.amount（列名命中金额/收入）
+
+$ docker exec … psql -c 'ALTER TABLE orders RENAME COLUMN amount TO total'
+$ anc catalog diff … demo-pg
+发现 1 处漂移（1fecc76e24a7d9a1 → e619af215162522d）：
+  renamed_column   orders.total  amount → total（类型 numeric(10,2) 未变）
+```
+
+改名识别用的是「一列消失 + 一列新增，且类型与可空相同」；不满足这条（比如两增一删）
+就老老实实报增/删，不猜。
+
+**分级只是建议**：现在只按列名规则（email/phone → pii，amount/salary → sensitive），
+**拍板要人确认**——值形状扫描（库内聚合计数）是下一刀。
+
 ## 8. 与 SPEC 的映射
 
 | 本文 | SPEC |
