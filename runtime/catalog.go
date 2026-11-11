@@ -22,6 +22,8 @@ const catalogUsage = `anc catalog —— 数据目录（只要元数据，不要
   anc catalog scan <vault> <数据源> [--secrets <文件>] [--json]
   anc catalog show <vault> <数据源> [--table <表>] [--json]
   anc catalog diff <vault> <数据源> [--secrets <文件>] [--json]
+  anc catalog classify <vault> <数据源> [--secrets <文件>] [--json]
+  anc catalog confirm <vault> <数据源> <表.列> <级别> --by <谁> [--why …]
 
 口径：
   · 内省只读 information_schema，不取行数据；
@@ -41,6 +43,10 @@ func cmdCatalog(args []string) int {
 		return cmdCatalogShow(args[1:])
 	case "diff":
 		return cmdCatalogDiff(args[1:])
+	case "classify":
+		return cmdCatalogClassify(args[1:])
+	case "confirm":
+		return cmdCatalogConfirm(args[1:])
 	}
 	fmt.Fprint(os.Stderr, catalogUsage)
 	return 2
@@ -198,4 +204,87 @@ func comment(s string) string {
 		return ""
 	}
 	return "  — " + s
+}
+
+func cmdCatalogClassify(args []string) int {
+	fs := flag.NewFlagSet("catalog classify", flag.ContinueOnError)
+	secrets := fs.String("secrets", "", "凭据文件")
+	asJSON := fs.Bool("json", false, "JSON 出口")
+	flagArgs, posArgs := splitArgs(args, map[string]bool{"json": true})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if len(posArgs) != 2 {
+		fmt.Fprint(os.Stderr, catalogUsage)
+		return 2
+	}
+	vault, name := posArgs[0], posArgs[1]
+	src, err := ds.Load(vault, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	snap, err := catalog.Load(vault, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v（先 scan）\n", err)
+		return 1
+	}
+	pw := loadSecrets(catalogSecrets(vault, *secrets))[src.Secret]
+	ev, err := catalog.ScanValues(context.Background(), src, pw, snap)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	if *asJSON {
+		b, _ := json.MarshalIndent(ev, "", "  ")
+		fmt.Println(b)
+		return 0
+	}
+	if len(ev) == 0 {
+		fmt.Println("没有命中任何值形状规则（阈值 30%）——这不等于没有问题，只说明「没看出形状」。")
+		return 0
+	}
+	fmt.Printf("值形状证据（库内聚合计数，未取回任何行）：\n")
+	for _, e := range ev {
+		fmt.Printf("  %-22s %-10s %-9s %d/%d（%.0f%%）\n",
+			e.Table+"."+e.Column, e.Level, e.Pattern, e.Hits, e.Total, e.Rate*100)
+	}
+	fmt.Println("\n确认请用：anc catalog confirm … <表.列> <级别> --by <谁>")
+	return 0
+}
+
+func cmdCatalogConfirm(args []string) int {
+	fs := flag.NewFlagSet("catalog confirm", flag.ContinueOnError)
+	by := fs.String("by", "", "谁拍的板（必填）")
+	why := fs.String("why", "", "依据")
+	flagArgs, posArgs := splitArgs(args, map[string]bool{})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if len(posArgs) != 4 || strings.TrimSpace(*by) == "" {
+		fmt.Fprint(os.Stderr, catalogUsage)
+		return 2
+	}
+	vault, name, target, level := posArgs[0], posArgs[1], posArgs[2], posArgs[3]
+	parts := strings.SplitN(target, ".", 2)
+	if len(parts) != 2 {
+		fmt.Fprintln(os.Stderr, "错误：目标写成 表.列")
+		return 2
+	}
+	snap, err := catalog.Load(vault, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	snap, err = catalog.Confirm(snap, parts[0], parts[1], level, *by, *why)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	if err := catalog.Save(vault, snap); err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	fmt.Printf("✅ 已记：%s = %s（%s）\n", target, level, *by)
+	return 0
 }
