@@ -1,8 +1,9 @@
-import type { Data, Kid, TimelineCaseView } from "../core/types";
+import type { Data, Kid, TimelineCaseView, TimelineView } from "../core/types";
 import { pager, sliced } from "../ui/pager";
 import { banner, chip, dash, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { hashQuery } from "../core/query";
+import { reload } from "../core/refresh";
 import { cannot, dist, dn, dsep } from "../ui/blocks";
 import { cmd, emptyState } from "../ui/states";
 import { bandDot, bandLegend, bandWord, dotLine } from "../ui/status";
@@ -39,7 +40,34 @@ function caseCell(c: TimelineCaseView): HTMLElement {
     where === "" ? "" : el("div", { class: "quiet" }, where));
 }
 
+// 「这个人留下了什么」。筛的是**条目**再折叠（见后端 filterBy 的注释）；
+// 名字进 URL：刷新、后退、把链接发给别人，都还停在这个人身上。
+function whoSearch(who: string): Kid {
+  const input = el("input", {
+    class: "by", type: "text", value: who,
+    placeholder: "人名或 bot 名，例如 alice",
+    "aria-label": "按人筛时间线",
+  }) as HTMLInputElement;
+  const go = (): void => {
+    const v = input.value.trim();
+    location.hash = v === "" ? "#/timeline" : "#/timeline?by=" + encodeURIComponent(v);
+    reload(true);
+  };
+  input.addEventListener("keydown", (ev) => {
+    if ((ev as KeyboardEvent).key === "Enter") { ev.preventDefault(); go(); }
+  });
+  const btn = el("button", { class: "act", type: "button" }, "只看这个人");
+  btn.addEventListener("click", go);
+  return section("按人搜",
+    who === "" ? "名字进 URL，能发给别人" : "只看 " + who,
+    el("div", { class: "tl-search" }, input, btn,
+      who === "" ? "" : el("a", { class: "ghost-btn", href: "#/timeline" }, "看全部")),
+    who === "" ? "" : el("p", { class: "quiet" },
+      "分布、曲线、case 表都只统计这个人写下的条目；团队要等真身份（见 PLAN 风险表）。"));
+}
+
 export function renderTimeline(d: Data): Kid[] {
+  const who = (hashQuery().get("by") ?? "").trim();
   const v = d.timeline;
   if (!v) {
     return [banner("bad", "读不到时间线", [
@@ -87,8 +115,11 @@ export function renderTimeline(d: Data): Kid[] {
   out.push(section("现在在哪一步",
     "共 " + v.cases.length + " 个 case",
     tl.rows.length === 0
-      ? emptyState("timeline/ 里一行都还没有。",
-          el("span", {}, "记一条：", cmd("anc timeline add <vault> -by <谁> -title <一句话>")))
+      ? who === ""
+        ? emptyState("timeline/ 里一行都还没有。",
+            el("span", {}, "记一条：", cmd("anc timeline add <vault> -by <谁> -title <一句话>")))
+        : emptyState("「" + who + "」没有留下记录。",
+            el("span", {}, "换个名字，或 ", el("a", { href: "#/timeline" }, "看全部")))
       : el("div", {},
           table(["档 / status", "case", "谁 → 交给谁", "几条", "最近活动"], rows),
           pager(v.cases.length, tl.cur, "timeline"))));
@@ -124,6 +155,8 @@ export function renderTimeline(d: Data): Kid[] {
         el("span", {}, "往后翻："), el("span", { class: "mono" }, "anc timeline list <vault> --before " + dash(v.next_before)),
         el("span", {}, "；按档筛："), el("span", { class: "mono" }, "anc timeline list <vault> --band red"))));
   }
+
+  out.push(whoSearch(who));
 
   if (v.missing.length > 0) {
     out.push(section("这一页答不了", "", el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
