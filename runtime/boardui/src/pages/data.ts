@@ -54,6 +54,38 @@ function policyBlock(v: CatalogView): Kid {
     el("ul", {}, ...rules, ...rows));
 }
 
+function fileBrowser(d: Data): Kid {
+  const snap = d.fileSnap;
+  const list = d.fileList;
+  if (!snap || !snap.wired) {
+    return banner("warn", "这个数据源还没有快照", [el("span", {}, snap?.why ?? "先跑 `anc file scan`")]);
+  }
+  const rows: Kid[][] = [];
+  for (const e of list?.entries ?? []) {
+    const label = e.dir ? e.name + "/" : e.name;
+    const href = e.dir
+      ? `#data?ds=${encodeURIComponent(snap.datasource)}&p=${encodeURIComponent(e.path)}`
+      : `#data?ds=${encodeURIComponent(snap.datasource)}&p=${encodeURIComponent(d.filePath)}`;
+    const cell = el("a", { class: "mono", href, "data-file": e.dir ? "" : e.path }, label);
+    rows.push([cell, e.dir ? "目录" : `${e.size} B`, e.mtime]);
+  }
+  const crumb = el("div", { class: "empty" }, `路径：${d.filePath === "" ? "/" : "/" + d.filePath}`);
+  return el("div", {},
+    el("div", { class: "empty" },
+      `指纹 ${snap.fingerprint ?? "—"} · 扫于 ${(snap.scanned_at ?? "").slice(0, 19)} · ` +
+      `${snap.files.length} 个文件 / ${snap.dirs.length} 个目录`),
+    crumb,
+    (d.fileErr ?? "") !== ""
+      ? banner("warn", "列目录失败", [el("span", {}, d.fileErr)])
+      : el("div", {},
+          table(["名字", "大小/类型", "修改时间"], rows),
+          (list?.hidden ?? 0) > 0
+            ? el("div", { class: "empty" }, `另有 ${list?.hidden} 项被策略隐藏（不是不存在）`)
+            : ""),
+    el("pre", { id: "file-content", class: "file-content" }, "点一个文件看内容"),
+  );
+}
+
 export function renderData(d: Data): Kid[] {
   const v = d.ds;
   if (!v) {
@@ -63,11 +95,16 @@ export function renderData(d: Data): Kid[] {
     return [banner("warn", "数据源目录没接上", [el("span", {}, v.why ?? "")])];
   }
   const out: Kid[] = [];
-  const active = d.cat?.datasource ?? "";
+  const active = d.cat?.datasource ?? d.fileSnap?.datasource ?? "";
   out.push(section("数据源", "只连不搬：这里只有定义与目录，数据仍在客户库里",
     v.datasources.length === 0
       ? emptyNote("还没有数据源：在 `<vault>/../datasources/` 放一份定义。")
       : el("div", { class: "ds-list" }, ...v.datasources.map((x) => dsCard(x, x.name === active)))));
+
+  if (active !== "" && v.datasources.some((x) => x.name === active && x.type === "file")) {
+    out.push(section(`文件目录：${active}`, "只连不搬：这里只读元数据；文件内容按策略放行", fileBrowser(d)));
+    return out;
+  }
 
   if (d.cat && d.cat.wired) {
     out.push(section(`目录：${d.cat.datasource}`,

@@ -64,6 +64,9 @@ func (s *Server) Routes() []Route {
 		{chatSessionPath, KindModel, s.handleChatSession},
 		{"/api/datasources", KindRead, s.handleDataSources},
 		{"/api/catalog", KindRead, s.handleCatalog},
+		{"/api/files", KindRead, s.handleFileSnapshot},
+		{"/api/files/ls", KindQuery, s.handleFileLs},
+		{"/api/files/cat", KindQuery, s.handleFileCat},
 		{"/api/query", KindQuery, s.handleQuery},
 	}
 }
@@ -80,6 +83,7 @@ var routeKindSet = map[string]RouteKind{
 	WritePath: KindWrite, SettlePath: KindWrite,
 	chatPath: KindModel, chatSessionPath: KindModel,
 	"/api/datasources": KindRead, "/api/query": KindQuery, "/api/catalog": KindRead,
+	"/api/files": KindRead, "/api/files/ls": KindQuery, "/api/files/cat": KindQuery,
 }
 
 func routeKind(p string) (RouteKind, bool) {

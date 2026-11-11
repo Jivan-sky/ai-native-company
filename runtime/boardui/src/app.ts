@@ -1,5 +1,5 @@
 import type { ContextView, GrantsView, SearchView } from "./core/types";
-import type { AppsView, CatalogView, DataSourcesView, JobsView, ModelsView } from "./core/types";
+import type { AppsView, CatalogView, DataSourcesView, FileListView, FileSnapView, JobsView, ModelsView } from "./core/types";
 import { mountChatPanel } from "./ui/chatpanel";
 import { contract, fetchData, getJSON } from "./core/api";
 import { ctxQuery, currentId, grantsQuery, hashQuery, searchQuery } from "./core/query";
@@ -62,8 +62,38 @@ async function loadDataSources(): Promise<void> {
   const q = hashQuery().get("ds") ?? "";
   const first = ds.v?.datasources?.[0]?.name ?? "";
   const want = q || first;
-  if (want !== "") await loadCatalog(want);
-  else shell();
+  if (want === "") {
+    shell();
+    return;
+  }
+  const row = ds.v?.datasources?.find((x) => x.name === want);
+  if (row?.type === "file") {
+    await loadFiles(want, hashQuery().get("p") ?? "");
+    return;
+  }
+  await loadCatalog(want);
+}
+
+async function loadFiles(name: string, path: string): Promise<void> {
+  const snap = await getJSON<FileSnapView>("/api/files?ds=" + encodeURIComponent(name));
+  const tok = await ensureQueryToken();
+  const list = await fetch("/api/files/ls?ds=" + encodeURIComponent(name) + "&path=" + encodeURIComponent(path), {
+    headers: { Authorization: "Bearer " + tok },
+  });
+  let fl: FileListView | null = null;
+  let err = "";
+  if (list.ok) fl = (await list.json()) as FileListView;
+  else err = (await list.text()).slice(0, 200);
+  if (cache) setCache({ ...cache, fileSnap: snap.body, fileList: fl, filePath: path, fileErr: err });
+  shell();
+}
+
+export async function ensureQueryToken(): Promise<string> {
+  if (queryToken !== "") return queryToken;
+  const sess = await fetch("/api/chat/session", { method: "POST" });
+  const j = (await sess.json()) as { query_token?: string };
+  queryToken = j.query_token ?? "";
+  return queryToken;
 }
 
 async function loadCatalog(name: string): Promise<void> {
@@ -138,6 +168,7 @@ window.addEventListener("hashchange", () => {
 void boot();
 mountChatPanel();
 wireDataQuery();
+wireFileClick();
 
 // ---------- 数据页的查询框 ----------
 // 票由看板自己签（query_token），主体是 board-ui；策略/行过滤在服务端生效。
@@ -186,5 +217,31 @@ async function wireDataQuery(): Promise<void> {
     } catch (e) {
       out.textContent = "出错：" + (e instanceof Error ? e.message : String(e));
     }
+  });
+}
+
+// 点文件 → 读内容（事件委托：列表是异步渲染的，逐次绑会漏）
+let fileClickWired = false;
+function wireFileClick(): void {
+  if (fileClickWired) return;
+  fileClickWired = true;
+  document.addEventListener("click", async (ev) => {
+    const a = (ev.target as HTMLElement)?.closest?.("[data-file]") as HTMLElement | null;
+    if (!a) return;
+    const path = a.getAttribute("data-file") ?? "";
+    if (path === "") return; // 目录：走普通链接
+    ev.preventDefault();
+    const pre = document.getElementById("file-content");
+    if (!pre) return;
+    const ds = hashQuery().get("ds") ?? "";
+    pre.textContent = "读取中…";
+    const tok = await ensureQueryToken();
+    const res = await fetch("/api/files/cat?ds=" + encodeURIComponent(ds) + "&path=" + encodeURIComponent(path), {
+      headers: { Authorization: "Bearer " + tok },
+    });
+    const body = await res.json();
+    pre.textContent = res.ok
+      ? (body.content ?? "") + (body.truncated ? "\n…（截断）" : "")
+      : "被拒/出错：" + (body.error ?? res.status);
   });
 }
