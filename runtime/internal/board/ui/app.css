@@ -2044,3 +2044,6 @@ details[open] summary::after { transform: rotate(90deg); }
 @media (max-width: 1280px) {
   .vt .wide { max-width: 28ch; }
 }
+
+/* 规则提示：合法时是灰的，不合法时变红 —— 但**先说话**，不要等点完再拒 */
+.field .quiet.bad { color: var(--block); }

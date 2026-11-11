@@ -1,7 +1,8 @@
 import type { Attrs, Data, Kid } from "../core/types";
 import { el } from "../core/dom";
+import { deniedState } from "../ui/states";
 import { currentId, hashQuery } from "../core/query";
-import { allowed, currentRole } from "../core/roles";
+import { allowed, currentRole, roleLabel } from "../core/roles";
 import { renderAssets, renderCases, renderSediment } from "./assets";
 import { renderAudit } from "./audit";
 import { renderDomains, renderMembers } from "./org";
@@ -27,6 +28,13 @@ export function activeSubTab(tabs: SubTab[], fallback: string): SubTab {
   return tabs.find((t) => t.id === q) ?? tabs.find((t) => t.id === here) ?? tabs.find((t) => t.id === fallback) ?? tabs[0]!;
 }
 
+// 用户明确要的是哪一个标签（没有就说 null）。与「默认落在哪」是两件事。
+function explicitSubTab(tabs: SubTab[]): SubTab | null {
+  const here = currentId();
+  const q = (hashQuery().get("tab") ?? "").trim();
+  return tabs.find((t) => t.id === q) ?? tabs.find((t) => t.id === here) ?? null;
+}
+
 export function subHref(page: string, id: string): string {
   return "#/" + page + "?tab=" + id;
 }
@@ -49,9 +57,18 @@ function renderGroup(page: string, tabs: SubTab[], fallback: string, d: Data): K
   const role = currentRole();
   const visible = tabs.filter((t) => allowed(role, t.id));
   if (visible.length === 0) return [];
-  const cur = activeSubTab(tabs, fallback);
-  const shown = visible.some((t) => t.id === cur.id) ? cur : visible[0]!;
-  return [subTabs(page, tabs, shown), ...shown.view(d)];
+  // 只有当用户**明确要**某个标签（`?tab=` 或 hash 就是那个 id）时才谈「无权」；
+  // 没明说就落在第一个能看的 —— 否则成员打开「组织」会先吃到一句「成员与 Agent 不开放」。
+  const asked = explicitSubTab(tabs);
+  // 要的那一个标签装不下时说清楚，**不要**静默换成第一个能看的：
+  // 一个把「审计」加进书签的人，落到「时间线」会以为审计是空的。
+  const shown = asked === null || !allowed(role, asked.id) ? visible[0]! : asked;
+  const denied = asked !== null && !allowed(role, asked.id)
+    ? [deniedState(
+        "「" + asked.label + "」对" + roleLabel(role) + "不开放。",
+        "这一组里你能看的是：" + visible.map((t) => t.label).join(" / ") + "。要更多权限找你的上级或超管。")]
+    : [];
+  return [subTabs(page, tabs, shown), ...denied, ...(denied.length === 0 ? shown.view(d) : [])];
 }
 
 export const ASSET_TABS: SubTab[] = [
