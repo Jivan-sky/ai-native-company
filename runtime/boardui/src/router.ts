@@ -10,6 +10,7 @@ import { renderGraph } from "./pages/graph";
 import { renderDomains, renderMembers, renderProjects } from "./pages/org";
 import { renderIntake } from "./pages/intake";
 import { renderJobs } from "./pages/jobs";
+import { renderRun } from "./pages/run";
 import { renderModels } from "./pages/models";
 import { renderOverview } from "./pages/overview";
 import { renderOverviewV2 } from "./pages/overview-v2";
@@ -55,28 +56,10 @@ export const contextPage: Page = {
   id: "context", group: "工作", label: "上下文", icon: "context", wired: true,
   question: "一个 agent 的工作上下文是什么？", view: renderContext,
 };
-export const appsPage: Page = {
-  id: "apps", group: "运行", label: "应用", icon: "grid", wired: true,
-  question: "装了什么、审没审、内容对不对？",
-  sub: "脚本应用：装时算 hash、审批记人、跑前重算。看板只读，装/审/撤在 CLI。",
-  view: renderApps,
-};
-export const modelsPage: Page = {
-  id: "models", group: "运行", label: "模型", icon: "spark", wired: true,
-  question: "有哪几个模型、谁绑了它、密钥配没配？",
-  sub: "注册表在我们手里；密钥只显示名字与「配没配」，不显示值。",
-  view: renderModels,
-};
-export const jobsPage: Page = {
-  id: "jobs", group: "运行", label: "作业", icon: "clock", wired: true,
-  question: "什么时候跑、上次成没成、下次几点？",
-  sub: "定时作业与应用作业共用一套租约与幂等；下次时间是调度器同一个函数算的。",
-  view: renderJobs,
-};
-export const intakePage: Page = {
-  id: "intake", group: "运行", label: "接入", icon: "key", wired: true,
-  question: "接一个脚本或一个外部接口进来：什么时候跑、打到哪、用哪个密钥、写到哪个文件？",
-  view: renderIntake,
+export const runPage: Page = {
+  id: "run", group: "运行", label: "运行", icon: "flow", wired: true,
+  question: "谁在跑、跑什么、什么时候跑、怎么接进来？",
+  view: renderRun,
 };
 export const dataPage: Page = {
   id: "data", group: "运行", label: "数据", icon: "layers", wired: true,
@@ -121,7 +104,7 @@ export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage, contextPage,
   graphPage, membersPage, domainsPage,
-  appsPage, modelsPage, jobsPage, intakePage, dataPage,
+  runPage, dataPage,
   timelinePage, casesPage, auditPage,
   assetsPage, searchPage, sedimentPage,
   systemPage,
@@ -132,11 +115,12 @@ export const PAGES: Page[] = [
 export const LEGACY: Record<string, string> = {
   runtime: "system", dataflow: "system", gateway: "system", hot: "system", grants: "system",
   roles: "members", org: "overview",
+  // 应用 / 模型 / 作业 / 接入 并进了「运行」；旧链接落到那一页，由它按 hash 选中标签。
+  apps: "run", models: "run", jobs: "run", intake: "run",
 };
 
 export function pageFor(id: string): Page {
-  const to = LEGACY[id];
-  if (to !== undefined) return to === "members" ? membersPage : to === "system" ? systemPage : overviewPage;
-  for (const p of PAGES) if (p.id === id) return p;
+  const to = LEGACY[id] ?? id;
+  for (const p of PAGES) if (p.id === to) return p;
   return overviewPage;
 }

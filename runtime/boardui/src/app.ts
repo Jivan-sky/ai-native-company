@@ -7,6 +7,7 @@ import { setReloader, setRerender } from "./core/refresh";
 import { cache, setCache } from "./core/state";
 import { activeSystemTab } from "./pages/system";
 import { pageFor } from "./router";
+import { activeRunTab } from "./pages/run";
 import { shell } from "./ui/shell";
 
 // ANC 看板前端（浏览器侧）入口。
@@ -105,11 +106,14 @@ async function loadCatalog(name: string): Promise<void> {
 
 function loadForPage(): boolean {
   const id = pageFor(currentId()).id;
-  if (id === "apps") { void loadApps(); return true; }
-  if (id === "models") { void loadModels(); return true; }
-  if (id === "jobs") { void loadJobs(); return true; }
-  // 接入页也吃作业目录那一份数据（接了什么、打到哪、用哪个密钥）
-  if (id === "intake") { void loadJobs(); return true; }
+  // 应用 / 模型 / 作业 / 接入并成了「运行」一页：按当前标签取它自己那一份。
+  if (id === "run") {
+    const tab = activeRunTab().id;
+    if (tab === "apps") { void loadApps(); return true; }
+    if (tab === "models") { void loadModels(); return true; }
+    if (tab === "jobs" || tab === "intake") { void loadJobs(); return true; }
+    return false;
+  }
   if (id === "data") { void loadDataSources(); return true; }
   return false;
 }
