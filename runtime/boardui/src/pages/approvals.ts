@@ -30,10 +30,7 @@ export function bySection(): Kid {
   input.addEventListener("input", () => {
     setByWho((input as HTMLInputElement).value);
   });
-  return section("谁在点", "看板没有免登：这一栏由填的人负责；ANC 只把它原样留痕，不校",
-    el("p", { class: "empty" },
-      "飞书卡片那条路不需要它 —— 卡片点击事件自带 open_id，点的人是谁由事件给。"),
-    el("div", { class: "field" }, input));
+  return section("谁在点", "", el("div", { class: "field" }, input));
 }
 
 // 一条提案一张卡：人话在上，凭证（id / 时间 / 客体）在下，按钮在最底下。
@@ -120,16 +117,8 @@ export function pendingSection(v: ApprovalView): Kid {
 }
 
 export function signalsSection(v: ApprovalView): Kid {
-  const legend = v.signals.length === 0
-    ? emptyNote("服务没给信号表 —— 这一版点不了。")
-    : el("p", { class: "legend" }, ...v.signals.map((sig) => el("span", { class: "st" },
-        chip(sig.value, true),
-        el("span", {}, sig.label === "" ? "（服务没给人话）" : sig.label))));
-  return section("这一页只认三个字", "别的写法一律不认，也不猜 —— 判据永远只看这三个字",
-    legend,
-    el("p", { class: "empty" },
-      "点完头，ANC 只做三件事：收提案、送给该批的人、留痕 —— 不替人判断该不该给；",
-      "也不动真相源（grants/ 那个文件由人侧的管理者 bot 写）。"));
+  return el("div", { class: "approve-actions" },
+    ...v.signals.map((sig) => el("button", { class: "ghost-btn", type: "button" }, sig.label || sig.value)));
 }
 
 export function renderApprovals(d: Data): Kid[] {
@@ -147,7 +136,7 @@ export function renderApprovals(d: Data): Kid[] {
     out.push(banner("warn", "待批队列还没接上", [
       el("span", {}, dash(v.why)),
       el("br"),
-      el("span", {}, "接不上不代表「没人提」—— 这一页宁可不显示，也不拿一份空队列冒充它。"),
+
     ]));
   }
   out.push(bySection());

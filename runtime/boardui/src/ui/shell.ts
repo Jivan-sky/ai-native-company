@@ -257,14 +257,11 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
 
 export function pageHead(page: Page): HTMLElement {
   // 页头只留「这是什么页」+ 动作。原来那句 question / sub 是给作者看的，不是给读者的。
-  const copy = el("button", { class: "ghost-btn", type: "button" }, icon("copy", 14), "复制链接");
-  copy.addEventListener("click", copyLink);
   const inTabs = TABS.some((t) => t.id === page.id);
   return el("section", { class: "page-head" + (inTabs ? " no-title" : "") },
     el("div", { class: "ph-main" }, inTabs ? "" : el("h1", {}, page.label)),
     el("div", { class: "page-actions" },
-      page.id === "overview" ? "" : el("a", { class: "ghost-btn", href: "#/overview" }, icon("overview", 14), "总览"),
-      copy));
+      page.id === "overview" ? "" : el("a", { class: "ghost-btn", href: "#/overview" }, icon("overview", 14), "总览")));
 }
 
 // 顶部标签页：常去的几页，一次点击就能跳。侧栏仍是全量导航，标签是「高频入口」。
@@ -284,11 +281,8 @@ export function tabbar(page: Page): HTMLElement {
 }
 
 export function pageFooter(): HTMLElement {
-  return el("footer", { class: "note" },
-    el("strong", {}, "几乎只读"), "：数据是真相源（vault）的实时投影，点刷新重取；写只有两处 ——",
-    "「待批」页的点头（留痕：timeline + audit，不动真相源）与热层终态条目的归档（落 timeline、再清热层）。",
-    el("br"),
-    el("strong", {}, "校验发现"), " 与 ", el("span", { class: "mono" }, "anc org check"), " 同源；完整清单在「总览」和「审计」。");
+  // 原来这一段是给评审看的「口径说明」，不是给使用者看的。删掉。
+  return el("footer", { class: "note" });
 }
 
 export function loadingBlock(): HTMLElement {
