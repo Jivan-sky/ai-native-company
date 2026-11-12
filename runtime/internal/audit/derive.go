@@ -271,6 +271,10 @@ type EntryView struct {
 	Cross     bool   `json:"cross"`      // 跨域
 	Known     bool   `json:"known"`      // 跨域判定了没有（false = 没判，不是「不跨域」）
 	HasWhy    bool   `json:"has_why"`    // 有没有原话（看板据此提示「去 CLI 看」，见 board/audit.go）
+
+	// Src 是这条流水在盘上的哪一行（`2026-11.bob.jsonl:3`）。
+	// Record.Src 是 json:"-"（不写进 jsonl），所以这里单独带一个出口。
+	Src string `json:"src,omitempty"`
 }
 
 // View 把一条记录读成视图。
@@ -285,6 +289,7 @@ func View(r Record, sc *Scope) EntryView {
 		Cross:     d.Cross,
 		Known:     d.Known,
 		HasWhy:    strings.TrimSpace(r.Why) != "",
+		Src:       r.Src,
 	}
 }
 

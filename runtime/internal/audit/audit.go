@@ -123,6 +123,11 @@ type Record struct {
 	Source     string `json:"source,omitempty"`       // 这条从哪来：collect:<harness> | manual
 	Ref        string `json:"ref,omitempty"`          // 指回原始记录（会话 id / 行号 / 工具调用 id）
 	Detail     string `json:"detail,omitempty"`       // 展开
+
+	// Src 是这一条在盘上的哪一行（`2026-11.bob.jsonl:3`）。加载时填，**不写进文件**：
+	// 它描述位置不描述内容，写进去会让重放同一份底账多出一个会漂的字段。
+	// 与 timeline 的 Src 同一条纪律。
+	Src string `json:"-"`
 }
 
 // Time 解析 At。解析不了返回零值 + false（调用方据此判「读不懂」）。
@@ -222,6 +227,7 @@ func readShard(path, name string, doc *Doc) ([]string, error) {
 		if hits := Effective().CleanRecord(&r); len(hits) > 0 {
 			doc.Tainted = append(doc.Tainted, fmt.Sprintf("%s:%d", name, ln))
 		}
+		r.Src = fmt.Sprintf("%s:%d", name, ln)
 		doc.Records = append(doc.Records, r)
 	}
 	return bad, sc.Err()
