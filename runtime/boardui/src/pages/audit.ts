@@ -1,12 +1,13 @@
 import type { AuditEntryView, Data, Kid } from "../core/types";
 import { pager, sliced } from "../ui/pager";
-import { banner, chip, dash, el, section, table } from "../core/dom";
+import { banner, card, chip, dash, el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { hashQuery } from "../core/query";
 import { cannot, dist, dn, dsep } from "../ui/blocks";
 import { cmd, emptyState } from "../ui/states";
 import { metricButton } from "../core/metrics";
 import { dotLine } from "../ui/status";
+import { openDrawer } from "../ui/drawer";
 
 // 四档结果：ok 实心圆 / denied 菱形 / failed 菱形 / 认不出的词虚线空圈。
 // denied 与 failed 是两个词、两件事 —— 「权限没给」不能说成「故障」（后端同一条纪律）。
@@ -72,6 +73,46 @@ const HEAD = ["结果", "时间", "谁", "类别", "对谁", "目标"];
 // 顶部「要看的」只摆这几条：再多就不是提示，是糊墙。
 const FLAG_CAP = 5;
 
+// 点一行 → 抽屉里摊开这一条的全部：四档、谁、对谁、原话指针、**盘上的哪一行**。
+//
+// 为什么不把「来源」做成第七列：一列换来的宽度把整张表顶出卡片（1440/1024 实测都溢出）。
+// 而抽屉能给的比一列多 —— 它给的是整条记录。
+function openRecord(e: AuditEntryView): void {
+  const rows: [string, Kid][] = [
+    ["结果", dotLine(auditDot(e.band), el("span", {}, auditWord(e.band)))],
+    ["时间", el("span", { class: "mono" }, localTime(e.at))],
+    ["谁", el("span", { class: "mono" }, dash(e.actor))],
+    ["类别", el("span", { class: "mono" }, dash(e.action))],
+    ["对谁", zoneCell(e)],
+    ["目标", el("span", { class: "mono" }, dash(e.object))],
+  ];
+  if ((e.src ?? "") !== "") rows.push(["来源", el("span", { class: "mono nw" }, e.src ?? "")]);
+  rows.push(["原话", e.has_why ? el("span", {}, "留在本机（", el("span", { class: "mono" }, "anc audit log"), "）") : el("span", { class: "quiet" }, "这条没有原话")]);
+  openDrawer({
+    eyebrow: "AUDIT / 一条行使",
+    title: dash(e.object),
+    sub: localTime(e.at) + " · " + auditWord(e.band),
+    body: [card("这一条", "", rows)],
+  });
+}
+
+// 把表格的每一行接上抽屉。用 tabindex + role 让它也能用键盘进 —— 只做鼠标等于少一半人。
+function wireRows(el_: HTMLElement, recs: AuditEntryView[]): void {
+  const trs = Array.from(el_.querySelectorAll("tbody tr"));
+  trs.forEach((tr, i) => {
+    const rec = recs[i];
+    if (!rec) return;
+    tr.setAttribute("tabindex", "0");
+    tr.setAttribute("role", "button");
+    tr.setAttribute("aria-label", "查看这一条行使的来源");
+    tr.addEventListener("click", () => openRecord(rec));
+    tr.addEventListener("keydown", (ev) => {
+      const k = (ev as KeyboardEvent).key;
+      if (k === "Enter" || k === " ") { ev.preventDefault(); openRecord(rec); }
+    });
+  });
+}
+
 export function renderAudit(d: Data): Kid[] {
   const v = d.audit;
   if (!v) {
@@ -98,16 +139,18 @@ export function renderAudit(d: Data): Kid[] {
   // 这两类才是「看完要动手」的；四档分布是读数，不是任务。
   const flaggedAll = v.records.filter((e) => e.band === "denied" || e.band === "failed");
   const flagged = flaggedAll.slice(0, FLAG_CAP);
+  const flaggedTable = table(HEAD, flagged.map(auditRow));
   if (flagged.length > 0) {
     out.push(section("要看的",
       "被拦下 " + v.bands.denied + " · 失败 " + v.bands.failed,
-      table(HEAD, flagged.map(auditRow)),
+      (wireRows(flaggedTable, flagged), flaggedTable),
       flaggedAll.length > flagged.length
         ? el("p", { class: "quiet" }, "余下 " + (flaggedAll.length - flagged.length) + " 条在下面流水里。")
         : ""));
   }
 
   const au = sliced(v.records, hashQuery());
+  const ledgerTable = table(HEAD, au.rows.map(auditRow));
   out.push(section("流水",
     el("span", {}, "共 ", metricButton("audit-total", String(v.total)), " 条"),
     au.rows.length === 0
@@ -115,7 +158,7 @@ export function renderAudit(d: Data): Kid[] {
           el("span", {}, "从 harness 记录归集：", cmd("anc audit collect <vault> --write"),
             "；补记一条：", cmd("anc audit add")))
       : el("div", {},
-          table(HEAD, au.rows.map(auditRow)),
+          (wireRows(ledgerTable, au.rows), ledgerTable),
           pager(v.records.length, au.cur, "audit")),
     el("p", { class: "quiet" },
       "原话（工具结果 / 命令行）留在本机，不带上看板：",

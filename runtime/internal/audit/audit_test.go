@@ -239,3 +239,27 @@ func TestResultBandKeepsUnknownWords(t *testing.T) {
 		t.Error("认不出的词要落 unknown 档")
 	}
 }
+
+// 每条记录要知道自己在盘上的哪一行 —— 看板靠它把明细行指回原文。
+func TestLoadFillsSrc(t *testing.T) {
+	vault := t.TempDir()
+	dir := filepath.Join(vault, DirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"id":"a","at":"2026-11-10T09:00:00+08:00","actor":"bob","action":"read","result":"ok"}
+{"id":"b","at":"2026-11-10T10:00:00+08:00","actor":"bob","action":"read","result":"denied"}`
+	if err := os.WriteFile(filepath.Join(dir, "2026-11.bob.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Load(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Records) != 2 {
+		t.Fatalf("要两条，得到 %d", len(doc.Records))
+	}
+	if doc.Records[0].Src != "2026-11.bob.jsonl:1" || doc.Records[1].Src != "2026-11.bob.jsonl:2" {
+		t.Errorf("行号不对：%q / %q", doc.Records[0].Src, doc.Records[1].Src)
+	}
+}

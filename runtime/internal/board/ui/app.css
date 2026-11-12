@@ -2047,3 +2047,8 @@ details[open] summary::after { transform: rotate(90deg); }
 
 /* 规则提示：合法时是灰的，不合法时变红 —— 但**先说话**，不要等点完再拒 */
 .field .quiet.bad { color: var(--block); }
+
+/* 可点的表行：光标 + 悬停 + 焦点环。没有这三样，一行数据看上去就是死的。 */
+.vt tbody tr[role="button"] { cursor: pointer; }
+.vt tbody tr[role="button"]:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.vt tbody tr[role="button"]:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }

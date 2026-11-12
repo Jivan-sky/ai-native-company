@@ -186,6 +186,8 @@ export type AuditEntryView = {
   on_behalf_of?: string; tool?: string; source?: string; ref?: string; detail?: string;
   band: string; actee: string; actee_name: string;
   zone: string; cross: boolean; known: boolean; has_why: boolean;
+  // 这一条在盘上的哪一行（`2026-11.bob.jsonl:3`）
+  src?: string;
 };
 export type AuditView = {
   schema: string; wired: boolean;
