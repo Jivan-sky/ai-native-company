@@ -27,6 +27,9 @@ const (
 type TimelineEntryView struct {
 	timeline.Entry
 	Band string `json:"band"`
+	// Src 是这条记录在盘上的哪一行（`2026-11.anc.jsonl:12`）。
+	// Entry 上的那个字段是 json:"-"（不写进 jsonl），所以这里单独带一个出口。
+	Src string `json:"src,omitempty"`
 }
 
 // TimelineCaseView = Case，但 Recent 换成带档位的形状。
@@ -217,7 +220,7 @@ func toCaseViews(in []timeline.Case) []TimelineCaseView {
 	for _, c := range in {
 		v := TimelineCaseView{Case: c, Recent: make([]TimelineEntryView, 0, len(c.Recent))}
 		for _, e := range c.Recent {
-			v.Recent = append(v.Recent, TimelineEntryView{Entry: e, Band: timeline.Band(e.Status)})
+			v.Recent = append(v.Recent, TimelineEntryView{Entry: e, Band: timeline.Band(e.Status), Src: e.Src})
 		}
 		out = append(out, v)
 	}
