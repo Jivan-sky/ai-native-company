@@ -67,6 +67,14 @@ type Server struct {
 	Gate *GateConfig
 	// ChatClient 可注入（测试用）；nil 就按 Chat 建一个真客户端。
 	ChatClient agent.Client
+
+	// IdentityHeader 是「这次请求是谁」的取值头（默认 X-ANC-User）。
+	// 现在由内网网关注入；飞书 SSO 接上后由 SSO 回填同一个头 —— 判据不动，只换来源。
+	IdentityHeader string
+	// Caps 是角色→能力那张表（<vault>/capabilities.md）。nil = 没有任何能力。
+	Caps org.CapTable
+	// EnforceAuthz 打开后，权威面按能力判定（默认关：开发机上没有网关，也没人往 header 里放身份）。
+	EnforceAuthz bool
 }
 
 func (s *Server) now() time.Time {
@@ -88,7 +96,8 @@ func (s *Server) Handler() http.Handler {
 		ui = UIFS()
 	}
 	mux.Handle("/", http.FileServerFS(ui))
-	return readOnly(mux)
+	// 顺序：先判方法（405 早于 401），再判能力。
+	return readOnly(s.capabilityGate(mux))
 }
 
 // readOnly 只放行读方法。405 带上 Allow 头 —— 让调用方知道该用什么方法，而不是自己去猜。
