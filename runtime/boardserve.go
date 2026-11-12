@@ -81,6 +81,8 @@ func cmdBoardServe(args []string) int {
 	hotPrefix := fs.String("hot-prefix", "", "热层 key 前缀（默认 "+hot.DefaultPrefix+"；也可用 ANC_HOT_PREFIX）")
 	agentStale := fs.Duration("agent-stale", 0, "多久没心跳不算在线（默认 "+hot.DefaultAgentStale.String()+"；也可用 ANC_AGENT_STALE）")
 	uiDir := fs.String("ui-dir", "", "前端静态资源目录（默认用内嵌的那份）")
+	identityHeader := fs.String("identity-header", board.DefaultIdentityHeader, "身份头名（内网网关注入；飞书 SSO 接上后由 SSO 回填同一个头）")
+	enforceAuthz := fs.Bool("enforce-authz", false, "按能力表判定权威面（默认关：开发机上没有网关，也没人往 header 里放身份）")
 	flagArgs, posArgs := splitArgs(args, map[string]bool{"insecure-bind": true})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -157,6 +159,15 @@ func cmdBoardServe(args []string) int {
 	// 热层：接得上就把「待批」页接上；接不上**不拦看板**（同 data 目录的口径）——
 	// 看不到待批不等于真相源坏了，投影照样该看得到。
 	bs := &board.Server{Vault: abs, DataDir: dataDir, Now: time.Now, UIFS: uiFS}
+	bs.IdentityHeader = *identityHeader
+	bs.EnforceAuthz = *enforceAuthz
+	// 能力表：读不到就是空表（= 全拒），不是错误 —— 刚 init 的机器不该因此起不来，
+	// 但也不该因为「没配」而放行任何东西。
+	if caps, cerr := org.LoadCapabilities(abs); cerr == nil {
+		bs.Caps = caps
+	} else {
+		fmt.Fprintf(os.Stderr, "警告：能力表读不动（%v）—— 开启 --enforce-authz 时会一律拒绝\n", cerr)
+	}
 	bs.Chat = &board.ChatConfig{BaseURL: *chatBaseURL, Model: *chatModel, KeyEnv: *chatKeyEnv}
 	// 闸与数据查询都需要密钥：**有密钥就建**，不依赖「配没配模型」。
 	// （之前只在配了 chat 时才建 Gate，结果 /api/query 把带票请求当成没票。）
