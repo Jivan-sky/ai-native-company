@@ -129,7 +129,7 @@ func readOnly(next http.Handler) http.Handler {
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "看板只读：只有 GET / HEAD（写只有两处 "+WritePath+" 与 "+SettlePath+"；模型面只有 "+chatPath+"）", http.StatusMethodNotAllowed)
+			http.Error(w, "看板只读：只有 GET / HEAD（写口见 inventory.go 的登记表；模型面只有 "+chatPath+"）", http.StatusMethodNotAllowed)
 			return
 		}
 		next.ServeHTTP(w, r)

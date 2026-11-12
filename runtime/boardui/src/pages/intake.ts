@@ -2,6 +2,8 @@ import type { Data, JobRow, Kid } from "../core/types";
 import { el, section, table } from "../core/dom";
 import { localTime, shortTime } from "../core/format";
 import { emptyState, unknownState, cmd } from "../ui/states";
+import { postJSON } from "../core/api";
+import { reload } from "../core/refresh";
 
 // 「接入」：把一个脚本或一个外部接口接进来 —— 什么时候跑、打到哪、用哪个密钥、写到哪个文件。
 //
@@ -97,6 +99,41 @@ function preview(d: Draft, existing: JobRow[]): Kid[] {
 
 type Handlers = { onInput: () => void; onKind: () => void };
 
+// 停用不是删除：spec 留着，enabled 改 false —— 删掉就看不见「曾经接过什么」。
+// 一行两条：名字 + 打到哪；下面一行是计划、密钥名、写到哪。
+// 用行不用表 —— 这一页在编辑式版面里只有 744px，六列表格必然横向溢出。
+function jobRow(j: JobRow): HTMLElement {
+  const target = j.kind === "app" ? "应用" : (j.method || "GET") + " " + hostOf(j.url ?? "");
+  const meta = [
+    (j.every || "—") + (j.at ? " @" + j.at : ""),
+    j.kind === "app"
+      ? "凭据由应用管"
+      : (j.secret ?? "") === "" ? "无凭据" : "密钥名 " + (j.secret ?? ""),
+    (j.write_path ?? "") === "" ? "不落盘" : "写到 " + (j.write_path ?? ""),
+  ].join(" · ");
+  return el("div", { class: "row" },
+    el("div", { class: "what" },
+      el("b", {}, j.name), " ",
+      el("span", { class: "mono", title: j.url ?? "" }, target)),
+    el("div", { class: "meta" }, meta),
+    stopButton(j.name, j.enabled ?? true));
+}
+
+function stopButton(name: string, enabled: boolean): Kid {
+  if (!enabled) return el("span", { class: "pill" }, "已停用");
+  const b = el("button", { class: "act reject", type: "button", title: "停用这一条（保留 spec）" }, "停用");
+  b.addEventListener("click", () => {
+    void (async () => {
+      b.setAttribute("disabled", "disabled");
+      const res = await postJSON<{ ok?: boolean; error?: string; problems?: string[] }>("/api/intake/stop", { name });
+      const bad = res.body?.error ?? (res.body?.problems ?? [])[0] ?? (res.status === 200 ? "" : "HTTP " + res.status);
+      if (bad !== "") { b.removeAttribute("disabled"); b.textContent = "停用失败"; b.title = bad; return; }
+      reload(true);
+    })();
+  });
+  return b;
+}
+
 function form(d: Draft, h: Handlers): HTMLElement {
   const field = (label: string, node: HTMLElement): HTMLElement =>
     el("label", { class: "ifield" }, el("span", {}, label), node);
@@ -151,26 +188,11 @@ export function renderIntake(d: Data): Kid[] {
   // 1. 已接入：接了什么、打到哪、用哪个密钥名、写到哪。
   // 用「一行两条」而不是表格：这一页在编辑式版面里只有 744px 宽，
   // 六列表格必然横向溢出，而横着滑的表格没人滑第二次。
-  // app 类型的名字通常就是应用名（app-hello-model 跑 hello-model）——
-  // 再写一遍「app:hello-model」等于同一句话说两遍。
-  const target = (j: JobRow): string =>
-    j.kind === "app" ? "应用" : (j.method || "GET") + " " + hostOf(j.url ?? "");
-  const plan = (j: JobRow): string => (j.every || "—") + (j.at ? " @" + j.at : "");
   out.push(section("已接入", "共 " + v.jobs.length + " 条",
     v.jobs.length === 0
       ? emptyState("还没有接任何东西。", el("span", {}, "在下面的表单里组装一份 spec，或 ", cmd("anc job ls"), " 看目录。"))
       : el("div", { class: "v2" },
-          el("div", { class: "card" },
-            ...v.jobs.map((j) => el("div", { class: "row" },
-              el("div", { class: "what" },
-                el("b", {}, j.name), " ",
-                el("span", { class: "mono", title: j.url ?? "" }, target(j))),
-              el("div", { class: "meta" },
-                plan(j),
-                j.kind === "app"
-                  ? " · 凭据由应用管"
-                  : (j.secret ?? "") === "" ? " · 无凭据" : " · 密钥名 " + (j.secret ?? ""),
-                (j.write_path ?? "") === "" ? " · 不落盘" : " · 写到 " + (j.write_path ?? ""))))))));
+          el("div", { class: "card" }, ...v.jobs.map((j) => jobRow(j))))));
 
   // 2. 组装 + 预演。表单与预演必须并排：改一个字段就该立刻看到它会做什么。
   const draft: Draft = { ...EMPTY };
@@ -191,11 +213,60 @@ export function renderIntake(d: Data): Kid[] {
   };
   renderForm();
   update();
+
+  // 服务端预演 / 生效：本地那份是即时反馈，**权威的是服务端算的这份** ——
+  // 落盘前必须让它过一遍，因为它还要做「读回来验一遍」和「备份旧版」。
+  const srvBox = el("div", { class: "srv-res" });
+  const applyBtn = el("button", {
+    class: "act approve", type: "button", "aria-label": "把这份 spec 写到作业目录",
+    title: "先服务端预演通过，才允许生效",
+  }, "生效（写盘）") as HTMLButtonElement;
+  applyBtn.setAttribute("disabled", "disabled");
+  const previewBtn = el("button", { class: "act", type: "button" }, "服务端预演");
+
+  const paint = (title: string, facts?: string[], changes?: string[], problems?: string[]): void => {
+    srvBox.replaceChildren(
+      el("h4", {}, title),
+      ...(problems ?? []).map((p) => el("p", { class: "srv-bad" }, "· " + p)),
+      ...(facts ?? []).map((f) => el("p", { class: "quiet" }, "· " + f)),
+      ...(changes ?? []).map((c) => el("p", { class: "mono srv-diff" }, c)),
+    );
+  };
+
+  previewBtn.addEventListener("click", () => {
+    void (async () => {
+      previewBtn.setAttribute("disabled", "disabled");
+      paint("服务端预演中…");
+      const res = await postJSON<{ ok?: boolean; facts?: string[]; changes?: string[]; problems?: string[]; path?: string; diff?: string; error?: string }>(
+        "/api/intake/preview", { spec: toSpec(draft) });
+      previewBtn.removeAttribute("disabled");
+      const b = res.body;
+      const bad = [...(b?.problems ?? []), ...(b?.error ? [b.error] : [])];
+      if (res.status !== 200) bad.push("HTTP " + res.status);
+      paint(bad.length > 0 ? "预演不通过" : "预演通过 · " + (b?.diff === "new" ? "新建" : "会替换同名 spec"),
+        b?.facts, b?.changes, bad);
+      if (bad.length === 0) applyBtn.removeAttribute("disabled");
+      else applyBtn.setAttribute("disabled", "disabled");
+    })();
+  });
+
+  applyBtn.addEventListener("click", () => {
+    void (async () => {
+      applyBtn.setAttribute("disabled", "disabled");
+      const res = await postJSON<{ ok?: boolean; path?: string; changes?: string[]; problems?: string[]; error?: string }>(
+        "/api/intake/apply", { spec: toSpec(draft) });
+      const b = res.body;
+      const bad = [...(b?.problems ?? []), ...(b?.error ? [b.error] : [])];
+      if (bad.length > 0 || !b?.ok) { paint("生效失败（什么都没写）", undefined, undefined, bad); return; }
+      paint("已落盘 · " + (b?.path ?? ""), b?.changes);
+      reload(true);
+    })();
+  });
   out.push(section("组装一个", "改一个字段，右边立刻跟着变",
     el("div", { class: "intake-grid" },
-      formBox,
+      el("div", {}, formBox, el("div", { class: "intake-acts" }, previewBtn, applyBtn), srvBox),
       el("div", { class: "intake-side" },
-        el("h4", {}, "预演"),
+        el("h4", {}, "预演（本地即时）"),
         prevList,
         el("h4", {}, "spec"),
         specBox,

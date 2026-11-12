@@ -68,6 +68,10 @@ func requirement(path string, kind RouteKind) (module, action string, need bool)
 		return "jobs", "execute", true
 	case "/api/query", "/api/files/ls", "/api/files/cat":
 		return "data", "read", true
+	case "/api/intake/preview":
+		return "jobs", "read", true
+	case "/api/intake/apply", "/api/intake/stop":
+		return "jobs", "write", true
 	}
 	// 模型出口已经有票（authz.Decide）；这里不叠第二道锁，免得两处口径打架。
 	if kind == KindModel {

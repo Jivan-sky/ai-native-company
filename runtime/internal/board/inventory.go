@@ -68,6 +68,10 @@ func (s *Server) Routes() []Route {
 		{"/api/files/ls", KindQuery, s.handleFileLs},
 		{"/api/files/cat", KindQuery, s.handleFileCat},
 		{"/api/query", KindQuery, s.handleQuery},
+		// 接入的三条写口：唯一会落盘的地方。预演只算不写，生效与停用会动 jobs/ 下的文件。
+		{"/api/intake/preview", KindWrite, s.handleIntakePreview},
+		{"/api/intake/apply", KindWrite, s.handleIntakeApply},
+		{"/api/intake/stop", KindWrite, s.handleIntakeStop},
 	}
 }
 
@@ -84,6 +88,7 @@ var routeKindSet = map[string]RouteKind{
 	chatPath: KindModel, chatSessionPath: KindModel,
 	"/api/datasources": KindRead, "/api/query": KindQuery, "/api/catalog": KindRead,
 	"/api/files": KindRead, "/api/files/ls": KindQuery, "/api/files/cat": KindQuery,
+	"/api/intake/preview": KindWrite, "/api/intake/apply": KindWrite, "/api/intake/stop": KindWrite,
 }
 
 func routeKind(p string) (RouteKind, bool) {

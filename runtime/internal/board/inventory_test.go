@@ -57,9 +57,16 @@ func TestExactlyOneModelRoute(t *testing.T) {
 	}
 }
 
-// 写口也只能是那两个（与 CLI 共用领域入口的那两个）。
-func TestWriteRoutesAreTheTwoKnownOnes(t *testing.T) {
-	want := map[string]bool{WritePath: true, SettlePath: true}
+// 写口是一张**登记表**，不是「两个」：每多一条都要在这里显式登记一遍。
+//
+// 接入的三条（2026-11-13 加）：预演只算不写、生效与停用会动 jobs/ 下的文件。
+// 它们与审批/归档同策略（只认 POST、原子落盘、共用领域入口），所以并入同一档；
+// 但**写口变宽了**，这条测试就是要人每次都在这里签个字。
+func TestWriteRoutesAreTheKnownOnes(t *testing.T) {
+	want := map[string]bool{
+		WritePath: true, SettlePath: true,
+		"/api/intake/preview": true, "/api/intake/apply": true, "/api/intake/stop": true,
+	}
 	for p, k := range routeKindSet {
 		if k == KindWrite && !want[p] {
 			t.Fatalf("多了一个写口：%s —— 写口每多一个，就越权面多一条", p)
