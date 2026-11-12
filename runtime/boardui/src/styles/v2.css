@@ -309,3 +309,10 @@ details[open] summary::after { transform: rotate(90deg); }
 .vt tbody tr[role="button"] { cursor: pointer; }
 .vt tbody tr[role="button"]:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .vt tbody tr[role="button"]:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+
+/* 接入页的服务端预演结果：通过是安静的，不通过才红 —— 它不该跟本地预演抢注意力 */
+.intake-acts { display: flex; gap: var(--s2); margin-top: var(--s3); }
+.srv-res h4 { margin: var(--s3) 0 var(--s2); font-size: var(--t1); color: var(--muted); font-weight: 600; letter-spacing: .06em; }
+.srv-res p { margin: 0 0 var(--s1); font-size: var(--t2); line-height: 1.7; }
+.srv-res .srv-bad { color: var(--block); }
+.srv-res .srv-diff { color: var(--text-2); }
