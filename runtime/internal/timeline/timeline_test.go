@@ -251,3 +251,27 @@ func TestTally(t *testing.T) {
 		t.Errorf("Tally = %+v, want 1/1/2/1", n)
 	}
 }
+
+// 每条记录要知道自己在盘上的哪一行 —— 看板靠它把明细行指回原文。
+func TestLoadFillsSrc(t *testing.T) {
+	dir := t.TempDir()
+	vault := filepath.Join(dir, "vault")
+	if err := os.MkdirAll(filepath.Join(vault, DirName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"id":"a","at":"2026-11-10T09:00:00+08:00","title":"第一行"}
+{"id":"b","at":"2026-11-10T10:00:00+08:00","title":"第二行"}`
+	if err := os.WriteFile(filepath.Join(vault, DirName, "2026-11.x.jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := Load(vault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Entries) != 2 {
+		t.Fatalf("要两条，得到 %d", len(doc.Entries))
+	}
+	if doc.Entries[0].Src != "2026-11.x.jsonl:1" || doc.Entries[1].Src != "2026-11.x.jsonl:2" {
+		t.Errorf("行号不对：%q / %q", doc.Entries[0].Src, doc.Entries[1].Src)
+	}
+}

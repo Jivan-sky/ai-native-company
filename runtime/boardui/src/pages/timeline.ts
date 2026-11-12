@@ -141,9 +141,10 @@ export function renderTimeline(d: Data): Kid[] {
         (e.detail ?? "").trim() === "" ? "" : el("p", { class: "empty" }, dash(e.detail)),
         (e.refs ?? []).length === 0 ? "" : el("p", { class: "empty mono" }, (e.refs ?? []).join(" · "))),
       handOff(e.by, e.to),
+      (e.src ?? "") === "" ? el("span", { class: "quiet" }, "—") : el("span", { class: "mono nw" }, e.src ?? ""),
     ]);
     return el("details", {}, el("summary", {}, el("span", { class: "st" }, ...head)),
-      table(["档 / status", "时间", "这一步（kind + 一句话）", "谁 → 交给谁"], inner));
+      table(["档 / status", "时间", "这一步（kind + 一句话）", "谁 → 交给谁", "来源"], inner));
   });
   if (steps.length > 0) {
     out.push(section("每一步都留着", "最近几步 · 最新在上", ...steps));

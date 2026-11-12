@@ -82,6 +82,11 @@ type Entry struct {
 	Title   string   `json:"title"`             // 一句话
 	Detail  string   `json:"detail,omitempty"`  // 展开
 	Refs    []string `json:"refs,omitempty"`    // 文件 / 链接
+
+	// Src 是这条记录**在盘上的哪一行**（`2026-11.anc.jsonl:12`）。加载时填，不写进文件：
+	// 它描述的是位置，不是内容 —— 写进 jsonl 会让「重放同一份数据」多出一个会漂的字段。
+	// 看板靠它把每一行指回原文，跟汇总数字的「口径回源」是同一条纪律。
+	Src string `json:"-"`
 }
 
 // Key 是折叠用的分组键：有 case 就跟 case 走，没有就自己一条。
@@ -184,6 +189,7 @@ func Load(vault string) (Doc, error) {
 			if len(scrub(&e)) > 0 {
 				doc.Tainted = append(doc.Tainted, fmt.Sprintf("%s:%d", n.Name(), i+1))
 			}
+			e.Src = fmt.Sprintf("%s:%d", n.Name(), i+1)
 			doc.Entries = append(doc.Entries, e)
 		}
 	}

@@ -363,11 +363,16 @@ export function renderCases(d: Data): Kid[] {
           ["最近活动", localTime(c.last_at)],
           ["共几条", String(c.entries)],
         ]),
-        ...c.recent.slice(0, 8).map((e) => card(dash(e.kind), localTime(e.at), [
-          ["这一步", dash(e.title)],
-          ["detail", dash(e.detail)],
-          ["谁 → 交给谁", handOff(e.by, e.to)],
-        ])),
+        ...c.recent.slice(0, 8).map((e) => {
+          const rows: [string, Kid][] = [
+            ["这一步", dash(e.title)],
+            ["detail", dash(e.detail)],
+            ["谁 → 交给谁", handOff(e.by, e.to)],
+          ];
+          // 明细行也回源：指到盘上那一行，照着能回去核。
+          if ((e.src ?? "") !== "") rows.push(["来源", el("span", { class: "mono nw" }, e.src ?? "")]);
+          return card(dash(e.kind), localTime(e.at), rows);
+        }),
       ],
     });
     cardEl.addEventListener("click", open);

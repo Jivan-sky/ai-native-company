@@ -157,6 +157,8 @@ export type TimelineEntryView = {
   id: string; case?: string; at: string; kind?: string; status?: string;
   by?: string; role?: string; to?: string; domain?: string; project?: string;
   title: string; detail?: string; refs?: string[]; band: string;
+  // 这一条在盘上的哪一行（`2026-11.anc.jsonl:12`）—— 明细行也要能回指原文
+  src?: string;
 };
 export type TimelineCaseView = {
   key: string; title: string; status: string; band: string;
