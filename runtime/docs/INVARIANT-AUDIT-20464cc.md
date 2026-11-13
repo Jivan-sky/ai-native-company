@@ -205,14 +205,87 @@ Redis 不可达、持久回执存在时，返回“已提交，清理未确认�
 
 验收交付物是一组可以追到同一版本的证据：生成的草稿、正式候选校验结果、已发布文件摘要、目标岗位的发现结果及触发样例记录。只跑校验器至多证明格式符合约定；验证宿主发现必须经过目标宿主。
 
+<a name="a7-mcp-source"></a>
+
+## A7　MCP 读取知识时如何核对签发原件
+
+**中严重度 · 来源在建索引时丢失。** 规范要求整理稿的 `source_file` 指回追加保存的签发件；出现分歧时应能打开原件核对。目前索引会剥离 frontmatter，只留下文档路径、业务域、标题、正文和文件修改时间。`anc_get` 返回的 `path` 是整理稿位置。哪怕把唯一的签发件从 A 更正为 B，只要正文相同，MCP 的读者仍无法据此选对原件。这里审查 MCP 出口；直接读取获准的 vault 文件仍可能找回原始字段。[原件与整理稿契约](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L263-L284) · [发生分歧时的核对规则](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L550-L555) · [索引字段](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/retrieval/retrieval.go#L375-L388) · [当前 MCP 正文响应](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/search.go#L345-L366) · [跟踪议题 #73](https://github.com/Jivan-sky/ai-native-company/issues/73)
+
+### 从入库到打开原件
+
+1. **入库保存有版本的引用。** 沿用 Markdown 的 `source_file`。建议将“这版整理稿 → 哪个原件、哪一版”作为可验证的关系：整理稿版本覆盖正文和来源元数据，原件有独立的对象标识及不可变版本或内容摘要。改正误指时写入新的来源关系并保留旧版本。同一正文的散列、文档标题和文件修改时间都不足以标识该关系。历史资料只有路径时，可按已登记规则唯一解析；无法证明历史版本时明确标为未核实，不猜同名文件。
+2. **索引携带关系，原件仍按需打开。** 索引构造时解析并保存来源引用；查正文时从同一文档版本组装正文与来源。索引重建后应重现同一关联，不需要将 PDF、图片或整个 `_originals/` 纳入全文索引。可复用客户已授权的原件打开入口；若提供 MCP 解引用能力，它只接受服务端签发的引用，且在返回内容时复查权限。引用不能当访问凭证。[当前按可见索引路径取文](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/retrieval/retrieval.go#L254-L279) · [默认跳过原件目录](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/retrieval/retrieval.go#L343-L357)
+3. **保持旧响应可用。** 建议给成功的 `anc_get` 增加 `document_version` 和结构化的 `source`。原有 `path/title/domain/body/total_bytes/truncated` 语义保留。允许核验时，`source` 返回状态、稳定引用、所指版本及受控打开方式；正文被大小上限截断时，这些字段仍单独返回。引用应绑定组织和文档版本；解析旧引用仅可得到旧目标或明确的不可用结果，不能静默指到最新版。
+4. **分别判断三种权限。** 先判能否读取整理稿，再判能否了解来源元数据、能否打开原件。原件权限可以更窄。无权看整理稿时不返回正文及任何来源字段；整理稿可读时返回其获准内容，按下表裁剪来源。打开时重新检查调用者、原件版本和当前授权。对用户输出的警告、错误和检索摘要也要经过同一可见性处理；运维可获更详细的受限诊断。[正文的现有范围检查与拒绝语义](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/search.go#L323-L356) · [索引警告的来源](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/retrieval/retrieval.go#L327-L345)
+
+### 响应口径
+
+以下状态名均为提案。一次成功取回正文、一次成功定位原件、一次成功打开原件分别记账。建议只在真正打开并核对指定版本后表示“原件已核验”。
+
+| 条件 | `anc_get` 返回什么 | 请求打开原件时 |
+|---|---|---|
+| 正文可读，来源及目标版本可定位，调用者可打开 | 正文成功，`source.status=available`，给可使用的引用和版本 | 当场重新判权、核对目标版本，成功才提供该版原件或受控打开结果。 |
+| 允许知道原件身份，无权读取内容 | 正文成功，`restricted`，只给获准公开的标识和申请访问方式 | 拒绝；不返回原件字节、存储路径或可直接下载的地址。 |
+| 不允许知道目标是否存在 | 正文成功，仅给 `unavailable`。若连来源关系也受限，则对有无来源统一使用此形状 | 对未授权主体，真实存在、缺件和无法访问的目标使用同一公开结果，不给文件名、标识、可枚举细节或真实路径。 |
+| 允许核对来源及存在性，可信存储确认该目标或所指版本缺失 | 正文成功，`missing`，说明“有来源登记，指定原件不可得”，提示维护人核实 | 无原件返回。不得用同名件、相近版本或整理稿替代。 |
+| 允许诊断，但未登记、引用无效、版本不符或存储暂不可用 | 分别给 `unlinked`、`invalid_ref`、`version_mismatch` 或 `temporarily_unavailable`；正文仍可读 | 未登记请补录，有歧义请修复，暂时故障可重试。只有存储能确认缺件且权限允许披露时返回 `missing`。 |
+
+如果业务动作要求“以签发件核实”，收到正文或收到 `available` 都不能宣称已核实。审计按 A5 记录真实动作及结果，使用受控标识与版本，避免把原件内容或内部存储位置写进普通调用者可见的日志。
+
+### A7 验收
+
+| 编号 | 最小事件顺序 | 验收预期 |
+|---|---|---|
+| A7-1 同文不同源 | 整理稿 v1 指向签发件 A → 正文不变，v2 更正为 B → 先后查询并打开新旧引用 | 两次正文相同，来源引用和整理稿版本不同；有权的读者分别打开 A、B。若 A 已不可得，旧引用明确返回对应状态。 |
+| A7-2 正文可读、原件受限 | 一线用户能看整理稿及公开来源说明，不能打开附件 → 取文再请求打开 | 取文成功并显示受限；打开被拒，原件字节为零。不得把正文读取记作原件读取成功。 |
+| A7-3 不得透露目标存在 | 对无来源元数据权限的同一主体，分别准备存在、缺失以及无来源的整理稿 | 三次针对来源的公开结构和诊断均显示不可用，无标识、文件名、路径或可据以区分存在性的错误。没有正文权限的对照主体也拿不到整理稿及引用。 |
+| A7-4 缺件与暂时故障 | 对获准核对的主体，分别让登记版本确认缺失、存储暂不可达、同位置仅剩其他版本 | 分别得到 `missing`、`temporarily_unavailable`、`version_mismatch`；不打开其他版本。存储恢复后重新核对才可转为可用。 |
+| A7-5 老数据与截断 | 老文档未登记来源、另一个旧路径存在歧义；新文档有有效来源但正文超过 MCP 返回上限 | 前两项各得明确诊断，不猜指针。新文档保留原 `truncated/total_bytes`，独立的来源引用仍可按权限打开。 |
+| A7-6 取文后撤权 | 用户获准并取得引用 → 在打开前撤销其原件访问权 → 使用原引用 | 按当前权限拒绝，受保护内容不返回；再次取文只显示当时允许看到的来源状态。历史日志仍能区分先前取得引用与此次打开失败。 |
+| A7-7 重新建索引 | 记录一篇已核实整理稿的来源和版本 → 用相同材料重建索引 → 从 MCP 再查 | 新旧响应指向同一签发版本；检索结果未增加原件正文，原件权限未被整理稿权限放宽。 |
+
+<a name="b1-case-state"></a>
+
+## B1　同一 case 的完成与重开如何裁决
+
+**高严重度 · 当前状态没有业务次序。** 例如 Z 在 09:00:00 标记完成，A 在同一秒发现验收遗漏，标记重开。当前时间线按作者分片，只按时间稳定排序，折叠时最后遇到的行覆盖状态。于是 Z 的文件排在 A 后面就可能把 case 显示为已完成。若实际先后反过来，两份文件还可以完全相同；提高时间戳精度或按事件 ID 排序都不能补回缺失的因果证据。技能候选直接使用折叠结果的绿档。这是 B 类：SPEC 要求能回答当前卡点与责任人，尚未规定互相矛盾的状态报告由谁裁决。[看板承诺](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L392-L395) · [默认写入时刻](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/timeline.go#L83-L95) · [跨分片读取及排序](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L150-L200) · [覆盖当前状态](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L288-L313) · [候选筛选](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/distill.go#L98-L117) · [跟踪议题 #74](https://github.com/Jivan-sky/ai-native-company/issues/74)
+
+### 业务转移与冲突裁决
+
+| 可证明的关系 | 当前状态 | 技能候选 |
+|---|---|---|
+| 有效的完成事件 D 承接既有在办状态；重开事件 R 明确引用 D，且重开属于该人的合法操作 | R 生效，显示在办/重开，并保留 D 的历史 | 排除 |
+| 先有合法的重开 R，后续完成 D2 明确引用 R 且包含新一轮完结依据 | D2 生效，显示本轮已完成 | 可成为候选，来源固定到 D2 |
+| 两份有效业务报告都针对同一前态、互不引用，分别声称完成和仍须办理 | 显示“状态冲突”；可展示最后共同确认的状态及其版本，不能把它当争议后的当前状态。列出两个主张、作者、证据和责任人 | 排除，单列冲突原因 |
+| 记录缺前序、历史同秒无可靠顺序，或已知相关行损坏 | 显示“顺序待核实/证据不完整”，保留能读到的原始行 | 排除，待证据补齐或显式裁决 |
+| 现有业务归属下有权裁决的人，基于当前冲突集合追加裁决事件 | 解除该组冲突，显示裁定状态、理由和责任人。结论为完成时附完结证据，结论为在办则继续办理 | 仅已确认完成可入选 |
+
+**写入与重放。** 建议状态事件沿用稳定事件 ID，另保存 case、动作、前序状态事件 ID 或受比较保护的版本、作者及业务依据。记录时间仍用于展示和定位。状态写者基于看到的前序提交；服务端对同一 case 串行接纳状态变更。前序已过时的写者获得当前版本；若一条合法、相反的业务观察必须保留，将其登记为待处理分歧，不能静默覆写或当作已经成功的第二次状态转移。未经授权、重复或从业务上根本非法的请求按原规则拒绝，不因无效请求把 case 挂成冲突。普通备注、进展说明和附件不得隐式更改业务状态。时间线的 case 投影也不会把单条备注变成 A1 意义上的任务结账。
+
+分片可乱序到达。读端基于事件关系重放；若 R 先到、D 尚未到，则先标证据不完整，D 到齐后再计算。相同事件 ID、相同内容只算一次；同 ID 异内容须保留两份线索并标异常。解决冲突时，裁决必须引用所见的**全部未决头事件**。若提交前又出现新头，旧裁决不能消掉它；重新取得当前冲突集合再裁定。对旧流水保留原行，只有一条明确状态或能由独立业务回执恢复次序的 case 可按相应证据归并；不能从文件名、作者名、读入顺序或显示顺序推定最后决策。人员筛选只限制该人的活动明细，case 当前状态仍须按完整且有权解释的历史计算。[当前事件字段](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L70-L88) · [按作者筛选与折叠](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/board/timeline.go#L115-L135)
+
+**从状态到技能的约束。** 让看板、`distill ls`、`distill draft` 和发布前来源检查读同一份状态解析结果，包括确定性、有效头事件和完结证据。只有“唯一、确认完成、来源事件可定位”的 case 进入候选。生成草稿时绑定该完成事件；真正写草稿及采用它发布时重新核对。若此后重开、迟到分歧出现或依另一事件重新结案，原草稿保留历史，标为来源过期/有冲突；不得仅因同一 case 再次为绿就使用旧草稿发布。单条无法归属的坏行应报告其分片及受影响的证据范围；对无法证明完整性的候选标待核对，能独立证明完整的其他 case 可继续。该约束承接 B2 的版本问题，不自动改写已发布技能。[当前只传有效行](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/distill.go#L222-L232) · [草稿的选取入口](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/draft.go#L29-L55) · [发布前来源检查](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check.go#L145-L152) · [按 case 再查绿色](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check.go#L297-L311)
+
+### B1 验收
+
+所有同秒样例固定同一时间戳，分别交换作者名、分片枚举顺序及到达顺序。验收同时读取 case 状态、未决事件、技能候选和草稿来源，不能只检查界面颜色。
+
+| 编号 | 最小事件顺序 | 验收预期 |
+|---|---|---|
+| B1-1 同秒完成后重开 | Z 写 D，A 已看到 D，写引用 D 的 R；反序送达一次 | 到齐后唯一当前态为重开，D 只在历史，候选 0。只收到引用 D 的 R 时显示前序待补。 |
+| B1-2 同秒重开后再完成 | 从已完成状态合法重开为 R → 处理后以新证据写 D2，前序为 R | 当前态完成，候选恰好 1 条且引用 D2；不得沿用旧轮结案依据。 |
+| B1-3 同秒相反主张 | 两人基于同一已知状态分别报告完成、仍需办理，彼此没有看到对方的报告 | 当前态为冲突，展示两条主张；正常完成计数不增加，候选 0，不能据此生成草稿。按任一作者过滤明细也不能把 case 显示成已确认完成。 |
+| B1-4 裁决遇新冲突 | 归属负责人读到两个未决头 → 又来一条独立分歧 → 提交只引用前两个头的裁决 → 重读并裁定 | 第一次不能清除新分歧，候选仍为 0。覆盖全部未决头后解除冲突；选重开则候选 0，选完成且有依据则 1。旧行全部保留。 |
+| B1-5 没有前序的旧分片 | 两个历史分片同秒、状态相反，缺少前序和独立裁决证据 → 交换文件顺序并重放 | 两次都显示待核实，列出可定位的原始行，候选 0；补上可追溯裁决后才解除。 |
+| B1-6 重投、备注与坏行 | 同 ID 同内容投递两次；另给同 ID 异内容、普通备注和已知影响该 case 的损坏行 | 首例仅记一个业务事件；异内容或损坏导致待核对并排除候选。普通备注只增活动明细，不改变已有确定状态。 |
+| B1-7 生成或发布时发现重开 | case 完成 D 并列入候选 → 生成草稿前或生成后发布前收到重开/冲突 → 之后以 D2 重新结案 | 重开时列表移出，生成入口按最新状态拒绝；已有草稿仍指 D、显示依据失效。D2 只使新闭环具备资格；须基于 D2 重建或重新核实草稿后才能发布。 |
+
 ## 其余审计结论
 
 A 类为规范和实现的差异，B 类为实现实际作出但缺少业务不变量的裁决，C 类为给定规范前提下不可达的承诺。以下均对应同一基线，作为修复排期的技术依据。
 
 | 编号、严重度 | 触发顺序、影响与建议 | 依据 |
 |---|---|---|
-| A7 中 · 知识来源丢失 | 同一正文的签发原件从 A 更正为 B → 仅接入 MCP 的读者重新取文。索引剥掉来源元数据，响应无法指出签发件。保留受权限约束的原件引用；原件不可访问时说明状态。 | [溯源规范](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L263-L279) · [分歧查原件](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L550-L555) · [建索引](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/retrieval/retrieval.go#L375-L388) · [正文出口](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/search.go#L345-L363) |
-| B1 高 · 同秒状态顺序 | 两位作者同秒先后写完成、重开 → 分片按文件顺序读，稳定排序后最后一行覆盖状态。调换真实先后可得到同一份存储内容，还会影响技能候选。业务状态应有前序版本或显式冲突。 | [看板语义](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L392-L395) · [时间精度](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/timeline.go#L83-L93) · [排序](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L150-L201) · [折叠](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L288-L313) · [候选](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/distill.go#L98-L117) |
 | B2 中 · 旧草稿溯源误绿 | K 以方法 A 结案并产生草稿 → 重开纠正为 B → 旧 A 草稿再次检查。“来源通过”只查 K 当前是否绿色。建议绑定结案事件或证据修订号；冻结包也应携带实际技能内容版本，以便事后比对。 | [规范](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L325-L341) · [草稿证据](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/draft.go#L90-L105) · [检查谓词](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check.go#L297-L311) · [技能投影](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/ctxpack/pack.go#L343-L359) |
 | C1 高 · 首笔授权 | 某跨域能力的初始持权者为空 → 新人需要该权。任何合规转授都要求授予者先有此权，所以任何数量的转授都不能产生第一名合法持权者。明确客户如何创设、签署和终止根授权。预置可信根授权的客户不属于此反例。 | [初态及签发前提](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L565-L587) · [角色授权模型](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L641-L647) · [实现边界](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/envelope/gate.go#L35-L52) |
 | C2 高 · 副本撤权时效 | 本地副本同步 → 上游撤权 → 下次拉取前本地需要作决定。对本地而言，已撤和未撤两种世界的输入相同，无法保证按上游提交瞬间撤权。应定义生效点、延迟窗口和无法确认新鲜度时的行为。 | [发布模型](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L74-L81) · [同步间隔](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L343-L350) · [即时撤权承诺](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L650-L663) · [本地读取](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope.go#L945-L958) |
