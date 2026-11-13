@@ -2,6 +2,24 @@
 
 评审基线为 [`20464cc`](https://github.com/Jivan-sky/ai-native-company/tree/20464cc29a20852f8107b1af6a17f029b7360257)。本文基于 SPEC、运行层源码和已有测试的静态核对。反例给出源码允许的事件顺序，验收表列出修复后的预期；本次没有运行项目或验证故障恢复。方案供讨论，以下设计选择尚未写入 SPEC。
 
+## 修复跟踪总表
+
+下表是建议排期。P0 优先处理会丢失业务状态、产生冲突裁决或影响授权与审计可信度的问题；P1 处理状态判断、测量和溯源；P2 处理可独立推进的发布兼容性。编号沿用审计正文，优先级相同的事项可并行。“完整验收”或“联验”指需要共同验证的边界，前期设计与局部修复可以先行。
+
+| 编号 | 修复事项 | 独立 Issue | 修复优先级 | 前置依赖与联验边界 |
+|---|---|---|---|---|
+| A1 | 任务实例结账与并发交接 | [#78](https://github.com/Jivan-sky/ai-native-company/issues/78) | P0 | 可独立修复。 |
+| A2 | 审批唯一裁决与补账 | [#79](https://github.com/Jivan-sky/ai-native-company/issues/79) | P0 | 可独立修复。可与 A1 并行，分别验证任务实例与提案轮次的唯一性。 |
+| A3 | 跨域授权的有效期与级联失效 | [#80](https://github.com/Jivan-sky/ai-native-company/issues/80) | P0 | C1 定义有效链的根，C2 定义行使时刻与权威版本。链匹配可先用固定快照验证；完整验收需要这两项契约。 |
+| A4 | 就绪基准与实际准入一致 | [#81](https://github.com/Jivan-sky/ai-native-company/issues/81) | P1 | A3 提供有效授权判据。三端对账时固定主体、动作、客体、时刻和版本。 |
+| A5 | 准入、收件与审计分别确认 | [#71](https://github.com/Jivan-sky/ai-native-company/issues/71) | P0 | 可独立修复。先固定操作 ID、阶段和持久边界，再验证中断恢复。 |
+| A6 | 技能发布格式与宿主发现 | [#72](https://github.com/Jivan-sky/ai-native-company/issues/72) | P2 | 可独立修复，以正式文件和目标宿主验证格式与发现行为。 |
+| A7 | MCP 取文与原件溯源 | [#73](https://github.com/Jivan-sky/ai-native-company/issues/73) | P1 | 指针保留与版本绑定可独立修复。若打开原件涉及跨域行使，复用 A3 的当前权限判定。 |
+| B1 | 同案完成、重开与冲突裁决 | [#74](https://github.com/Jivan-sky/ai-native-company/issues/74) | P1 | 可独立定义事件前序与冲突处理。引用任务结账作为闭环证据时，与 A1 对齐终态事件身份。 |
+| B2 | 技能草稿绑定结案及证据版本 | [#75](https://github.com/Jivan-sky/ai-native-company/issues/75) | P1 | B1 提供唯一有效结案；发布时复用 A6 的最终字节核验。证据指向业务原件时，与 A7 核对版本。 |
+| C1 | 首笔根授权的合法来源 | [#76](https://github.com/Jivan-sky/ai-native-company/issues/76) | P0 | 先由客户确定受托签发人、范围和撤权依据。根签发可独立设计；跨副本撤根联验采用 C2 的时效契约。 |
+| C2 | 撤权生效点与副本恢复对账 | [#77](https://github.com/Jivan-sky/ai-native-company/issues/77) | P0 | 可用已授予的样例权限独立设计权威顺序与离线处理，再与 A3、C1 联验。 |
+
 ## A1　任务结账
 
 **高严重度。** Redis 保存进行中的唯一状态，结账应在对应任务实例的终态持久化后清理热层。当前 `settledEntry` 遍历时间线，普通记录只要与任务同 case 就算“已归档”。调用者在检查任务是否仍在进行之前就删除热层并返回 `Already`。另一条路径先读任务，再写终态，最后按 ID 无条件删除，中间成功的交接可能被抹掉。[权威边界](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L304-L320) · [结账顺序](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/tasksettle/tasksettle.go#L70-L108) · [归档行及匹配谓词](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/tasksettle/tasksettle.go#L119-L158) · [删除操作](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/hot/redis.go#L606-L615)
