@@ -1,4 +1,4 @@
-# 任务结账、审批裁决与跨域授权：不变量审计与修复提案
+# ANC 运行层不变量审计与修复提案
 
 评审基线为 [`20464cc`](https://github.com/Jivan-sky/ai-native-company/tree/20464cc29a20852f8107b1af6a17f029b7360257)。本文基于 SPEC、运行层源码和已有测试的静态核对。反例给出源码允许的事件顺序，验收表列出修复后的预期；本次没有运行项目或验证故障恢复。方案供讨论，以下设计选择尚未写入 SPEC。
 
@@ -140,14 +140,77 @@ Redis 不可达、持久回执存在时，返回“已提交，清理未确认�
 
 验收时应保留两种对照：对确定有效的 G，三端都应引用同一笔或同一条有效链；只改变受予者、动作、时刻或权威版本之一时，三端都应给出表中预定的答案。这样即便三个入口共用了一个仍然写错的函数，错误也能被独立的业务预期识别。
 
+## A5　准入、收件与审计的成功边界
+
+**高严重度 · 双写与回执语义。** 出站读取的审计追加异常只写 stderr，调用者仍可能收到正文；入站信封则先写跨域准入的 `ok`，后写信封，后一步失败时客户端收到“这次不算数”。前者丢了每次读都应有的账，后者让一笔准入记录看起来像已收件。SPEC 把信封日志放在运行态 data，把审计账放在 vault。以下方案保留这两个归属，覆盖应留痕的跨域入站尝试和 MCP 上下文读，不把所有同域流量扩大为审计对象。[存储分工](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L304-L309) · [出站读留痕要求](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L676-L685) · [出站响应](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope_read.go#L49-L62) · [写失败处理](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope_read.go#L84-L111) · [入站顺序](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope.go#L959-L982) · [跟踪议题 #71](https://github.com/Jivan-sky/ai-native-company/issues/71)
+
+### 何时可以向调用者报成功
+
+| 可观察事实 | 成功条件 | 用户或查账者可以得出的结论 |
+|---|---|---|
+| **准入决定** | 对这次主体、代理、动作、客体、时刻和规则版本作出允许或拒绝；数据不足单列“无法判定”。保留对应尝试 ID 和判断依据。 | “按这一版规则允许/拒绝”。此时收件可以仍为零。申请授权只记录请求，不计为获得业务权。 |
+| **入站收件** | 脱敏后的完整信封、稳定收件 ID 及请求指纹已在约定的 data 持久边界提交，可按 ID 回读；需能从该事实恢复所有未完成的审计投影。 | “该 ID 已收件”。准入允许但写盘失败返回“未收件”或“结果待核对”；写成功但最终审计未齐，返回“已收件，审计待补”。收件本身不证明下游业务已执行。 |
+| **审计入账** | 此尝试所需事件已在 vault 的 audit 分片持久确认；事件阶段、结果及关联 ID 可以复核。仅有待补记录时明确返回“待入账”。 | 可以分别查“准入是否允许”和“收件是否成功”。保留既有 `ok/denied/failed` 的解释时，必须同时显示事件阶段。 |
+| **出站读取成功** | 已完成当前授权判断和响应组装，准确描述此次读取的脱敏审计事件已持久入账，才允许释放正文。拒绝或执行故障均不返回正文。 | 审计的“允许释放”证明服务端已准备授权响应。网络是否送达客户端，只能由另有回执的传输层确认。 |
+
+**设计取舍。** 对受审计约束的读，建议审计不可用时暂缓返回正文。只读接口不需要为此复制一份敏感响应；日志仅保留目标、版本、结果、原因类别等既有可记录字段。入站已经持久收件时允许如实回部分成功，避免用户因为审计暂不可用而重复发送。完整成功、部分成功和结果未知均应带可查询的关联号。[现有信封脱敏](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/envelope/log.go#L45-L75) · [审计写口](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/audit/audit.go#L236-L282)
+
+### 部分写入的恢复协议
+
+1. **分清业务请求和调用尝试。** 入站以“组织、可信发送主体、客户端稳定请求 ID”识别同一逻辑收件，按规范化业务内容比较指纹，排除重试时新生成的服务端时间。相同键相同内容只认领原收件；相同键异内容返回冲突，拒绝覆盖。实际重投另有尝试 ID；投影恢复沿用原尝试和事件 ID。现有无 ID 请求由服务端按时间补号，跨网络丢响应时无法据此识别同一业务；兼容旧客户端时明示此限制，能重试的调用方应事先保留业务键。[当前补号](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope.go#L911-L923) · [当前审计 ID](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope.go#L1053-L1077)
+2. **先有可恢复的事实，再作成功声明。** 对应留痕尝试，先持久记录最小工作项，固定操作、尝试 ID、阶段、原时刻和脱敏审计所需字段。跨域允许后，在 data 按业务键原子认领收件，完整记录直接作为收件凭据；追加式布局也须保证各写进程按同一键串行核对、写入和同步。入站被拒只产生拒绝痕，收件数保持零。若无任何可写的持久落点，只能拒绝提供成功服务并报告“留痕故障”；一次从未持久记录的尝试无法事后还原。
+3. **恢复只补已经能证明的阶段。** 启动或周期恢复时按原键查收件与审计。已有完整收件只补缺失的审计，保留原决定时刻与授权版本；仅有准入意向、无完整收件，不登记已收，也不靠恢复程序重做业务。调用方实际再发且此前尚未收件时，作为新尝试按当前权限重判。若已写一行但进度标记没更新，按事件 ID、分片、内容核对后认领；同键异内容或残行保留现场，进入待核对。成功口径须在目标平台验证完整写入及同步，单凭 `O_APPEND` 或写到 stderr 不兑现掉电恢复。
+4. **发布状态与历史对账。** 出站失败时只补原尝试的故障痕，不在后台重新释放正文；后续真实读取重新判权并记录自己的尝试。入站回执可重查已知的收件状态，单独标明审计状态。旧的跨域 `ok` 若不能可靠关联到完整信封，只标“准入已有记录，收件未核实”。不能依据同一秒、同主体或相近文本推断为已收件。
+
+### A5 验收
+
+| 编号 | 最小事件顺序 | 验收预期 |
+|---|---|---|
+| A5-1 正常收件 | 合法跨域信封通过准入 → 收件持久化 → 审计入账 | 原请求可查到允许依据、恰好 1 封完整信封和对应的分阶段审计。重查回执不派发下游业务。 |
+| A5-2 已允许、落盘失败 | 准入允许 → 收件写失败且查明无提交 → 修复存储后重投 | 首次显示“允许、未收件、收件失败”，首次收件数 0；允许的审计行不能作为收件凭证。重投按新时刻判权，获准后总收件数 1，两次尝试可分辨。 |
+| A5-3 已落盘、审计失败 | 信封已持久 → 审计分片不可写 → 重启恢复 | 首次显示“已收件，审计待补”。恢复使缺失阶段恰好入账一次；原主体、决定时间及 ID 可对账，收件和下游派发不因补账增加。 |
+| A5-4 合法读遇审计故障 | 上下文已组装 → 审计追加失败 → 后台恢复 → 用户重新读 | 首次无正文，显示“审计不可用”；补记原尝试后不自动发正文。重读重新判权，允许且成功入账后才返回；期间若已撤权则拒绝。 |
+| A5-5 拒绝也遇审计故障 | 拒绝跨域入站或出站读 → 审计暂不可写 | 用户仍被拒、无收件或正文，并能区分留痕故障。已有持久待补项则恢复后出现 1 条拒绝事件；所有持久落点均不可用时显式报告不可恢复的观测缺口。 |
+| A5-6 中断、并发与丢响应 | 同键同内容并发；分别在收件写完、审计写完但进度未标、以及响应前中断 | 用同键核对，业务收件最终 1 封；每个真实尝试可区分，同一阶段的投影无重复。若审计已确认但读取响应丢失，仅可确认服务端曾允许释放。 |
+| A5-7 冲突与历史数据 | 同一收件键载荷改变；另给出部分写入的分片和仅有旧 `ok` 的记录 | 分别显示冲突、待核对、收件未核实。既有完整行保留；恢复不会依据猜测产出成功回执，也不会把敏感正文写入补偿日志。 |
+
+## A6　草稿、发布校验与实际技能发现
+
+**中严重度 · 三处对“可以使用”的定义不同。** SPEC 规定正式文件在 `skills/<name>/SKILL.md`，YAML 中要有 `name` 和含中英文触发说明的 `description`。生成器写出 `status: draft` 与来源，发布说明叫人补四段，校验器主要检查名称和正文；“完整草稿”正向测试缺少描述也期待零告警。另两处分别用文件存在性报告正文覆盖和岗位上下文。它们各自有用，不能充当目标宿主的实际发现结果。这里讨论由客户 case 生成、进入客户 vault 的技能；仓库顶层 `skill/` 自带的方法件另有分发路径。[正式格式与部署](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L325-L331) · [草稿元数据](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/draft.go#L64-L70) · [生成的发布步骤](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/draft.go#L107-L111) · [正向用例](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check_test.go#L10-L41) · [两种分发路径](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/skill/README.md#L52-L70) · [跟踪议题 #72](https://github.com/Jivan-sky/ai-native-company/issues/72)
+
+### 一份契约，按阶段验收
+
+| 阶段 | 生产者、输入和可观察结果 |
+|---|---|
+| **生成草稿** | `anc distill draft` 继续从已结案记录抽取可追溯的事实，写入 `skills/_drafts/<name>.md`。生成器从正式格式契约派生待填写字段、正文要求和发布指引。没有证据支持触发说明时明确列为待作者填写，不编造双语内容。草稿可以保存，不进入正式目录或宿主发现清单。 |
+| **校验发布候选** | 将作者完成的候选渲染为**最终准备发布的字节**，剔除草稿专用状态与编辑指引，保留必要来源指针。共用解析器校验：有效 YAML、必填字段唯一且类型正确、`name` 合法并与目标目录一致、非空 `description` 描述何时使用并含中英触发语。正文把“何时用、输入、步骤、验证”与 SPEC 要求的数据来源、输出格式、失败排查、诚实条款和必要的技能衔接对齐。已有的敏感内容及占位符检查仍适用。结构可机械验证；触发语与业务是否匹配须用样例验证。 |
+| **正式发布** | 发布出口复用同一校验，校验成功的内容摘要与写入正式路径的摘要必须一致。无论由发布动作写入还是经人工修改并同步，均以最终文件重新核对。正式文件逐版本原子替换；冲突、更新中断时保留上一可用版本并显示原因。先发布后登记岗位是合法顺序；分别报告“已发布”“岗位未登记”。 |
+| **宿主发现与调用** | 按目标岗位分发到该宿主实际读取的 skills 根目录。用该岗位身份在新会话或宿主支持的刷新后通过**原生技能列表、加载清单或可核查的发现记录**查到名称、描述及实际路径；在该路径核对内容摘要，与发布时一致。再分别验证中英文触发样例。宿主只暴露调用记录时，应说明可验证的范围；没有发现或加载证据就标“发现未验证”。发现、选中技能、完成技能任务分别记录。 |
+
+格式定义由 SPEC 管理；建议运行层的生成、发布前检查、正式文件检查和覆盖视图复用同一份可执行字段约定与样本。外部宿主有自己的解析器，需要用同一批**最终文件**做兼容验证。现在的检查器采用按行拆键值的方式；修复时应定义支持的 YAML 形态，至少对单行、合法折行描述、错误类型和重复键给出一致的解析结果，不能让校验器和宿主各读出一个描述。岗位登记缺失应影响该岗位的可用性；格式错误应影响该版本的发布资格。对存量文件先输出格式与实际发现的差异，并保留可回滚的旧版。[当前校验](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check.go#L94-L113) · [元数据解析](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check.go#L195-L218) · [正文覆盖扫描](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/distill.go#L249-L268) · [岗位投影](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/ctxpack/pack.go#L343-L359) · [现有送达判定](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/bench/bench.go#L259-L270)
+
+### A6 验收
+
+以“月末对账”作为完整正例。作者给出中文触发语“核对月末账单”、英文触发语“reconcile month-end statements”，并说明输入、数据来源、输出差异表和处理失败的方法。以“只翻译账单标题”为近邻反例。每次记录同一技能名、目标岗位、宿主、源版本或摘要，以及实际加载文件的摘要。
+
+| 编号 | 最小事件顺序 | 验收预期 |
+|---|---|---|
+| A6-1 基线反例 | 生成草稿 → 只补既有四段 → 未填 description 即申请发布 | 草稿可保存；发布检查和发布出口都明确报缺 description。正式版本不变，发现清单不增加。当前“无描述也通过”的样本改作负例。 |
+| A6-2 字段与正文不合约 | 分别给出单语描述、列表代替字符串、重复 name、目录名不符，以及正文缺验证或失败排查的候选 | 各自得到定位到字段或正文要求的诊断；无正式写入。合法 YAML 折行的完整双语候选须按契约解析为同一描述，发布产物可被目标宿主读取。 |
+| A6-3 已校验的内容变了 | 校验版本 V1 → 发布前改为 V2 并删除触发描述 → 提交发布 | 摘要变化使该候选重新校验，V2 被拒，不能拿 V1 的绿灯放行；原已发布版本保留。 |
+| A6-4 草稿、路径和岗位混淆 | 只有草稿；随后仅登记岗位；最后发布正式文件但分发尚未发生 | 依次可见“草稿”“岗位已登记但正文缺失”“源已发布、目标待同步”。任何一步都不能据文件名或 `os.Stat` 报“宿主已发现”。 |
+| A6-5 完整正例与近邻反例 | 完整候选通过 → 正式发布 → 分发给目标岗位 → 新会话检查宿主清单 → 分别输入中、英文正例和近邻反例 | 清单中仅一个同名技能，实际文件摘要等于源发布摘要；中英文正例能发现并选中它，近邻反例不应误选。若清单正确但触发出错，报告“已发现，触发样例失败”。 |
+| A6-6 同名旧版或分发失败 | 源已发布 V2，而宿主仍读 V1，或另一搜索路径遮蔽 V2 → 修复分发并刷新 | 报目标滞后或冲突，给出实际加载路径和版本。恢复后原生入口唯一命中 V2，重复分发不多一个条目；无法观察宿主时保留“未验证”。 |
+| A6-7 岗位范围与更新中断 | 技能只分给采购岗 → 采购岗和未登记岗位各开会话 → 更新安装过程在切换前中断 | 采购岗能发现已确认版本，未登记岗位不会因公共目录残留而宣称已获本技能。更新期间只可见完整旧版或完整新版；重新发布后再核对真实入口与摘要。 |
+
+验收交付物是一组可以追到同一版本的证据：生成的草稿、正式候选校验结果、已发布文件摘要、目标岗位的发现结果及触发样例记录。只跑校验器至多证明格式符合约定；验证宿主发现必须经过目标宿主。
+
 ## 其余审计结论
 
 A 类为规范和实现的差异，B 类为实现实际作出但缺少业务不变量的裁决，C 类为给定规范前提下不可达的承诺。以下均对应同一基线，作为修复排期的技术依据。
 
 | 编号、严重度 | 触发顺序、影响与建议 | 依据 |
 |---|---|---|
-| A5 高 · 已读无痕 | 合法上下文读取成功 → 审计写失败 → 调用方仍收到成功。入站也可能先记 OK、随后收件落盘失败。区分准入、持久收件与响应，给必记事件可恢复的持久写入点。 | [规范](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L676-L685) · [出站失败](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope_read.go#L84-L111) · [入站顺序](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/envelope.go#L973-L982) |
-| A6 中 · 技能格式 | 从已完成 case 生成草稿 → 按指引补四段 → 发布前检查通过。正式格式要求中英触发 description，但正向测试的草稿就缺该字段。发布检查应校验实际待发布的能力件。 | [规范](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L325-L329) · [生成](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/draft.go#L64-L70) · [正向用例](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check_test.go#L10-L41) |
 | A7 中 · 知识来源丢失 | 同一正文的签发原件从 A 更正为 B → 仅接入 MCP 的读者重新取文。索引剥掉来源元数据，响应无法指出签发件。保留受权限约束的原件引用；原件不可访问时说明状态。 | [溯源规范](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L263-L279) · [分歧查原件](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L550-L555) · [建索引](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/retrieval/retrieval.go#L375-L388) · [正文出口](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/search.go#L345-L363) |
 | B1 高 · 同秒状态顺序 | 两位作者同秒先后写完成、重开 → 分片按文件顺序读，稳定排序后最后一行覆盖状态。调换真实先后可得到同一份存储内容，还会影响技能候选。业务状态应有前序版本或显式冲突。 | [看板语义](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L392-L395) · [时间精度](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/timeline.go#L83-L93) · [排序](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L150-L201) · [折叠](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/timeline/timeline.go#L288-L313) · [候选](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/distill.go#L98-L117) |
 | B2 中 · 旧草稿溯源误绿 | K 以方法 A 结案并产生草稿 → 重开纠正为 B → 旧 A 草稿再次检查。“来源通过”只查 K 当前是否绿色。建议绑定结案事件或证据修订号；冻结包也应携带实际技能内容版本，以便事后比对。 | [规范](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/SPEC.md#L325-L341) · [草稿证据](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/draft.go#L90-L105) · [检查谓词](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/distill/check.go#L297-L311) · [技能投影](https://github.com/Jivan-sky/ai-native-company/blob/20464cc29a20852f8107b1af6a17f029b7360257/runtime/internal/ctxpack/pack.go#L343-L359) |
