@@ -229,3 +229,61 @@ table.cost tr.zero td { color: var(--muted); }
 }
 .chat-compose button:disabled { opacity: .5; }
 .chat-empty { font-size: 13px; color: var(--muted); line-height: 1.7; padding: 4px 2px; }
+
+/* =========================================================================
+   玻璃层（2026-11-14）—— 参照 iOS / vivo OriginOS 的做法
+   ------------------------------------------------------------------------
+   真玻璃要三样东西同时成立，缺一样就变成"半透明脏块"：
+   1 背后有东西可透（冷色光晕，已在 body 上）
+   2 面板半透明 + backdrop-filter: blur + saturate
+   3 一道内高光边（inset 0 1px 0 rgba(255,255,255,.6)）表现玻璃的厚度
+   ========================================================================= */
+:root, [data-theme="light"] {
+  --glass-blur: saturate(180%) blur(20px);
+}
+
+/* 卡片、侧栏、顶栏、弹层统一成玻璃 */
+.v2 .card,
+.glass,
+.dock-card,
+.mcell,
+.pcard,
+.chat-panel,
+.chat-compose,
+.hero,
+.page-head,
+.mods-grid > .mcell {
+  background: var(--panel);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-line, var(--line-2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 1px 2px rgba(16, 22, 40, .04);
+}
+
+/* 侧栏与顶栏：更厚重的玻璃，仍能透出背后的光 */
+.side,
+.topbar {
+  background: rgba(255, 255, 255, .62);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+  border-right-color: var(--glass-line);
+  border-bottom-color: var(--glass-line);
+}
+.side { box-shadow: inset -1px 0 0 rgba(255, 255, 255, .5); }
+.topbar { box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .5); }
+
+/* 选中项：玻璃上的一块实心靛，比半透明更清楚 */
+.side .nav-item.active {
+  background: rgba(94, 106, 210, .92);
+  color: #fff;
+  box-shadow: inset 2px 0 0 rgba(255, 255, 255, .85), 0 1px 2px rgba(94, 106, 210, .35);
+}
+.side .nav-item.active .lab { color: #fff; }
+
+/* 深色主题同样吃玻璃，只是底不同 */
+[data-theme="dark"] .v2 .card,
+[data-theme="dark"] .glass,
+[data-theme="dark"] .side,
+[data-theme="dark"] .topbar {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .3);
+}
