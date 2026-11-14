@@ -324,8 +324,14 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
 // 「我在哪」由三处回答：顶部标签、面包屑（组织 / 关系图谱）、左栏高亮。
 // 再来一个 40px 的大字，是同一句话的第三遍 —— 而且把第一屏的可用高度吃掉一截。
 // 这一节只剩上下留白；留着这个元素是为了不动的进场动效有个落点。
-export function pageHead(_page: Page): HTMLElement {
-  return el("section", { class: "page-head no-title" });
+export function pageHead(page: Page): HTMLElement {
+  // 视觉上不再放大标题（顶部标签 + 面包屑 + 左栏高亮已经回答"我在哪"），
+  // 但**语义上每页必须有一个 h1**：浏览器标签、读屏器、跳到内容后的第一句，
+  // 走的都是它。没有 h1 时，读屏器会把第一个小节标题（比如「效率」）当成页面标题。
+  //
+  // 这不是给机器看的仪式：上一版巡检脚本按 main h1 取页名，拿到的是 null ——
+  // 辅助技术走的是同一条路。
+  return el("section", { class: "page-head no-title" }, el("h1", { class: "sr-only" }, page.label));
 }
 
 // 顶部标签页：常去的几页，一次点击就能跳。侧栏仍是全量导航，标签是「高频入口」。
