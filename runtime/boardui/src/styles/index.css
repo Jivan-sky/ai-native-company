@@ -429,14 +429,18 @@ table.cost tr.zero td { color: var(--muted); }
   overflow: hidden auto;
   transition: width .22s ease, transform .22s ease;
 }
-.main { grid-column: 1 / -1; padding-left: 88px; }
-.topbar { padding-left: 88px; }
+/* 正文的左边距跟着板子的实际宽度走 —— 展开就推让，收起就归位。
+   写死一个 88px 是上一版的错：板子能拖到 300+，88 挡不住。 */
+.main, .topbar { grid-column: 1 / -1; padding-left: 76px; }
+.app:not(.rail-min) .main,
+.app:not(.rail-min) .topbar { padding-left: calc(var(--side-w, 248px) + 20px); }
 
 /* 收起：只剩窄轨，正文占满 */
 .app.rail-min .side { width: 56px; }
-.app.rail-min .main, .app.rail-min .topbar { padding-left: 76px; }
-/* 划过窄轨：展开成完整面板，浮在内容上 */
-.app.rail-min .side:hover { width: 248px; }
+
+/* 划过窄轨**不再展开**。
+   悬浮板"划过就展开"必然盖住正文 —— 这正是使用者报的那个问题。
+   展开只有一个入口：点收起/展开按钮（此时正文让位，见下面 .main 的 padding）。 */
 
 /* 窄屏：板子默认收起，别挡正文 */
 @media (max-width: 900px) {
