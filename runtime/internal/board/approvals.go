@@ -187,7 +187,19 @@ func (s *Server) handleApprovalsDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec, err := approvals.Settle(s.Approvals, s.Vault, d)
+	// 重投（同一轮已经裁过）：服务层返回原裁决，HTTP 仍是 409 ——
+	// 旧看板靠这个码判「这一轮结束了」，同时把原裁决号给它，界面能显示是谁裁的。
+	if err == nil && rec.Already {
+		approvalFail(w, http.StatusConflict,
+			"这一轮已经裁过："+rec.Decision.Verdict()+"（"+rec.Decision.By+"）",
+			"刷新这一页看最新状态")
+		return
+	}
 	if err != nil {
+		if errors.Is(err, approvals.ErrConflict) {
+			approvalFail(w, http.StatusConflict, s.scrub(err.Error()), "这一轮已经有人裁了，刷新看是谁")
+			return
+		}
 		if errors.Is(err, approvals.ErrNotQueued) {
 			approvalFail(w, http.StatusConflict, s.scrub(err.Error()),
 				"刷新一下这一页：队列里没有这条，多半已经结过账了")
