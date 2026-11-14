@@ -37,6 +37,10 @@ type Server struct {
 	// 所以运行态走独立端点，不并进投影契约（见 runtime.go）。
 	DataDir string
 
+	// Accounts = 开了本地账号（密码登录 / 注册）。关着时看板与以前完全一样：
+	// 本地只读观测，不做登录。开了之后前端会先问 /api/auth/me。
+	Accounts bool
+
 	// Approvals 是待批队列（热层）。nil = 没接上：`/api/approvals` 如实回 wired=false，
 	// 写口也拒绝服务 —— 没有队列就没有地方落痕，绝不假装点头成功。
 	Approvals approvals.Queue

@@ -74,6 +74,13 @@ func (s *Server) Routes() []Route {
 		{"/api/intake/preview", KindWrite, s.handleIntakePreview},
 		{"/api/intake/apply", KindWrite, s.handleIntakeApply},
 		{"/api/intake/stop", KindWrite, s.handleIntakeStop},
+		// 账号四条：登录 / 注册 / 我是谁 / 退出。登录与注册是写口（会落账号表）。
+		{"/api/auth/login", KindWrite, s.handleLogin},
+		{"/api/auth/register", KindWrite, s.handleRegister},
+		{"/api/auth/logout", KindWrite, s.handleLogout},
+		{"/api/auth/me", KindRead, s.handleMe},
+		// 飞书 SSO 入口：没配凭据时返回 501 + 说明，不做假按钮。
+		{"/auth/feishu/start", KindRead, s.handleFeishuStart},
 	}
 }
 
@@ -89,7 +96,9 @@ var routeKindSet = map[string]RouteKind{
 	WritePath: KindWrite, SettlePath: KindWrite,
 	"/api/authz/grant":  KindWrite,
 	"/api/authz/revoke": KindWrite,
-	chatPath:            KindModel, chatSessionPath: KindModel,
+	"/api/auth/login":   KindWrite, "/api/auth/register": KindWrite, "/api/auth/logout": KindWrite,
+	"/api/auth/me": KindRead, "/auth/feishu/start": KindRead,
+	chatPath: KindModel, chatSessionPath: KindModel,
 	"/api/datasources": KindRead, "/api/query": KindQuery, "/api/catalog": KindRead,
 	"/api/files": KindRead, "/api/files/ls": KindQuery, "/api/files/cat": KindQuery,
 	"/api/intake/preview": KindWrite, "/api/intake/apply": KindWrite, "/api/intake/stop": KindWrite,
