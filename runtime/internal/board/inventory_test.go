@@ -69,6 +69,9 @@ func TestWriteRoutesAreTheKnownOnes(t *testing.T) {
 		// 授权表的两条（2026-11-14 加）：签发与撤回。
 		// 它们是**控制面**的写口 —— 比接入那三条更敏感：动的不是"跑不跑"，是"谁能碰什么"。
 		"/api/authz/grant": true, "/api/authz/revoke": true,
+		// 账号三条（2026-11-15 加）：登录 / 注册 / 退出。
+		// 它们写的是 accounts.md（凭据表），不碰真相源；但没有它们就没有"谁在看"。
+		"/api/auth/login": true, "/api/auth/register": true, "/api/auth/logout": true,
 	}
 	for p, k := range routeKindSet {
 		if k == KindWrite && !want[p] {
