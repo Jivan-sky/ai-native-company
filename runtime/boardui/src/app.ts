@@ -28,6 +28,8 @@ async function boot(force = false): Promise<void> {
   if (cache === null) {
     shell();
     setCache(await fetchData());
+    // 记下"这份数据是什么时候取到的" —— 页头的 LIVE / 快照 靠它说实话。
+    (window as unknown as { __ancLoadedAt?: number }).__ancLoadedAt = Date.now();
   }
   shell();
   loadForPage();
@@ -151,6 +153,27 @@ async function loadSearch(): Promise<void> {
 
 setRerender(shell);
 setReloader((force) => void boot(force));
+
+// 自动刷新：看板是「只读观测」，读的人不该靠手动点刷新才发现环境变了。
+//
+// 为什么是 30 秒而不是更短：数据源是 vault 里的文件 + 一个热层，没人写的时候重取一遍
+// 等于把磁盘再读一次，收益为零。30 秒足够让"刚连上热层""刚有人点了待批"在眼前变过来。
+//
+// 三条纪律：
+//   1. 页面在后台（切走了标签）就不刷 —— 没人看的时候不该有后台流量。
+//   2. 正在填表单/输入框有焦点时不刷 —— 重渲染会把输入吞掉（这是"看不见的手"）。
+//   3. 刷新失败不清屏：保留上一份数据，只在页头说"上次刷新失败"。
+const AUTO_REFRESH_MS = 30_000;
+function autoRefreshTick(): void {
+  if (document.hidden) return;
+  const t = document.activeElement;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+  void boot(true);
+}
+window.setInterval(autoRefreshTick, AUTO_REFRESH_MS);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void boot(true); // 切回来立刻对齐一次
+});
 
 window.addEventListener("hashchange", () => {
   if (loadForPage()) return;

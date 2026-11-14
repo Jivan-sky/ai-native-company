@@ -298,7 +298,10 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
   const i = d ? d.issues : null;
   const pill = el("span", { class: "status-pill " + (i ? healthState(i) : "warn") },
     el("span", { class: i ? statusDot(i) : "dot" }), i ? statusText(i) : "读取中");
-  const live = d && d.board ? el("span", { class: "live-chip" }, el("i"), "LIVE") : "";
+  // LIVE 不能是装饰品。以前它只表示"拿到过 board 数据"，页面却从不重取 ——
+  // 于是徽标亮着、数字冻着，读的人以为在看实时画面。
+  // 现在它说的是实话：`live-chip` 亮 = 30 秒内取到过；超过就降级成「快照」。
+  const live = d && d.board ? liveChip(lastLoadedAt()) : "";
   return el("header", { class: "topbar" },
     menu,
     el("div", { class: "crumbs" },
@@ -457,3 +460,19 @@ export function shell(): void {
   }
 }
 
+// lastLoadedAt 是最近一次"成功取到数据"的时刻（毫秒）。取不到就当没有。
+function lastLoadedAt(): number {
+  const v = (window as unknown as { __ancLoadedAt?: number }).__ancLoadedAt;
+  return typeof v === "number" ? v : 0;
+}
+
+// liveChip：30 秒内取到过才叫 LIVE；否则明说这是快照，并把最后一次更新的时间挂上去。
+function liveChip(at: number): HTMLElement {
+  const fresh = at > 0 && Date.now() - at < 60_000;
+  const label = fresh ? "LIVE" : "快照";
+  const when = at > 0 ? "上次更新 " + new Date(at).toLocaleTimeString("zh-CN", { hour12: false }) : "还没取到数据";
+  return el("span", {
+    class: "live-chip" + (fresh ? "" : " stale"),
+    title: label + " · " + when + " · 每 30 秒自动刷新（页面在后台或正在输入时暂停）",
+  }, el("i"), label);
+}
