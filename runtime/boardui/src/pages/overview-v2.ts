@@ -25,13 +25,26 @@ function issueCount(d: Data): number {
 
 // 结论只有四种，对应四个语义色。**不许**出现「看起来没事」而其实读不到：
 // 读不到就明说是读不到（unknown），这是这一屏最重要的状态设计。
-function verdict(d: Data): { text: string; tone: string } {
-  if (d.err !== "") return { text: "真相源读不到，先别信这一屏", tone: "unknown" };
-  if ((d.issues?.fatal?.length ?? 0) > 0) return { text: `真相源有 ${d.issues.fatal.length} 处红档`, tone: "block" };
-  if (redBots(d) > 0) return { text: `有 ${redBots(d)} 个 bot 回不了话`, tone: "block" };
-  if (pendingCount(d) > 0) return { text: `有 ${pendingCount(d)} 件在等人点头`, tone: "warn" };
-  if ((d.issues?.warn?.length ?? 0) > 0) return { text: `没有卡点，但有 ${d.issues.warn.length} 处提醒`, tone: "warn" };
-  return { text: "现在没有要你动手的事", tone: "ok" };
+// verdict 是这一屏的**一句话结论**。优先级只有一个标准：
+// **什么事需要人现在动手**。所以顺序是：读不到 → 真相源坏了 → 有件要你点头 → 没事。
+//
+// bot 红曾经排在待批前面 —— 于是老板打开看到的最大一行字是「有 3 个 bot 回不了话」，
+// 而那是运维的事，不是他的事。现在它降级成一句附注（见 lead），不再抢标题。
+function verdict(d: Data): { text: string; tone: string; lead: string } {
+  if (d.err !== "") return { text: "真相源读不到，先别信这一屏", tone: "unknown", lead: d.err };
+  if ((d.issues?.fatal?.length ?? 0) > 0) {
+    return { text: `真相源有 ${d.issues.fatal.length} 处红档`, tone: "block",
+      lead: "红档会拦住落盘。先修真相源 —— 看板不替你把红档藏起来。" };
+  }
+  if (pendingCount(d) > 0) {
+    return { text: `有 ${pendingCount(d)} 件事等你点头`, tone: "warn",
+      lead: "点头只留痕，不改真相源；该不该批仍然由你判断。" };
+  }
+  const red = redBots(d);
+  const warn = d.issues?.warn?.length ?? 0;
+  const tail = red > 0 ? `另外：${red} 个 bot 起不来（运维的事，不用你处理，去运行矩阵看该谁修）。` : "";
+  if (warn > 0) return { text: `眼下没有要你点头的事`, tone: "warn", lead: `有 ${warn} 处提醒值得过目。` + tail };
+  return { text: "眼下没有要你动手的事", tone: "ok", lead: tail || "该办的都办完了。" };
 }
 
 function row(what: Kid, meta: string, pill?: string): HTMLElement {
@@ -113,6 +126,7 @@ export function renderOverviewV2(d: Data): Kid[] {
     el("div", { class: "brief" },
       el("div", {},
         el("div", { class: "answer " + v.tone }, v.text),
+        v.lead ? el("p", { class: "lead" }, v.lead) : "",
         el("div", { class: "asof" },
           `${b?.company?.name ?? "公司"} · 截至 ${(b?.generated_at ?? "").replace("T", " ").slice(0, 16) || "—"}` +
           (issueCount(d) > 0 ? ` · 校验 ${issueCount(d)} 处` : "")),
@@ -123,7 +137,10 @@ export function renderOverviewV2(d: Data): Kid[] {
         el("div", { class: "stat" }, el("div", { class: "n" }, metricButton("projects", String(b?.projects?.length ?? 0))), el("div", { class: "k" }, "项目")),
       ),
     ),
-    efficiencyBlock(d) ?? "",
+    // 「效率」那块原本在这里，用 done ÷ (done+failed) 算达成率。
+    // 那个公式是替客户定义"什么叫效率"—— 客户接的是 ERP 与工单，人效根本不是这个算法。
+    // 口径必须是配置项（谁定义、按什么算、窗口多长），写死在代码里就是在逼客户造假。
+    // 在口径可配置之前，这块先不下屏 —— 空着比编一个强。
     el("div", { class: "cols" }, todoCard(d), whereCard(d), historyCard(d)),
     el("div", { class: "links" },
       ...SHORTCUTS.filter((s) => allowed(role, s.id))
