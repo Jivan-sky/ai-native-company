@@ -45,7 +45,7 @@
 .v2 .cols { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: var(--s3); }
 .v2 .card { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--s3); }
 .v2 .card h3 { font-size: var(--t3); margin: 0 0 var(--s2); font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
-.v2 .card h3 .hint { font-size: var(--t1); color: var(--ink-3); font-weight: 400; }
+.v2 .card h3 .hint { font-size: var(--t2); color: var(--ink-3); font-weight: 400; }
 .v2 .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s2);
   padding: var(--s2) 0; border-top: 1px solid var(--line); font-size: var(--t2); }
 .v2 .row:first-of-type { border-top: 0; }
@@ -328,3 +328,9 @@ details[open] summary::after { transform: rotate(90deg); }
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
 }
+
+/* 骨架层：小节标题从 14px 抬到 20px。
+   原来标题与正文同号（14/600 vs 14/400），一屏 87 个 14px，层级只靠字重 —— 
+   读者只能靠位置猜哪个是重点。字号级差现在是 14 / 20 / 28 三档。 */
+.sec > h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: var(--s2); }
+.sec > h2 .hint { font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: var(--s2); }
