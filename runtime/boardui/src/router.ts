@@ -2,6 +2,7 @@ import { icon } from "./core/icons";
 import type { Page } from "./core/types";
 
 import { renderApprovals } from "./pages/approvals";
+import { renderTeam } from "./pages/team";
 
 import { renderRun } from "./pages/run";
 import { renderProjects } from "./pages/org";
@@ -60,6 +61,12 @@ export const systemPage: Page = {
   view: renderSystem,
 };
 
+export const teamPage: Page = {
+  id: "team", group: "设置", label: "团队与角色", icon: "users", wired: true,
+  question: "谁在这家公司、每个角色能做什么、我现在是谁？",
+  view: renderTeam,
+};
+
 export const PAGES: Page[] = [
   overviewPage, approvalsPage,
   projectsPage,
@@ -68,6 +75,7 @@ export const PAGES: Page[] = [
   recordsGroupPage,
   assetsGroupPage,
   systemPage,
+  teamPage,
 ];
 
 // 旧 hash 仍要能打开：这些页并进「系统」或「成员与 Agent」之后，书签和飞书里的旧链接不能断。
