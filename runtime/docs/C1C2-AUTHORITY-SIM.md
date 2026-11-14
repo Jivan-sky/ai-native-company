@@ -27,6 +27,15 @@ issuer: member:alice      # 受托签发人（模拟：客户 IT 负责人书面
 delegation: 客户 IT 负责人书面确认（模拟件，见 docs/C1C2-AUTHORITY-SIM.md）
 ```
 
+**现在有操作面了**（不再手写文件）：
+
+```bash
+anc authz init <vault> --issuer member:alice --note "客户 IT 负责人书面委任"
+anc authz grant <vault> --slug demo-read --to member:bob --action read --object domain:cs-ops
+anc authz revoke <vault> demo-read          # 版本 +1，撤权从这一版起生效
+anc authz check <vault>                     # 逐条判：OK / 拒绝（原因）/ 无法判定（原因）
+```
+
 **换成你的答案要改哪**：只改 `authority.md` 的 `issuer:` 一行。判定读的是这个字段，不是代码里的名字。
 
 ---
