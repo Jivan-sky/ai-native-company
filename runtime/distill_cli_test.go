@@ -140,7 +140,10 @@ func TestDistillCheckCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := string(raw) + "\n## 何时用\n月底对账时。\n\n## 输入\n账单 CSV。\n\n## 步骤\n1. 对齐单号。\n\n## 验证\n差异为零。\n"
+	// A6：除了四段，还要补 description（宿主靠它发现技能）—— 没有就发不出去。
+	body := strings.Replace(string(raw), "name: case-9\n",
+		"name: case-9\ndescription: 月末核对账单时使用；reconcile month-end statements\n", 1) +
+		"\n## 何时用\n月底对账时。\n\n## 输入\n账单 CSV。\n\n## 步骤\n1. 对齐单号。\n\n## 验证\n差异为零。\n"
 	if err := os.WriteFile(draftPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
