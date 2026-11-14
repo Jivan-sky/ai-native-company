@@ -5,6 +5,8 @@
 # 本机 macOS 上装的 Go 跑绿，不代表 Linux 腿绿；版本也会随机器漂。容器把这两件事都钉死。
 #
 # 用法：./dev.sh <命令>
+#
+#   ui        真浏览器跑一遍界面不变量（需要 ego-browser，且看板已在跑）
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +51,9 @@ mkdir -p "$BOX" "$LOG"
 in_dev() { "${COMPOSE[@]}" run --rm dev sh -c "$1"; }
 
 case "$1" in
-fmt)
+  ui)
+    ego-browser nodejs < "$HERE/ui-invariants.mjs"
+    ;;fmt)
 	in_dev '
     out=$(gofmt -l . 2>&1)
     if [ -n "$out" ]; then
