@@ -14,12 +14,20 @@ export let lastReceipt: DecideReply | null = null;
 export let lastDecideErr = "";
 
 export function receiptBanner(r: DecideReply): HTMLElement {
+  // 第一行是**人要的那一句**：批了什么、谁批的、接下来交给谁。
+  // 落库路径与文件名收进第二层 —— 工程师要看，使用者不用第一眼就看到。
+  const next = (r.to ?? "").trim();
   return el("div", { class: "banner ok" },
-    el("h3", {}, "刚刚点头：" + dash(r.verdict) + "（" + (r.by === "" ? "没记谁" : r.by) + "）"),
-    el("ul", {},
-      el("li", {}, el("span", { class: "mono" }, dash(r.proposal)), " —— ", dash(r.note)),
-      el("li", {}, "落库 ", el("span", { class: "mono" }, dash(r.timeline))),
-      el("li", {}, "审计 ", el("span", { class: "mono" }, dash(r.audit)))));
+    el("h3", {}, "已" + dash(r.verdict) + "（" + (r.by === "" ? "没记谁" : r.by) + "）"),
+    el("p", { class: "next" },
+      next === ""
+        ? "这一件没有「下一手」—— 它是终态，或者提的那方没写该交给谁。"
+        : "下一步：交给 " + next + "，等他回执。"),
+    el("details", {}, el("summary", {}, "留痕在哪"),
+      el("ul", {},
+        el("li", {}, el("span", { class: "mono" }, dash(r.proposal)), " —— ", dash(r.note)),
+        el("li", {}, "落库 ", el("span", { class: "mono" }, dash(r.timeline))),
+        el("li", {}, "审计 ", el("span", { class: "mono" }, dash(r.audit))))));
 }
 
 // 「谁在点」—— 看板没有免登，所以这一栏由页面出，并记在本机（下次不用再打）。
@@ -173,23 +181,54 @@ export async function decide(
   rerender();
 }
 
-// 成员：按「该谁批」分组 —— 一个人打开这一页，要能一眼看到「我这摊有几件」。
-// `to` 是岗位不是人名（人由展示层现算，见后端 approvals.Approver），所以标题写岗位。
-export function pendingSection(v: ApprovalView): Kid {
+// 成员：先回答「有没有一件是要我点的」，再按岗位铺开。
+//
+// 以前只按 `to` 分组，读者得自己在几组里找"哪组是我"。现在先算一遍：
+// 当前选中的这个人，他的岗位是哪个；`to` 命中该岗位或命中本人的，归到「该你批」。
+//
+// `to` 写的是岗位不是人名（人由后端 approvals.Approver 现算），所以先拿岗位比，
+// 再拿名字比 —— 两种写法都认，与后端同一套语义。
+export function pendingSection(v: ApprovalView, d: Data | null): Kid {
   if (v.pending.length === 0) {
     return section("成员", "", emptyState("没有等点头的提案。", "有提案进来会自己出现在这里。"));
   }
-  const groups = new Map<string, ApprovalPending[]>();
+  const me = byWho.trim();
+  const myRole = (d?.board?.members ?? []).find((m) => m.name === me)?.role ?? "";
+  const mine: ApprovalPending[] = [];
+  const others: ApprovalPending[] = [];
   for (const p of v.pending) {
     const to = (p.to ?? "").trim();
-    groups.set(to === "" ? "域表没写该谁批" : to, [...(groups.get(to) ?? []), p]);
+    const isMine = to !== "" && ((myRole !== "" && to === myRole) || to === me || to === "member:" + me);
+    (isMine ? mine : others).push(p);
   }
-  const blocks = [...groups.entries()].map(([who, list]) =>
-    el("div", { class: "qgroup" },
-      el("h3", {}, el("span", {}, who),
-        el("span", { class: "hint" }, (who === "域表没写该谁批" ? "" : "岗位 · ") + list.length + " 件")),
-      el("div", { class: "grid props" }, ...list.map((p) => pendingCard(v, p)))));
-  return section("成员", "共 " + v.count + " 件 · 按该谁批分组", ...blocks);
+  const groupOf = (list: ApprovalPending[]): HTMLElement[] => {
+    const groups = new Map<string, ApprovalPending[]>();
+    for (const p of list) {
+      const to = (p.to ?? "").trim();
+      groups.set(to === "" ? "域表没写该谁批" : to, [...(groups.get(to) ?? []), p]);
+    }
+    return [...groups.entries()].map(([who, sub]) =>
+      el("div", { class: "qgroup" },
+        el("h3", {}, el("span", {}, who),
+          el("span", { class: "hint" }, (who === "域表没写该谁批" ? "" : "岗位 · ") + sub.length + " 件")),
+        el("div", { class: "grid props" }, ...sub.map((p) => pendingCard(v, p)))));
+  };
+
+  const blocks: Kid[] = [];
+  if (mine.length > 0) {
+    blocks.push(el("div", { class: "mine" },
+      el("h3", { class: "mine-h" }, el("span", {}, "该你批"), el("span", { class: "hint" }, mine.length + " 件")),
+      el("div", { class: "grid props" }, ...mine.map((p) => pendingCard(v, p)))));
+  }
+  if (others.length > 0) {
+    blocks.push(el("div", { class: "others" },
+      el("h3", { class: "others-h" },
+        el("span", {}, mine.length > 0 ? "其他人在等" : "在等点头"),
+        el("span", { class: "hint" }, others.length + " 件 · 不是你的岗位，看着就好")),
+      ...groupOf(others)));
+  }
+  return section("成员", "共 " + v.count + " 件 · " + (mine.length > 0 ? "有 " + mine.length + " 件该你点" : "没有该你点的"),
+    ...blocks);
 }
 
 // Agent：谁在跑、正在做什么。这块回答的是「Agent 那半边」——
@@ -239,7 +278,7 @@ export function renderApprovals(d: Data): Kid[] {
     ]));
   }
   out.push(bySection(d));
-  if (v.wired) out.push(pendingSection(v));
+  if (v.wired) out.push(pendingSection(v, d));
   out.push(agentSection(d));
   return out;
 }

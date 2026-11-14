@@ -151,6 +151,9 @@ type DecideReply struct {
 	Timeline string `json:"timeline"`
 	Audit    string `json:"audit"`
 	Note     string `json:"note"`
+	// To 是这一件的「下一手」：批准之后该交给谁。看板拿它显示「下一步：交给 X」——
+	// 少了这一格，点完就只剩一个"成功"，读者不知道后面谁接手。
+	To string `json:"to,omitempty"`
 }
 
 // handleApprovalsDecide 是看板这条嘴：收一次点头，落到与 CLI 同一个入口上。
@@ -216,6 +219,7 @@ func (s *Server) handleApprovalsDecide(w http.ResponseWriter, r *http.Request) {
 		By:       rec.Decision.By,
 		Timeline: s.scrub(rec.Timeline),
 		Audit:    s.scrub(rec.Audit),
+		To:       rec.Pending.To,
 		Note:     "真相源没动：grants/ 那个文件由人侧的管理者 bot 写（ANC 只留痕）",
 	})
 }
