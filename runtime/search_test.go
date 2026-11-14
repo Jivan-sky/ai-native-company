@@ -298,3 +298,97 @@ func TestGetMCPTruncatesLargeBodyExplicitly(t *testing.T) {
 		t.Fatalf("截断口径不对：truncated=%v total=%d bodylen=%d", got.Truncated, got.TotalBytes, len(got.Body))
 	}
 }
+
+// A7 取正文时要能指回**签发原件**，并说清这是哪一版整理稿。
+//
+// 正文一样、来源从 A 改成 B —— 读者靠 source 选对原件，靠 document_version 分辨版本。
+func TestGetMCPCarriesSourceAndVersion(t *testing.T) {
+	h, g := readHarness(t)
+	seedSearchDocs(t, g.Vault)
+	// 登记一份原件，并让整理稿指向它
+	writeSearchDoc(t, g.Vault, "_originals/contract-a.pdf", "PDF-BYTES-A")
+	writeSearchDoc(t, g.Vault, "10-knowledge/src-a.md",
+		"---\ndomain: trade\ntitle: 合同摘录\nsource_file: _originals/contract-a.pdf\n---\n合同金额与账期。")
+
+	text, isErr := callTool(t, h, "anc_get", map[string]any{"who": "alice", "path": "10-knowledge/src-a.md"})
+	if isErr {
+		t.Fatalf("该取得到：%s", text)
+	}
+	var got struct {
+		DocumentVersion string `json:"document_version"`
+		Source          struct {
+			Status  string `json:"status"`
+			Ref     string `json:"ref"`
+			Version string `json:"version"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(text), &got); err != nil {
+		t.Fatalf("回的不是 JSON：%v / %s", err, text)
+	}
+	if got.DocumentVersion == "" {
+		t.Error("要给整理稿版本 —— 否则读者分不清自己看的是哪一版")
+	}
+	if got.Source.Status != "available" || got.Source.Ref != "_originals/contract-a.pdf" {
+		t.Fatalf("来源该是 available 且指到那份原件：%+v", got.Source)
+	}
+	if len(got.Source.Version) != 12 {
+		t.Errorf("原件也要给版本摘要，拿到 %q", got.Source.Version)
+	}
+
+	// 正文不变、来源改成 B：版本必须变，来源必须跟着变（A7-1）
+	writeSearchDoc(t, g.Vault, "_originals/contract-b.pdf", "PDF-BYTES-B")
+	writeSearchDoc(t, g.Vault, "10-knowledge/src-a.md",
+		"---\ndomain: trade\ntitle: 合同摘录\nsource_file: _originals/contract-b.pdf\n---\n合同金额与账期。")
+	text2, _ := callTool(t, h, "anc_get", map[string]any{"who": "alice", "path": "10-knowledge/src-a.md"})
+	var got2 struct {
+		DocumentVersion string `json:"document_version"`
+		Source          struct {
+			Ref string `json:"ref"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(text2), &got2); err != nil {
+		t.Fatal(err)
+	}
+	if got2.DocumentVersion == got.DocumentVersion {
+		t.Error("只改 source_file 也算改版 —— 版本号必须变")
+	}
+	if got2.Source.Ref != "_originals/contract-b.pdf" {
+		t.Errorf("来源要跟着改到 B，拿到 %q", got2.Source.Ref)
+	}
+}
+
+// 三种「指不回原件」要分开说：没登记 / 登记了但缺件 / vault 之外不给路径。
+func TestGetMCPSourceStates(t *testing.T) {
+	h, g := readHarness(t)
+	seedSearchDocs(t, g.Vault)
+	writeSearchDoc(t, g.Vault, "10-knowledge/no-src.md", "---\ndomain: trade\ntitle: 没登记来源\n---\n正文。")
+	writeSearchDoc(t, g.Vault, "10-knowledge/miss-src.md",
+		"---\ndomain: trade\ntitle: 登记了缺件\nsource_file: _originals/gone.pdf\n---\n正文。")
+	writeSearchDoc(t, g.Vault, "10-knowledge/out-src.md",
+		"---\ndomain: trade\ntitle: 登记到 vault 之外\nsource_file: ../../etc/passwd\n---\n正文。")
+	for path, want := range map[string]string{
+		"10-knowledge/no-src.md":   "unlinked",
+		"10-knowledge/miss-src.md": "missing",
+		"10-knowledge/out-src.md":  "unavailable",
+	} {
+		text, isErr := callTool(t, h, "anc_get", map[string]any{"who": "alice", "path": path})
+		if isErr {
+			t.Fatalf("%s 正文该可读：%s", path, text)
+		}
+		var got struct {
+			Source struct {
+				Status string `json:"status"`
+				Ref    string `json:"ref"`
+			} `json:"source"`
+		}
+		if err := json.Unmarshal([]byte(text), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Source.Status != want {
+			t.Errorf("%s 的来源状态该是 %q，拿到 %q", path, want, got.Source.Status)
+		}
+		if want == "unavailable" && strings.Contains(text, "/etc/passwd") {
+			t.Errorf("vault 之外的路径不许回给调用者：%s", text)
+		}
+	}
+}
