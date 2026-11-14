@@ -464,8 +464,8 @@ export function shell(): void {
       el("main", { class: "pagewrap", id: "main", tabindex: "-1" }, el("div", { class: "page page-" + page.id }, col)),
       el("footer", { class: "statusbar" },
         el("span", { class: "sb-item" }, el("i", { class: "sb-dot" }), d?.board ? dash(d.board.company.name) : "ANC 看板"),
-        el("span", { class: "sb-item" }, "schema ", el("b", {}, d?.board ? d.board.schema : "—")),
-        el("span", { class: "sb-item" }, d?.board ? "生成 " + localTime(d.board.generated_at) : "等待投影"),
+        // 状态栏只留"这是哪家公司"。schema 版本与生成时间戳是调试信息，
+        // 客户看到的是"这系统在报自己的内部状态"。
         el("span", { class: "sb-grow" }),
         el("span", { class: "sb-item" }, "Ctrl K"))));
   try {
