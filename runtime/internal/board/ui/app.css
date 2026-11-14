@@ -2537,3 +2537,16 @@ table.cost tr.zero td { color: var(--muted); }
   .main, .topbar { padding-left: 76px; }
   .side:hover { width: 248px; }
 }
+
+/* ① 页头那条白条（952×39，只有隐藏的 h1）
+   它是旧版"大标题"留下的占位。标题不显示了，占位还在 —— 于是第一屏多出一条空白。
+   语义标题要留（读屏器靠它），但视觉上不能占地方。 */
+.page-head.no-title {
+  height: 0 !important; min-height: 0 !important;
+  padding: 0 !important; margin: 0 !important;
+  background: none !important; border: 0 !important; box-shadow: none !important;
+}
+
+/* ③ 顶栏：统一圆角 10px（搜索框、图标按钮、身份下拉一个值） */
+.topbar, .cmd-btn, .icon-btn, .role-select, .top-actions > * { border-radius: 10px !important; }
+.cmd-btn { border: 1px solid var(--line) !important; }
