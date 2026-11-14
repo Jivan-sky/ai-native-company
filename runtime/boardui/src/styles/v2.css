@@ -316,3 +316,7 @@ details[open] summary::after { transform: rotate(90deg); }
 .srv-res p { margin: 0 0 var(--s1); font-size: var(--t2); line-height: 1.7; }
 .srv-res .srv-bad { color: var(--block); }
 .srv-res .srv-diff { color: var(--text-2); }
+
+/* 快照态：LIVE 灭掉、灰下来。它不是在报错，是在说"这不是实时的"。 */
+.live-chip.stale { color: var(--muted); }
+.live-chip.stale i { background: var(--muted); animation: none; }
