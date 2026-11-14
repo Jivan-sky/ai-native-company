@@ -967,20 +967,36 @@ func (g *envelopeIngress) sendEnvelope(args map[string]any) (string, bool) {
 		for _, i := range fatal {
 			fmt.Fprintf(&b, "  🔴 [%s] %s\n", i.Rule, i.Msg)
 		}
-		g.auditEnvelope(verdict, audit.ResultDenied, denyWhy(fatal), now)
+		if aerr := g.auditEnvelope(verdict, audit.ResultDenied, denyWhy(fatal), now); aerr != nil {
+			fmt.Fprintf(&b, "（并且这次拒收没进审计：%v）\n", aerr)
+		}
 		return b.String(), true
 	}
-	// 跨域且进了门 = 一次真行使 → 留一条 ok 的痕。域内信封不通 grant，也就不进 audit
-	// （它不是一次「跨域 / 跨通道」行使，信封日志已经记着它）。
-	if verdict.CrossDomain {
-		g.auditEnvelope(verdict, audit.ResultOK, gateNote(verdict), now)
-	}
+	// A5：收件与入账是两段，各自的成功边界不同 —— **先有收件，再有入账**。
+	//
+	// 反过来（先写“准入 ok”、后写信封）会造出一笔看起来像收件的账：
+	// 落盘失败时客户端听说“不算数”，审计里却躺着一条 ok。
 	rec := envelope.Record{Envelope: e, At: now.Format(time.RFC3339), Findings: envelope.ToFindings(issues)}
 	path, err := envelope.Append(g.DataDir, rec)
 	if err != nil {
-		return "收了，但落不了盘（这次不算数）：" + err.Error(), true
+		// 没落盘 = 没收件。跨域那一次「想行使」仍要留痕吗？
+		// 不留：此刻既没收件、也没获得业务权，写 ok 会假；写 denied 会假（准入是允许的）。
+		// 如实说“未收件”即可 —— 这一笔在账上就是“没有发生”。
+		return "没收到（准入通过，但收件落不了盘）：" + err.Error() + "\n（修好后重发 —— 重发会按那时的权限重判）", true
 	}
-	fmt.Fprintf(&b, "收了，已落 %s\n\n", path)
+	// 跨域且进了门 = 一次真行使 → 留一条 ok 的痕。域内信封不通 grant，也就不进 audit
+	// （它不是一次「跨域 / 跨通道」行使，信封日志已经记着它）。
+	auditGap := ""
+	if verdict.CrossDomain {
+		if aerr := g.auditEnvelope(verdict, audit.ResultOK, gateNote(verdict), now); aerr != nil {
+			auditGap = aerr.Error()
+		}
+	}
+	fmt.Fprintf(&b, "收了，已落 %s\n", path)
+	if auditGap != "" {
+		fmt.Fprintf(&b, "⚠️  这一笔还没进审计（收件已成功，审计待补）：%s\n", auditGap)
+	}
+	b.WriteString("\n")
 	for _, l := range e.Brief() {
 		fmt.Fprintf(&b, "  %s：%s\n", l.Q, l.A)
 	}
@@ -1050,7 +1066,7 @@ func listArg(args map[string]any, k string) []string {
 // **类别先记 invoke**：信封的 action 这一维**还没定**（信封里就没有这个字段，见 gate.go 注释）——
 // 这里记的是「行使了**接入面这一个调用**」，不是「这封信的业务动作」。等 kind → action 那张表
 // 拍出来，改的就是这一行（届时它应该变成数据）。
-func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, result, why string, at time.Time) {
+func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, result, why string, at time.Time) error {
 	actor := v.Subject
 	if actor == "" {
 		actor = "unknown"
@@ -1074,7 +1090,9 @@ func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, result, why stri
 	}
 	if _, err := audit.Append(g.Vault, rec); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  入站信封没留上痕（audit）：%v\n", err)
+		return err
 	}
+	return nil
 }
 
 // denyWhy 把拒收的理由折成一句（取第一条红档的原文）—— 审计要的是当时那句话，不是转述。

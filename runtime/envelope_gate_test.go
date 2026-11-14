@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"anc/internal/audit"
@@ -323,5 +324,58 @@ func TestIngressAcceptsCrossDomainProposalAndLogs(t *testing.T) {
 	}
 	if r.Why == "" {
 		t.Fatalf("理由要写明这是「请求」而不是「行使」：%+v", r)
+	}
+}
+
+// A5-2 已允许、收件落盘失败：**审计里不能留下一条 ok**。
+//
+// 旧的顺序是先写准入 ok、再写信封。落盘失败时客户端听说"不算数"，
+// 审计里却躺着一条 ok —— 事后查账会得出"这封收下了"，而它根本没收到。
+func TestIngressNoOkAuditWhenReceiptFails(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
+	// 把信封日志目录做成一个文件 → Append 必然失败
+	data := filepath.Join(t.TempDir(), "data")
+	if err := os.WriteFile(data, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g := &envelopeIngress{Vault: vault, DataDir: data}
+	text, isErr := g.sendEnvelope(map[string]any{
+		"who": "alice", "on_behalf_of": "member:alice", "kind": "ask",
+		"body": "收件会失败的这一封", "scope_domain": "logistics",
+	})
+	if !isErr {
+		t.Fatalf("收件失败要说「没收到」：%s", text)
+	}
+	if rs := auditRecords(t, vault); len(rs) != 0 {
+		t.Fatalf("没收件就不该有 ok 的痕，实际 %d 条：%+v", len(rs), rs)
+	}
+}
+
+// A5-3 已收件、审计失败：收件算成功，但必须如实说"审计待补"。
+func TestIngressReceiptSucceedsButAuditFails(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
+	// 把 audit 目录做成一个文件 → 入账必然失败
+	if err := os.RemoveAll(filepath.Join(vault, "audit")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "audit"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data := t.TempDir()
+	g := &envelopeIngress{Vault: vault, DataDir: data}
+	text, isErr := g.sendEnvelope(map[string]any{
+		"who": "alice", "on_behalf_of": "member:alice", "kind": "ask",
+		"body": "收下了但入不了账", "scope_domain": "logistics",
+	})
+	if isErr {
+		t.Fatalf("收件已经成功，不该判为失败：%s", text)
+	}
+	if names := logFiles(t, data); len(names) != 1 {
+		t.Fatalf("信封要落在盘上：%v", names)
+	}
+	if !strings.Contains(text, "审计待补") {
+		t.Fatalf("要如实说「审计待补」，实际：%s", text)
 	}
 }

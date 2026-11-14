@@ -440,3 +440,28 @@ func TestReadContextSingleDomainHasNoGaps(t *testing.T) {
 		t.Errorf("那一域上的项目还是要给：%+v", out.Projects)
 	}
 }
+
+// A5-4 合法读遇审计故障：**不释放正文**。
+//
+// 审计是「这次读被授权过」的唯一证据。先给正文、后补账，中间那一刻的读在账上是空白的。
+func TestReadContextWithholdsBodyWhenAuditFails(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	// 把 audit 目录做成一个文件 → 入账必然失败
+	if err := os.RemoveAll(filepath.Join(vault, "audit")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(vault, "audit"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g := &envelopeIngress{Vault: vault, DataDir: t.TempDir()}
+	text, isErr := g.readContext(map[string]any{"who": "alice", "on_behalf_of": "member:alice", "domain": "trade"})
+	if !isErr {
+		t.Fatalf("审计写不进去时不该报成功：%s", text)
+	}
+	if !strings.Contains(text, "没有释放正文") {
+		t.Fatalf("要说清「没有释放正文」，实际：%s", text)
+	}
+	if strings.Contains(text, `"sections"`) || strings.Contains(text, `"tasks"`) {
+		t.Fatalf("审计失败时不许夹带正文：%s", text)
+	}
+}
