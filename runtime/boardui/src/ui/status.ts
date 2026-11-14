@@ -19,6 +19,9 @@ export const dotLine = (cls: string, ...kids: Kid[]): HTMLElement =>
   el("span", { class: "st" }, el("span", { class: cls }), ...kids);
 export const BAND_DOT: Record<string, string> = {
   green: "dot ok", yellow: "dot warn", red: "dot bad", unknown: "dot gray",
+  // 这两档不是「事办到哪了」，是「我们判不出来」：冲突等人裁决，待核实等证据到齐。
+  // 用虚线/等待点，跟三档业务状态在形状上就分开 —— 别让人把"判不出"看成"通过了"。
+  conflict: "dot wait", pending: "dot wait",
   // 第四档：等人给一句话。它**不来自 status** —— 来自「这条正躺在待批队列里」这个事实，
   // 所以它只在真有那个数据源的地方出现（审批页），不从热层的 status 词推（#59 拍的口径）。
   "input-required": "dot wait",
@@ -26,6 +29,7 @@ export const BAND_DOT: Record<string, string> = {
 export const bandDot = (b: string): string => BAND_DOT[b] ?? "dot";
 export const BAND_WORD: Record<string, string> = {
   green: "绿 · 已完成", yellow: "黄 · 运行中", red: "红 · 卡点 / 失败", unknown: "灰 · 认不出的词",
+  conflict: "冲突 · 两份相反主张，等裁决", pending: "待核实 · 前序没到齐",
   "input-required": "靛 · 等你给一句话",
 };
 export const bandWord = (b: string): string => BAND_WORD[b] ?? "灰 · 认不出的词";
