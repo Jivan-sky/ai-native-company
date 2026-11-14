@@ -250,3 +250,23 @@ func (s *Server) handleFeishuStart(w http.ResponseWriter, r *http.Request) {
 		"&redirect_uri=" + redirect + "&response_type=code&state=anc"
 	http.Redirect(w, r, q, http.StatusFound)
 }
+
+// EnsureFeishu 把飞书身份对到一个**已存在的**组织成员上。
+//
+// 不自动建人：飞书里有、org 里没有 → 拒绝，并说清去找管理员。
+// 这样"谁能进公司系统"仍然由 org 决定，而不是由飞书的通讯录决定。
+func (s *Store) EnsureFeishu(openID, name string) (Account, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Account{}, errors.New("飞书没返回姓名")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// 先按名字找已有账号（本地建过就用它）
+	if a, ok := s.list[strings.ToLower(name)]; ok {
+		return a, nil
+	}
+	// 没有账号但有 open_id 记录 → 这里先不做 open_id 表（v1 只用名字对齐），
+	// 所以直接回一个明确的拒绝，宁可让人去加，也不悄悄建一个 member 账号。
+	return Account{}, errors.New("没有名为「" + name + "」的账号")
+}

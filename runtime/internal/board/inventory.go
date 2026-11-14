@@ -81,6 +81,8 @@ func (s *Server) Routes() []Route {
 		{"/api/auth/me", KindRead, s.handleMe},
 		// 飞书 SSO 入口：没配凭据时返回 501 + 说明，不做假按钮。
 		{"/auth/feishu/start", KindRead, s.handleFeishuStart},
+		{"/auth/feishu/callback", KindRead, s.handleFeishuCallback},
+		{"/login", KindRead, s.handleLoginPage},
 	}
 }
 
@@ -98,6 +100,7 @@ var routeKindSet = map[string]RouteKind{
 	"/api/authz/revoke": KindWrite,
 	"/api/auth/login":   KindWrite, "/api/auth/register": KindWrite, "/api/auth/logout": KindWrite,
 	"/api/auth/me": KindRead, "/auth/feishu/start": KindRead,
+	"/auth/feishu/callback": KindRead, "/login": KindRead,
 	chatPath: KindModel, chatSessionPath: KindModel,
 	"/api/datasources": KindRead, "/api/query": KindQuery, "/api/catalog": KindRead,
 	"/api/files": KindRead, "/api/files/ls": KindQuery, "/api/files/cat": KindQuery,
