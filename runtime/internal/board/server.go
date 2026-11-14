@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -213,11 +215,35 @@ func findings(list []org.Issue) []Finding {
 }
 
 // scrub 把本机绝对路径从对外文案里摘掉：看板是观测面，不该泄漏本机布局（SPEC §2.3）。
+// scrub 把**本机绝对路径**从要上屏的文案里摘掉。
+//
+// 原来只换 vault 一个根，漏了 data 目录与当前工作目录 —— 于是系统页把
+// `/Users/<某人>/.../runtime/.devbox/macos/data/run/api.sock` 原样打给客户看。
+// 那不是"技术细节"，是把开发机的目录结构当成产品内容展示。
+//
+// 三个根分别替换成稳定的占位符：读的人知道"这是本机的某个位置"就够了，
+// 不需要知道是谁的机器、装在哪个盘。
 func (s *Server) scrub(msg string) string {
-	if s.Vault == "" {
-		return msg
+	if msg == "" {
+		return ""
 	}
-	return strings.ReplaceAll(msg, s.Vault, "<vault>")
+	type root struct{ path, label string }
+	var roots []root
+	if s.Vault != "" {
+		roots = append(roots, root{s.Vault, "<vault>"})
+	}
+	if s.DataDir != "" {
+		roots = append(roots, root{s.DataDir, "<data>"})
+	}
+	if wd, err := os.Getwd(); err == nil {
+		roots = append(roots, root{wd, "<cwd>"})
+	}
+	// 长的先换：data 目录通常在 cwd 里面，先换短的会留下半截路径。
+	sort.Slice(roots, func(i, j int) bool { return len(roots[i].path) > len(roots[j].path) })
+	for _, r := range roots {
+		msg = strings.ReplaceAll(msg, r.path, r.label)
+	}
+	return msg
 }
 
 // writeJSON 出稳定字节 + no-store：看板每次刷新都该是当前真相，不是缓存里的旧世界。
