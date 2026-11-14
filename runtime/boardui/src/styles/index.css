@@ -72,3 +72,43 @@ body, .num, .n, .kpi, .stat, .mono { font-variant-numeric: tabular-nums; }
   cursor: col-resize; z-index: 30; background: transparent;
 }
 .side-resizer:hover, .side-resizer.dragging { background: var(--line-2); }
+
+/* =========================================================================
+   视觉系统（2026-11-14，参照 Linear 的取色与层级）
+   ------------------------------------------------------------------------
+   三条规矩：
+   1 底几乎白、面纯白、边极淡 —— 落差靠明度，不靠色相（暖黄会整屏一个色温）
+   2 **只有一个品牌色**（靛 #5e6ad2）。它只表示一件事：你现在在哪 / 这里能点。
+      状态色（红黄绿）只表示状态。两者不混用。
+   3 颜色要"少而准"。一屏里彩色元素不超过三处，其余全是灰阶 —— 
+      这样每一处彩色都是一句信息。
+   ========================================================================= */
+
+/* 当前页：靛色左条 + 8% 底色。原来是金左条 + 米色底 + 加粗，三种语言说一件事。 */
+.side .nav-item.active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.side .nav-item.active .lab { color: var(--accent); }
+
+/* 顶栏：加一条极淡的分隔，让"我在哪"那一行浮起来 */
+.topbar { border-bottom: 1px solid var(--line); }
+
+/* 页头：一条 3px 的靛色短横线做"页面的封面"，替代原来那堆解释文字的位置感 */
+.page-head::after {
+  content: ""; display: block; width: 28px; height: 3px;
+  margin: 14px 0 2px 0; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), #8b93e8);
+}
+
+/* 主标题下的说明：不再用整段灰字，改成一条细的强调线 + 一行短句 */
+.hero-copy h2, .brief .answer { letter-spacing: -0.015em; }
+
+/* 可点的数字：加一层极淡的靛底，鼠标经过才显形 —— 不点它就不打扰 */
+.v2 .stat .n, .sp-n, .sp-r { border-radius: 6px; padding: 0 4px; margin: 0 -4px; }
+.v2 .stat .n:hover, .sp-n:hover, .sp-r:hover { background: var(--accent-soft); }
+
+/* 焦点环用品牌色，不用浏览器默认蓝 */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

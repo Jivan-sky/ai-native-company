@@ -1276,12 +1276,16 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
   /* 2026-11-14 骨架重做：暖米底 → 中性近白。
      暖底把每张卖出去的截图都染黄，进客户的 PPT 直接掉一档；而且它让"卡片浮在雾里"——
      卡面与底色亮度差只有 1.18:1，分块靠猜。中性底 + 纯白卡面才有前后景。 */
-  /* 2026-11-14 二次调整：中性白 → 暖黄。
-     中性白"干净但没温度"，客户觉得像后台；暖调是产品的气质，
-     但不能再靠多层渐变去调 —— 底色本身就是暖的，卡面是纸白，落差由明度做，不由色相做。 */
-  --bg: #f6f1e4;
-  --bg-2: #efe8d8;
-  --panel: #fffdf8;
+  /* 2026-11-14 三次调整：白底 + 单一强调色（参照 Linear 的做法）。
+     暖黄被读成"羊皮纸"——看久了累，而且它让所有东西都处在同一个色温里，没有一处跳出来。
+     Linear 的做法相反：底几乎白、面纯白、边极淡，然后**留一个饱和的强调色**专门做"当前在哪"。
+     颜色不是背景，颜色是信号。 */
+  --bg: #fbfbfd;
+  --bg-2: #f4f4f8;
+  --panel: #ffffff;
+  --accent: #5e6ad2;        /* 唯一的品牌色：当前页、可点、聚焦 */
+  --accent-soft: #eef0fd;   /* 它的 8% 底色，用于选中行 */
+  --accent-line: #c7cbf3;
   --glass: linear-gradient(158deg, rgba(255,255,255,0.95), rgba(249,248,244,0.88) 58%, rgba(255,255,255,0.93));
   --line: rgba(28, 31, 26, 0.10);
   --line-2: rgba(28, 31, 26, 0.18);
@@ -1289,11 +1293,13 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
   --text: #1c1f1a;
   --text-2: #4c5048;
   --muted: #6c7066;   /* 4.52 / 4.97 —— 原来的 #7a7e74 在纸底上只有 3.70，小字不达标 */
-  --gold: #8a6a1f;
-  --rose: #a84363;
-  --mint: #177d63;
-  --lav: #5a52a8;
-  --cyan: #2f6f8c;
+  /* 语义色收敛成三个状态 + 一个强调。原来的金/玫/紫/青是装饰用的，
+     装饰色越多，状态色越不管用。 */
+  --gold: #b7791f;
+  --rose: #5e6ad2;
+  --mint: #0f9d6e;
+  --lav: #5e6ad2;
+  --cyan: #2f7a9e;
   --red: #c23a52;
   --green: #16855a;
   --amber: #96610e;   /* 4.67 —— 原来是 4.07，同一批小字 */
@@ -2147,3 +2153,43 @@ body, .num, .n, .kpi, .stat, .mono { font-variant-numeric: tabular-nums; }
   cursor: col-resize; z-index: 30; background: transparent;
 }
 .side-resizer:hover, .side-resizer.dragging { background: var(--line-2); }
+
+/* =========================================================================
+   视觉系统（2026-11-14，参照 Linear 的取色与层级）
+   ------------------------------------------------------------------------
+   三条规矩：
+   1 底几乎白、面纯白、边极淡 —— 落差靠明度，不靠色相（暖黄会整屏一个色温）
+   2 **只有一个品牌色**（靛 #5e6ad2）。它只表示一件事：你现在在哪 / 这里能点。
+      状态色（红黄绿）只表示状态。两者不混用。
+   3 颜色要"少而准"。一屏里彩色元素不超过三处，其余全是灰阶 —— 
+      这样每一处彩色都是一句信息。
+   ========================================================================= */
+
+/* 当前页：靛色左条 + 8% 底色。原来是金左条 + 米色底 + 加粗，三种语言说一件事。 */
+.side .nav-item.active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.side .nav-item.active .lab { color: var(--accent); }
+
+/* 顶栏：加一条极淡的分隔，让"我在哪"那一行浮起来 */
+.topbar { border-bottom: 1px solid var(--line); }
+
+/* 页头：一条 3px 的靛色短横线做"页面的封面"，替代原来那堆解释文字的位置感 */
+.page-head::after {
+  content: ""; display: block; width: 28px; height: 3px;
+  margin: 14px 0 2px 0; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), #8b93e8);
+}
+
+/* 主标题下的说明：不再用整段灰字，改成一条细的强调线 + 一行短句 */
+.hero-copy h2, .brief .answer { letter-spacing: -0.015em; }
+
+/* 可点的数字：加一层极淡的靛底，鼠标经过才显形 —— 不点它就不打扰 */
+.v2 .stat .n, .sp-n, .sp-r { border-radius: 6px; padding: 0 4px; margin: 0 -4px; }
+.v2 .stat .n:hover, .sp-n:hover, .sp-r:hover { background: var(--accent-soft); }
+
+/* 焦点环用品牌色，不用浏览器默认蓝 */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
