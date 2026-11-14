@@ -2100,3 +2100,35 @@ body, .num, .n, .kpi, .stat, .mono { font-variant-numeric: tabular-nums; }
 
 /* 3 chip 不再做胶囊：胶囊 + 圆角 + 边框 + 阴影叠在一起是最典型的模板味 */
 .pill, .live-chip, .meta-pill, .chip { border-radius: var(--radius-2); }
+
+/* =========================================================================
+   导航可收可放（2026-11-14）
+   ------------------------------------------------------------------------
+   三条诉求来自使用者原话：
+   1 「点开之后有个可以叉掉的导航栏」→ 收起来只留图标，随时点回来
+   2 「在上面可以悬浮」→ 收起时鼠标进入自动展开（覆盖在内容上，不挤版面）
+   3 「左边的目录栏它其实也是个导航栏」→ 组标题不再是可点的框，只是分区
+   ========================================================================= */
+
+/* 收起态：只留 56px 图标条。展开用覆盖而不是推挤 —— 推挤会让内容每收放一次就重排一次。 */
+.app.rail-min .side { width: 56px; }
+.app.rail-min .side .lab,
+.app.rail-min .side .nav-hint,
+.app.rail-min .side .nav-label,
+.app.rail-min .side .bt small,
+.app.rail-min .side .ws-text { display: none; }
+.app.rail-min .side:hover {
+  width: 248px; z-index: 40;
+  box-shadow: 0 0 0 1px var(--line-2), 0 12px 32px rgba(0,0,0,.10);
+}
+.app.rail-min .side:hover .lab,
+.app.rail-min .side:hover .nav-hint,
+.app.rail-min .side:hover .nav-label,
+.app.rail-min .side:hover .ws-text { display: revert; }
+
+/* 收起时，导航项只显示图标并居中 */
+.app.rail-min .nav-item { justify-content: center; padding-inline: 0; }
+.app.rail-min .side:hover .nav-item { justify-content: flex-start; padding-inline: 10px; }
+
+/* 组标题：它以前看起来像个能点的框。现在只做分区标记。 */
+.side .nav-label { cursor: default; pointer-events: none; }
