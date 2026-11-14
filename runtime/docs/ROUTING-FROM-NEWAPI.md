@@ -85,6 +85,29 @@ new-api 的 usage log 结构值得照形状抄：
 我们比它多一维：**成本要能挂到 case 上**（这件事花了多少钱），它只有请求维度。
 这一维正是「口径回源」的价值 —— 一个项目的成本不是一个数，是可下钻的账。
 
+## 四之二、已经落地的第一版（`anc task route`）
+
+只做**算法、不派人**：`anc task route <vault> --domain <d> [--role <r>] [--pick]`。
+
+- 默认只输出候选与分档（`--pick` 才在最高档里抽一个，`--seed` 可复现）
+- 四档：域+岗位都对得上 / 只对得上域 / 泛用且岗位对 / 泛用
+- **域不匹配的 agent 不进候选**（列在 `excluded` 里并写明原因），不是排在最后
+- 档内均匀（借 `+10` 保底），**不跨档** —— 最高档没人就返回空，不悄悄降级
+
+实测（demo vault，6 个业务 agent）：
+
+```
+$ anc task route testdata/demo-public/vault --domain delivery-ops
+第 2 档（域对得上）：shopinitbot / workorderbot
+excluded: receptionbot（挂在 cs-ops）、ancopsbot（挂在 anc-platform）…
+
+$ … --pick --seed 100..112
+shopinitbot ×5 · workorderbot ×8     ← 档内均匀，且只在这两人里选
+```
+
+为什么先只做 dry-run：派单一旦自动写进 `to`，改的就是「谁会被叫起来干活」。
+那要先让人看着档位跑几轮、确认划分合理，再打开。
+
 ## 五、一句话
 
 它的路由解决的是「**同一个请求，发给哪家上游最合适**」；
