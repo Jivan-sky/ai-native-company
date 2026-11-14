@@ -96,7 +96,66 @@ export function mountChatPanel(): void {
     panel.classList.toggle("open", open);
     if (open) input.focus();
   };
-  launcher.addEventListener("click", () => toggle(!panelOpen));
+  // 悬浮球可以拖：它挡住右下角那块内容（在 1258×600 下压住「要我做」那行）。
+  // 拖拽与点击要分开 —— 移动超过 4px 才算拖，否则还是"点一下打开面板"。
+  //
+  // 位置存 localStorage，刷新后还在原地；越界会被夹回可视区（换屏幕/缩窗口时）。
+  const CHAT_POS = "anc.chat.pos";
+  const clamp = (x: number, y: number): { x: number; y: number } => {
+    const w = window.innerWidth, h = window.innerHeight;
+    const size = launcher.offsetWidth || 44;
+    return { x: Math.max(8, Math.min(w - size - 8, x)), y: Math.max(8, Math.min(h - size - 8, y)) };
+  };
+  const place = (x: number, y: number): void => {
+    const p = clamp(x, y);
+    launcher.style.left = p.x + "px";
+    launcher.style.top = p.y + "px";
+    launcher.style.right = "auto";
+    launcher.style.bottom = "auto";
+  };
+  try {
+    const raw = localStorage.getItem(CHAT_POS);
+    if (raw) {
+      const p = JSON.parse(raw) as { x: number; y: number };
+      if (typeof p.x === "number" && typeof p.y === "number") place(p.x, p.y);
+    }
+  } catch { /* 隐私模式不记 */ }
+  window.addEventListener("resize", () => {
+    const r = launcher.getBoundingClientRect();
+    if (launcher.style.left !== "") place(r.left, r.top);
+  });
+
+  let dragFrom: { x: number; y: number; lx: number; ly: number; moved: boolean } | null = null;
+  launcher.addEventListener("mousedown", (ev) => {
+    const r = launcher.getBoundingClientRect();
+    dragFrom = { x: r.left, y: r.top, lx: ev.clientX, ly: ev.clientY, moved: false };
+    ev.preventDefault();
+  });
+  window.addEventListener("mousemove", (ev) => {
+    if (!dragFrom) return;
+    const dx = ev.clientX - dragFrom.lx, dy = ev.clientY - dragFrom.ly;
+    if (!dragFrom.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+    dragFrom.moved = true;
+    launcher.classList.add("dragging");
+    place(dragFrom.x + dx, dragFrom.y + dy);
+  });
+  window.addEventListener("mouseup", () => {
+    if (!dragFrom) return;
+    if (dragFrom.moved) {
+      const r = launcher.getBoundingClientRect();
+      try { localStorage.setItem(CHAT_POS, JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top) })); } catch { /* 不记 */ }
+    }
+    launcher.classList.remove("dragging");
+    const wasMove = dragFrom.moved;
+    dragFrom = null;
+    // 拖完那一下不该顺手把面板打开/关掉。
+    if (wasMove) launcher.dataset.justDragged = "1";
+    else return;
+  });
+  launcher.addEventListener("click", () => {
+    if (launcher.dataset.justDragged === "1") { delete launcher.dataset.justDragged; return; }
+    toggle(!panelOpen);
+  });
   (panel.querySelector(".chat-close") as HTMLElement).addEventListener("click", () => toggle(false));
 
   const submit = async (): Promise<void> => {
