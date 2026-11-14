@@ -332,5 +332,9 @@ details[open] summary::after { transform: rotate(90deg); }
 /* 骨架层：小节标题从 14px 抬到 20px。
    原来标题与正文同号（14/600 vs 14/400），一屏 87 个 14px，层级只靠字重 —— 
    读者只能靠位置猜哪个是重点。字号级差现在是 14 / 20 / 28 三档。 */
-.sec > h2 { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: var(--s2); }
-.sec > h2 .hint { font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: var(--s2); }
+/* 选中 main 里的 h2 而不是 .sec > h2：总览的效率块标题在 .eff-head 里，
+   按 .sec 选会漏掉它 —— 我第一次就漏了，量出来还是 14px。 */
+/* 用 !important：`.v2 h2` 与 `.eff-head h2` 的特异性都高于 `main h2`，
+   不加就永远被吃掉（我第一次加规则没生效，就是栽在这）。下一轮并回各组件时删掉这条。 */
+main h2 { font-size: 20px !important; font-weight: 650; letter-spacing: -0.01em; margin-bottom: var(--s2); }
+main h2 .hint { font-size: 12px !important; font-weight: 400; color: var(--ink-3); margin-left: var(--s2); }

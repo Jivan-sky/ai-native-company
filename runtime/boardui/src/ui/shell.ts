@@ -375,7 +375,9 @@ export function shell(): void {
   if (!root) return;
   const page = pageFor(currentId());
   const d = cache;
-  const entering = d !== null && page.id !== lastShellPage;
+  // 换页才播进场；数据更新不播（见 app.ts quietRefresh 的 suppressEnter）。
+  // 每次轮询都重播一遍进场，等于每 30 秒告诉用户"换了新页面"——那是噪音。
+  const entering = d !== null && page.id !== lastShellPage && !enterAnimSuppressed();
   stopField();
   stopOrgGraph();
   closeDrawer();
@@ -471,3 +473,8 @@ function liveChip(at: number): HTMLElement {
     title: label + " · " + when + " · 每 30 秒自动刷新（页面在后台或正在输入时暂停）",
   }, el("i"), label);
 }
+
+// enterAnimSuppressed 由 app.ts 的静默刷新置位：数据变了要重绘，但不该播"换页"动画。
+let suppressEnterAnim = false;
+export function setSuppressEnter(v: boolean): void { suppressEnterAnim = v; }
+function enterAnimSuppressed(): boolean { return suppressEnterAnim; }

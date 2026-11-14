@@ -1,4 +1,4 @@
-import type { ContextView, GrantsView, SearchView } from "./core/types";
+import type { ContextView, Data, GrantsView, SearchView } from "./core/types";
 import type { AppsView, CatalogView, DataSourcesView, FileListView, FileSnapView, JobsView, ModelsView } from "./core/types";
 import { mountChatPanel } from "./ui/chatpanel";
 import { contract, fetchData, getJSON } from "./core/api";
@@ -8,7 +8,7 @@ import { cache, setCache } from "./core/state";
 import { activeSystemTab } from "./pages/system";
 import { pageFor } from "./router";
 import { activeRunTab } from "./pages/run";
-import { shell } from "./ui/shell";
+import { shell, setSuppressEnter } from "./ui/shell";
 
 // ANC 看板前端（浏览器侧）入口。
 //
@@ -33,6 +33,63 @@ async function boot(force = false): Promise<void> {
   }
   shell();
   loadForPage();
+}
+
+// quietRefresh 是**后台刷新**：只换数据，不重建整页。
+//
+// 为什么必须单独一条路：自动刷新原来调 boot(true)，它做的第一件事是 setCache(null) ——
+// 于是每 30 秒整棵树被拆了重建一次：滚动位置跳回顶部、输入焦点丢、进场动画重播、
+// 鼠标悬停状态消失。读的人正在看第三屏，页面突然跳一下，这就是"稳定性很差"。
+//
+// 三条规矩：
+//   1 先取数、后比对：新数据与旧数据指纹相同就**什么都不做**（多数轮询本来就没新东西）。
+//   2 真变了才重绘，且重绘前后还原滚动位置与焦点（这两样是"我正在用"的证据）。
+//   3 重绘不播进场动画（那属于"换页"，不属于"数据更新"）。
+async function quietRefresh(): Promise<void> {
+  if (typeof document === "undefined") return;
+  let next: Data;
+  try {
+    next = await fetchData();
+  } catch {
+    return; // 取不到就保持现状：旧数据比空白好，页头的"快照"徽标已经说明了新鲜度
+  }
+  if (cache !== null && fingerprint(cache) === fingerprint(next)) {
+    (window as unknown as { __ancLoadedAt?: number }).__ancLoadedAt = Date.now();
+    return; // 数据没变：连重绘都不做，页面一动不动
+  }
+  const scrollY = window.scrollY;
+  const active = document.activeElement as HTMLElement | null;
+  const focusKey = active && active.id ? "#" + active.id : "";
+  setCache(next);
+  (window as unknown as { __ancLoadedAt?: number }).__ancLoadedAt = Date.now();
+  suppressEnter();
+  shell();
+  loadForPage();
+  window.scrollTo(0, scrollY);
+  if (focusKey) {
+    const again = document.querySelector<HTMLElement>(focusKey);
+    if (again) again.focus({ preventScroll: true });
+  }
+}
+
+// fingerprint 是"这份数据变没变"的判据：只取会改变屏幕的那几样。
+// 不用 JSON.stringify(整个 data) —— 它包含时间戳，每 3 秒就变，等于永远判定为"变了"。
+function fingerprint(d: Data): string {
+  const b = d.board;
+  const counts = [
+    d.approvals?.count ?? -1,
+    d.timeline?.cases?.length ?? -1,
+    d.audit?.total ?? -1,
+    d.runtime?.bots?.filter((x: { state: string }) => x.state === "fail").length ?? -1,
+    d.issues ? d.issues.fatal.length + d.issues.warn.length : -1,
+  ].join(",");
+  return [b?.schema ?? "", b?.company?.name ?? "", counts].join("|");
+}
+
+// suppressEnter：让这一轮 shell 不播进场动画（那是换页的语言，不是数据更新的语言）。
+function suppressEnter(): void {
+  setSuppressEnter(true);
+  setTimeout(() => setSuppressEnter(false), 0);
 }
 
 // 应用页 / 模型页：这两页的数据不在启动时那一次取齐 —— 进了才取，免得每次刷新都多两次请求。
@@ -168,11 +225,11 @@ function autoRefreshTick(): void {
   if (document.hidden) return;
   const t = document.activeElement;
   if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-  void boot(true);
+  void quietRefresh();
 }
 window.setInterval(autoRefreshTick, AUTO_REFRESH_MS);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) void boot(true); // 切回来立刻对齐一次
+  if (!document.hidden) void quietRefresh(); // 切回来立刻对齐一次
 });
 
 window.addEventListener("hashchange", () => {
