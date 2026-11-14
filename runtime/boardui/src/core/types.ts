@@ -295,6 +295,7 @@ export type CtxPack = {
   gaps?: string[]; note?: string; refused?: { reason: string; ask?: string }; at: string;
 };
 export type ContextView = {
+  cost?: CostReport;
   schema: string; who: string; domain: string;
   roster: CtxIdentity[]; pack?: CtxPack; error?: string; note: string;
   // tasks_wired / tasks_why：「派给我的待办 / 我在做的」这两摞问出来没有 ——
@@ -381,3 +382,7 @@ export type Page = {
   wired: boolean;
   view: (d: Data) => Kid[];
 };
+
+// 上下文装配的账（/api/context 的 cost 段）。字符数=序列化后的实际长度，不是 token 估算。
+export type CostSection = { name: string; key: string; chars: number; items: number; why: string };
+export type CostReport = { sections: CostSection[]; total: number; note: string };
