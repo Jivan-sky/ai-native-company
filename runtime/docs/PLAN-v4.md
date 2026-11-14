@@ -198,8 +198,17 @@ FAIL: TestGetMCPCarriesSourceAndVersion
 测试用真 fixture 加一层：company / roles / domains 来自 `testdata/orgs/domains`，
 只补权威源、委派链、三档成员 —— 测的是判定，不是手搓 vault 的手艺。
 
-**还没做**：把 `Exercise` 接进 `envelope.Gate` 的跨域准入（现在那里还是「有覆盖的 grant 就放」）。
-这是下一步，接法只有一处：把 `grantCovers` 的命中项再过一遍 `Exercise`。
+**A3 已经接进跨域准入**（同一日）：`envelope.Gate` 里命中覆盖的 grant 之后，再过一遍 `Exercise`。
+三种结论分开走，且**都在账上能分辨**：
+
+| 情形 | 判定 | 规则 id |
+|---|---|---|
+| 有任一条有效 | 放行，带上**授权链 + 权威版本** | — |
+| 有覆盖但全都明确无效（撤权 / 到期 / 签发人不对 / 越界） | 拒绝 | `grant.invalid` |
+| 覆盖项判不出来（没权威源 / 缺 issued_by / 链断了） | **无法判定，不放行** | `grant.undecided` |
+
+回退验证：把 `Exercise` 短路成「恒 OK」，三条新测试立刻变红（撤权 / 无权威源 / 缺签发人）——
+说明这三刀确实是新加的，不是本来就通。
 
 ## 五、这一周的第一步
 

@@ -2,6 +2,7 @@ package envelope
 
 import (
 	"strings"
+	"time"
 
 	"anc/internal/org"
 )
@@ -70,6 +71,13 @@ type GateOutcome struct {
 	CrossDomain bool   // true = 这次是跨域（有覆盖或被拒都算）
 	Grant       string // 命中的那条 grant 的落点（vault 相对路径）；没命中为空
 	Requesting  bool   // true = 这一封是**请求**（提案），不是行使：不判授权，但仍算一次跨域请求（要留痕）
+
+	// 下面四个是 A3 落地的痕迹：授权「成立」不只是「有一条覆盖它」，
+	// 还要能说明**依据哪一版权威、顺着哪条链**。出了事要能照着回核。
+	Chain            []string // 从叶到根的授权链（slug 列表）
+	AuthorityVersion int      // 这次判定用的权威版本（0 = 没有权威源）
+	Undecided        bool     // true = 无法判定（缺权威源 / 链断了）—— 与「明确拒绝」分开
+	Why              string   // 判定结论的一句话（放行时为空）
 }
 
 // Gate 判一封信的授权。返回发现 + 这次的结论（结论给调用方留痕用 ——
@@ -112,11 +120,58 @@ func Gate(o *org.Org, e Envelope, p *org.Policy) ([]org.Issue, GateOutcome) {
 		return nil, out
 	}
 
+	// A3：有覆盖的 grant 只是**必要条件**。还要问一句「这条授权现在还有效吗」——
+	// 被撤回、已到期、签发人离职、转授越界，四种情况在这里把它挡下来。
+	//
+	// 三种结论分开走：
+	//   有任一条有效 → 放行（带上链与权威版本，留痕用）
+	//   有覆盖但全都明确无效 → 拒绝，理由取第一条的
+	//   覆盖项判不出来（没权威源 / 链断了）→ **无法判定**，不放行也不说成「拒绝」
+	auth, authWired, aerr := org.LoadAuthority(o.Root)
+	if aerr != nil {
+		authWired = false
+	}
+	var (
+		deniedWhy  string
+		unknownWhy string
+	)
+	now := time.Now()
 	for _, g := range o.Grants {
-		if grantCovers(g, ref, idn, dom) {
-			out.Grant = g.Path
-			return nil, out
+		if !grantCovers(g, ref, idn, dom) {
+			continue
 		}
+		v := o.Exercise(g, auth, authWired, now)
+		switch {
+		case v.OK:
+			out.Grant = g.Path
+			out.Chain = v.Chain
+			out.AuthorityVersion = v.Version
+			return nil, out
+		case v.Unknown:
+			if unknownWhy == "" {
+				unknownWhy = v.Reason
+			}
+		default:
+			if deniedWhy == "" {
+				deniedWhy = v.Reason
+			}
+		}
+	}
+	if unknownWhy != "" {
+		// 判不出来的那一条优先：宁可说「不知道」，也不要把它当成「拒绝」糊过去。
+		out.Undecided = true
+		out.Why = unknownWhy
+		rep := &org.Report{}
+		rep.Add(p.Issue("grant.undecided", "信封",
+			"跨域信封判不出该不该放：%s。**不按允许处理** —— 补齐权威源/授权链后重发。", unknownWhy))
+		return rep.Issues, out
+	}
+	if deniedWhy != "" {
+		out.Why = deniedWhy
+		rep := &org.Report{}
+		rep.Add(p.Issue("grant.invalid", "信封",
+			"跨域信封有覆盖它的授权，但那条授权现在不成立：%s", deniedWhy))
+		return rep.Issues, out
 	}
 
 	rep := &org.Report{}
