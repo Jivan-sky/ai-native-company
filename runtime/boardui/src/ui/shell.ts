@@ -499,6 +499,10 @@ export function shell(): void {
 
   app.append(mountDrawer(), mountPalette());
   root.replaceChildren(app);
+  // 收起态要先恢复：否则刷新后侧栏展开，而记住的宽度又被套上去，两者打架。
+  try {
+    if (localStorage.getItem("anc.rail.min") === "1") app.classList.add("rail-min");
+  } catch { /* 隐私模式不记 */ }
   // 挂载完成后再写侧栏宽度：此刻 .app 才是新节点。
   applyRailWidth();
   app.querySelector(".side-scrim")?.addEventListener("click", () => app.classList.remove("nav-open"));
@@ -540,6 +544,8 @@ function enterAnimSuppressed(): boolean { return suppressEnterAnim; }
 export function applyRailWidth(): void {
   const app = document.querySelector<HTMLElement>(".app");
   if (!app) return;
+  // 收起态下宽度由 .rail-min 说了算 —— 这里再写就会把 56px 覆盖成记忆里的宽值。
+  if (app.classList.contains("rail-min")) return;
   try {
     const w = localStorage.getItem("anc.rail.width");
     if (w) app.style.setProperty("--side-w", w + "px");

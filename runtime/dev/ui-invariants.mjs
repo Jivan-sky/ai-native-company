@@ -52,6 +52,14 @@ for (const id of PAGES) {
 // ③ 侧栏拖出来的宽度，点任意页之后仍然在（曾经点一下就弹回）
 await page.goto(BASE + "/?t=" + Date.now() + "#/overview");
 await page.waitForTimeout(1200);
+// 先把这两个键清掉：它们是**上一轮跑测**留下的状态（比如上次把侧栏收起了），
+// 不清会把"宽度保持"测成"收起态 56px"，误报。
+await page.evaluate(function () {
+  localStorage.removeItem("anc.rail.min");
+  localStorage.removeItem("anc.rail.width");
+});
+await page.reload();
+await page.waitForTimeout(1200);
 const box = await page.evaluate(function () {
   var g = document.querySelector(".side-resizer");
   if (!g) return null;
@@ -87,6 +95,38 @@ const after = await page.evaluate(function () {
 });
 ok("轮询不重建 DOM", after.same, "节点被替换了");
 ok("轮询不丢滚动位置", after.y === marked.y, marked.y + " → " + after.y);
+
+// ④b 悬浮球可以拖，且位置跨刷新保持（曾经只能看不能动，挡着右下角的内容）
+await page.goto(BASE + "/?t=" + Date.now() + "#/overview");
+await page.waitForTimeout(1200);
+const ball = await page.evaluate(function () {
+  const b = document.querySelector(".chat-launcher");
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { x: Math.round(r.left), y: Math.round(r.top) };
+});
+if (!ball) {
+  fails.push("没有对话悬浮球");
+} else {
+  await page.mouse.move(ball.x + 20, ball.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(ball.x - 160, ball.y - 220, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  const moved = await page.evaluate(function () {
+    const r = document.querySelector(".chat-launcher").getBoundingClientRect();
+    return { x: Math.round(r.left), y: Math.round(r.top), open: document.querySelector(".chat-panel").classList.contains("open") };
+  });
+  ok("悬浮球可以拖", Math.abs(moved.x - ball.x) > 40, ball.x + " → " + moved.x);
+  ok("拖完不误开面板", !moved.open);
+  await page.reload();
+  await page.waitForTimeout(1200);
+  const kept = await page.evaluate(function () {
+    const r = document.querySelector(".chat-launcher").getBoundingClientRect();
+    return { x: Math.round(r.left) };
+  });
+  ok("悬浮球位置跨刷新保持", Math.abs(kept.x - moved.x) <= 2, moved.x + " → " + kept.x);
+}
 
 // ⑤ 顶栏不许出现调试 HUD（LIVE / 校验干净 / 生成时间戳）
 const hud = await page.evaluate(function () {
