@@ -99,6 +99,10 @@ ok("轮询不丢滚动位置", after.y === marked.y, marked.y + " → " + after.
 // ④b 悬浮球可以拖，且位置跨刷新保持（曾经只能看不能动，挡着右下角的内容）
 await page.goto(BASE + "/?t=" + Date.now() + "#/overview");
 await page.waitForTimeout(1200);
+// 先清掉上一轮遗留的位置：球被拖到最左边时，再往左拖会被夹住，测试就会误报"拖不动"。
+await page.evaluate(function () { localStorage.removeItem("anc.chat.pos"); });
+await page.reload();
+await page.waitForTimeout(1200);
 const ball = await page.evaluate(function () {
   const b = document.querySelector(".chat-launcher");
   if (!b) return null;
