@@ -287,3 +287,25 @@ table.cost tr.zero td { color: var(--muted); }
 [data-theme="dark"] .topbar {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .3);
 }
+
+/* 对话面板：把"工具感"去掉的几个细节
+   1 气泡间距放宽，行高加大 —— 对话要像对话，不是日志
+   2 头部加一行副标，说明它在跟谁说话、用什么模型
+   3 空状态给两个可点的示例问题，别让人对着空框发呆
+   4 输入框聚焦时边框变品牌色 + 轻微外扩，给"我在说话"的确定感 */
+.chat-panel { width: 420px; }
+.chat-head { padding: 14px 16px; }
+.chat-head .chat-sub { display: block; font-weight: 400; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.chat-body, .chat-list { padding: 16px; }
+.chat-msg { gap: 6px; margin-bottom: 14px; }
+.chat-msg .chat-text { padding: 10px 13px; border-radius: 14px; line-height: 1.7; }
+.chat-msg.user .chat-text { border-bottom-right-radius: 4px; }
+.chat-msg.agent .chat-text { border-bottom-left-radius: 4px; }
+.chat-empty { padding: 8px 2px; }
+.chat-empty .chat-eg {
+  display: inline-block; margin: 6px 6px 0 0; padding: 5px 10px;
+  font-size: 12.5px; border: 1px solid var(--line-2); border-radius: 999px;
+  color: var(--ink-2); cursor: pointer; background: var(--panel);
+}
+.chat-empty .chat-eg:hover { border-color: var(--accent); color: var(--accent); }
+.chat-compose input { padding: 10px 13px; border-radius: 12px; }

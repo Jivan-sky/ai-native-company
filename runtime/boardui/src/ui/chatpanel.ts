@@ -78,10 +78,23 @@ export function mountChatPanel(): void {
   const list = el("div", { class: "chat-list" });
   const input = el("textarea", { class: "chat-input", rows: "2", placeholder: "问 ANC：现在有什么、谁在等、能不能做…" }) as HTMLTextAreaElement;
   const sendBtn = el("button", { class: "chat-send" }, "发送") as HTMLButtonElement;
-  const empty = el("div", { class: "chat-empty" }, "还没有对话。");
+  // 空状态给三个能直接点的问题：对着空框发呆是最差的开始。
+  const ask = (q: string): HTMLElement => {
+    const b = el("button", { class: "chat-eg", type: "button" }, q);
+    b.addEventListener("click", () => { input.value = q; input.focus(); });
+    return b;
+  };
+  const empty = el("div", { class: "chat-empty" },
+    el("div", {}, "问问现在的情况："),
+    el("div", {},
+      ask("现在有什么要我做？"),
+      ask("谁在等谁？"),
+      ask("这个项目的卡点在哪？")));
   const panel = el("div", { class: "chat-panel", id: "anc-chat-panel" },
     el("div", { class: "chat-head" },
-      el("span", {}, "和 ANC 说话"),
+      el("div", {},
+        el("span", {}, "和 ANC 说话"),
+        el("span", { class: "chat-sub" }, "它看得到当前这块看板的上下文")),
       el("button", { class: "chat-close", title: "收起" }, "×"),
     ),
     empty, list,
