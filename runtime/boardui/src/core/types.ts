@@ -222,6 +222,8 @@ export type ApprovalView = {
 export type DecideReply = {
   ok: boolean; proposal: string; verdict: string; by: string;
   timeline: string; audit: string; note: string;
+  // to 是「下一手」：批准后该交给谁。没有就说明这件是终态。
+  to?: string;
 };
 
 // 一次取数、全程共用：已接入的页吃的是同一份投影，切页不重新打网络（按「刷新」才重取）。

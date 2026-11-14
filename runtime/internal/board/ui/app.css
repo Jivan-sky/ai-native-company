@@ -2232,3 +2232,11 @@ table.matrix .no { color: var(--line-3); }
   background: var(--panel); color: var(--ink);
 }
 .by-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* 该你批 / 其他人在等：前者是这一页存在的理由，后者是背景 */
+.mine { border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; }
+.mine-h, .others-h { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 15px; }
+.mine-h span:first-child { color: var(--accent); }
+.others-h { font-size: 14px; color: var(--muted); font-weight: 500; margin-top: 6px; }
+.banner.ok .next { margin: 6px 0 4px; font-size: 13.5px; }
+.banner.ok details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
