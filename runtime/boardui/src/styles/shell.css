@@ -38,7 +38,10 @@ body {
 }
 
 /* ---------- 侧栏 ---------- */
-.app { grid-template-columns: 278px minmax(0, 1fr); transition: grid-template-columns 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+/* 侧栏宽度由 --side-w 一个变量说了算。
+   以前列宽写死 278px，而拖拽改的是 aside 自己的 width —— 于是把手能拖、
+   正文不让位，侧栏直接压在内容上。版面只有一个真相：这个变量。 */
+.app { grid-template-columns: var(--side-w, 278px) minmax(0, 1fr); transition: grid-template-columns 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
 .side {
   background: linear-gradient(180deg, rgba(14, 15, 17, 0.98), rgba(7, 8, 9, 0.96));
   border-right: 1px solid var(--line);
@@ -451,13 +454,13 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
 
 /* ---------- 窄屏 ---------- */
 @media (max-width: 1280px) {
-  .app { grid-template-columns: 246px minmax(0, 1fr); }
+  .app { grid-template-columns: var(--side-w, 246px) minmax(0, 1fr); }
   .stage-hero { padding: 42px 36px 24px; gap: 30px; }
   .stage-dock { padding: 0 20px 18px; }
   .loop { margin: 0 20px 20px; }
 }
 @media (max-width: 1080px) {
-  .app { grid-template-columns: 224px minmax(0, 1fr); }
+  .app { grid-template-columns: var(--side-w, 224px) minmax(0, 1fr); }
   .stage-hero { grid-template-columns: minmax(0, 1fr); padding: 38px 30px 8px; }
   .hero-orbit { display: none; }
   .stage-dock { grid-template-columns: minmax(0, 1fr); padding: 0 20px 20px; }
