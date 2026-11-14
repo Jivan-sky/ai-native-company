@@ -5,9 +5,21 @@ import type { AgentsView, ApprovalView, AssetsView, AuditView, BoardView, Contex
 
 export type Fetched<T> = { status: number; body: T | null; err: string };
 
+// 未开账号的看板：/api/auth/me 会回 {enabled:false}，此时永远不跳登录。
+// 开了账号且没登录：任何一条 401 都把整站带到 /login —— 让用户对着一屏"读不到"发呆，
+// 比直接告诉他"你还没登录"差得多。
+let authChecked = false;
+
 export async function getJSON<T>(url: string): Promise<Fetched<T>> {
   try {
     const res = await fetch(url, { headers: { accept: "application/json" } });
+    if (!authChecked) {
+      authChecked = true;
+      void checkAuthGate();
+    }
+    if (res.status === 401 && url.indexOf("/api/auth/") !== 0) {
+      void checkAuthGate(true);
+    }
     const raw = await res.text();
     try {
       return { status: res.status, body: JSON.parse(raw) as T, err: "" };
@@ -140,3 +152,20 @@ export async function fetchData(): Promise<Data> {
   };
 }
 
+// checkAuthGate 问一次「这台开账号了吗、我登了吗」。
+// force=true 表示"刚拿到 401"，那就别等 me 的结论，直接跳 —— 少一次白等。
+async function checkAuthGate(force = false): Promise<void> {
+  try {
+    const r = await fetch("/api/auth/me", { headers: { accept: "application/json" } });
+    if (r.status === 401) {
+      const b = (await r.json()) as { enabled?: boolean };
+      if (b && b.enabled !== false) location.href = "/login";
+      return;
+    }
+    if (force) {
+      // 401 但 me 说没事（比如某条接口单独拒了）—— 不跳，交给页面自己报。
+    }
+  } catch {
+    /* 连不上就别跳，页面会显示连不上 */
+  }
+}
