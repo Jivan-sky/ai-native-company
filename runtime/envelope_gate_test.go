@@ -379,3 +379,74 @@ func TestIngressReceiptSucceedsButAuditFails(t *testing.T) {
 		t.Fatalf("要如实说「审计待补」，实际：%s", text)
 	}
 }
+
+// A5-3 补账恢复：已经收件、但审计没入上的那几笔，启动时补齐 —— 且**只补一次**。
+func TestRecoverEnvelopeAuditFillsExactlyOnce(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
+	data := t.TempDir()
+
+	// 先造出「收了但没入账」：把 audit 弄坏，投一封，再把 audit 修好。
+	auditPath := filepath.Join(vault, "audit")
+	if err := os.RemoveAll(auditPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(auditPath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	g := &envelopeIngress{Vault: vault, DataDir: data}
+	text, isErr := g.sendEnvelope(map[string]any{
+		"who": "alice", "on_behalf_of": "member:alice", "kind": "ask",
+		"body": "收下了但入不了账的那封", "scope_domain": "logistics",
+	})
+	if isErr {
+		t.Fatalf("收件该成功：%s", text)
+	}
+	if err := os.Remove(auditPath); err != nil { // 修好存储
+		t.Fatal(err)
+	}
+
+	n, err := g.recoverEnvelopeAudit()
+	if err != nil {
+		t.Fatalf("补账该成功：%v", err)
+	}
+	if n != 1 {
+		t.Fatalf("该补 1 条，补了 %d 条", n)
+	}
+	rs := auditRecords(t, vault)
+	if len(rs) != 1 || rs[0].Result != audit.ResultOK {
+		t.Fatalf("补出来的应当是一条 ok 的痕：%+v", rs)
+	}
+	if !strings.HasPrefix(rs[0].Ref, "envelope:") {
+		t.Fatalf("补的账要能回指到那封收件（Ref）：%+v", rs[0])
+	}
+
+	// 再跑一次：不许重复补
+	n2, err := g.recoverEnvelopeAudit()
+	if err != nil {
+		t.Fatalf("第二次补账不该报错：%v", err)
+	}
+	if n2 != 0 || len(auditRecords(t, vault)) != 1 {
+		t.Fatalf("补账要幂等：第二次补了 %d 条，账上 %d 条", n2, len(auditRecords(t, vault)))
+	}
+}
+
+// 域内信封不进 audit —— 补账也不许把它补进去（那会造出假的跨域痕）。
+func TestRecoverEnvelopeAuditSkipsOwnDomain(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	data := t.TempDir()
+	g := &envelopeIngress{Vault: vault, DataDir: data}
+	if _, isErr := g.sendEnvelope(map[string]any{
+		"who": "alice", "on_behalf_of": "member:alice", "kind": "ask",
+		"body": "域内的一封", "scope_domain": "trade",
+	}); isErr {
+		t.Fatal("域内信封该收")
+	}
+	n, err := g.recoverEnvelopeAudit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 || len(auditRecords(t, vault)) != 0 {
+		t.Fatalf("域内信封不该被补进 audit：补了 %d 条，账上 %d 条", n, len(auditRecords(t, vault)))
+	}
+}

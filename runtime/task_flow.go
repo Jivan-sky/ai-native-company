@@ -10,6 +10,7 @@ import (
 
 	"anc/internal/audit"
 	"anc/internal/org"
+	"anc/internal/tasksettle"
 )
 
 // taskActor 是任务链路上的一个身份：业务 agent 或成员。
@@ -102,6 +103,15 @@ func cmdTaskHandoff(args []string) int {
 	}
 	if !from.IsAgent || !target.IsAgent {
 		fmt.Fprintln(os.Stderr, "错误：handoff 的两端都必须是 agents.md 里的业务 agent —— 任务只能交给会 pull 的 agent")
+		return 1
+	}
+	// A1-3：结账先赢 —— 账上已经有这条的回执，就不能再交接。
+	// 交接改的是热层里的「现在归谁」，结账记录的是「这件事已经结束了」；
+	// 后者一旦落库，前者再动就是抹掉一个已经做出的决定。
+	if rec, settled, rerr := tasksettle.Receipt(vault, pos[1]); rerr == nil && settled {
+		fmt.Fprintf(os.Stderr, "交接没成：这条已经结过账（回执 %s，终态 %s，%s）\n"+
+			"  账上的决定不能被交接改掉 —— 要重新开一件，用新任务。\n",
+			rec.ID, firstNonEmpty(rec.Status, "?"), rec.At)
 		return 1
 	}
 	st, err := o.open()
@@ -257,6 +267,15 @@ func cmdTaskEscalate(args []string) int {
 	target, why := resolveTaskActor(oa, *to)
 	if why != "" {
 		fmt.Fprintln(os.Stderr, "错误："+why)
+		return 1
+	}
+	// A1-3：结账先赢 —— 账上已经有这条的回执，就不能再交接。
+	// 交接改的是热层里的「现在归谁」，结账记录的是「这件事已经结束了」；
+	// 后者一旦落库，前者再动就是抹掉一个已经做出的决定。
+	if rec, settled, rerr := tasksettle.Receipt(vault, pos[1]); rerr == nil && settled {
+		fmt.Fprintf(os.Stderr, "交接没成：这条已经结过账（回执 %s，终态 %s，%s）\n"+
+			"  账上的决定不能被交接改掉 —— 要重新开一件，用新任务。\n",
+			rec.ID, firstNonEmpty(rec.Status, "?"), rec.At)
 		return 1
 	}
 	st, err := o.open()

@@ -1,10 +1,12 @@
 package envelope
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,4 +144,57 @@ func safeName(s string) string {
 		}
 	}
 	return strings.Trim(b.String(), "._-")
+}
+
+// Load 读整个信封日志（data 目录下 `<dir>/<年-月>.<作者>.jsonl`）。
+//
+// 只读、不改：它是「收件」的真相，恢复程序靠它补账（A5-3）。
+// 每行带 Src（`2026-11.alice.jsonl:3`）—— 与 timeline / audit 同一条纪律：明细行要能回指原文。
+type LoadedRecord struct {
+	Record
+	Src string
+}
+
+func Load(dataDir string) ([]LoadedRecord, error) {
+	dir := filepath.Join(dataDir, DirName)
+	names, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []LoadedRecord
+	for _, n := range names {
+		if n.IsDir() || !strings.HasSuffix(n.Name(), ".jsonl") {
+			continue
+		}
+		f, err := os.Open(filepath.Join(dir, n.Name()))
+		if err != nil {
+			return nil, err
+		}
+		sc := bufio.NewScanner(f)
+		sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
+		ln := 0
+		for sc.Scan() {
+			ln++
+			line := strings.TrimSpace(sc.Text())
+			if line == "" {
+				continue
+			}
+			var r Record
+			if err := json.Unmarshal([]byte(line), &r); err != nil {
+				// 残行不猜：跳过，但下一行的行号照旧（行号是位置，不是序号）
+				continue
+			}
+			out = append(out, LoadedRecord{Record: r, Src: fmt.Sprintf("%s:%d", n.Name(), ln)})
+		}
+		if err := sc.Err(); err != nil {
+			f.Close()
+			return nil, err
+		}
+		f.Close()
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At < out[j].At })
+	return out, nil
 }

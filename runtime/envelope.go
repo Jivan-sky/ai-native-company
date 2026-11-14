@@ -967,7 +967,7 @@ func (g *envelopeIngress) sendEnvelope(args map[string]any) (string, bool) {
 		for _, i := range fatal {
 			fmt.Fprintf(&b, "  🔴 [%s] %s\n", i.Rule, i.Msg)
 		}
-		if aerr := g.auditEnvelope(verdict, audit.ResultDenied, denyWhy(fatal), now); aerr != nil {
+		if aerr := g.auditEnvelope(verdict, e.ID, audit.ResultDenied, denyWhy(fatal), now); aerr != nil {
 			fmt.Fprintf(&b, "（并且这次拒收没进审计：%v）\n", aerr)
 		}
 		return b.String(), true
@@ -988,7 +988,7 @@ func (g *envelopeIngress) sendEnvelope(args map[string]any) (string, bool) {
 	// （它不是一次「跨域 / 跨通道」行使，信封日志已经记着它）。
 	auditGap := ""
 	if verdict.CrossDomain {
-		if aerr := g.auditEnvelope(verdict, audit.ResultOK, gateNote(verdict), now); aerr != nil {
+		if aerr := g.auditEnvelope(verdict, e.ID, audit.ResultOK, gateNote(verdict), now); aerr != nil {
 			auditGap = aerr.Error()
 		}
 	}
@@ -1066,7 +1066,7 @@ func listArg(args map[string]any, k string) []string {
 // **类别先记 invoke**：信封的 action 这一维**还没定**（信封里就没有这个字段，见 gate.go 注释）——
 // 这里记的是「行使了**接入面这一个调用**」，不是「这封信的业务动作」。等 kind → action 那张表
 // 拍出来，改的就是这一行（届时它应该变成数据）。
-func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, result, why string, at time.Time) error {
+func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, envelopeID, result, why string, at time.Time) error {
 	actor := v.Subject
 	if actor == "" {
 		actor = "unknown"
@@ -1087,6 +1087,8 @@ func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, result, why stri
 		Tool:       "anc_send_envelope",
 		Source:     "serve",
 		Detail:     grantDetail(v),
+		// Ref 是「这笔账对应哪一份收件」的唯一线索 —— 补账恢复靠它判"入过账没有"。
+		Ref: "envelope:" + strings.TrimSpace(envelopeID),
 	}
 	if _, err := audit.Append(g.Vault, rec); err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️  入站信封没留上痕（audit）：%v\n", err)
@@ -1227,6 +1229,14 @@ func cmdEnvelopeServe(args []string) int {
 		g.Agents = hotStore
 		g.Tasks = hotStore
 	}
+	// 起服务时先补一次账（A5-3）：上次「收件成功、入账失败」的那几笔，在这里补齐。
+	// 补不动就喊一声，**不带病起服务**的假象：账缺一条是事实，得让人看见。
+	if n, rerr := g.recoverEnvelopeAudit(); rerr != nil {
+		fmt.Fprintf(os.Stderr, "注意：补账没跑成（%v）—— 上次「收了但没入账」的那几笔仍然是缺的\n", rerr)
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, "补账：%d 笔已收件、未入账的跨域信封补上了审计\n", n)
+	}
+
 	fmt.Printf("ANC 接入面已起（MCP · streamable HTTP · 无状态）：\n")
 	fmt.Printf("  地址   http://%s/mcp\n", urlHost)
 	fmt.Printf("  vault  %s\n", vault)
@@ -1260,4 +1270,61 @@ func cmdEnvelopeServe(args []string) int {
 		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 		return 1
 	}
+}
+
+// recoverEnvelopeAudit 补账：收件已经落盘的跨域信封，如果审计里没有对应的那条，补上。
+//
+// 判据是 Ref（`envelope:<id>`），不是"看起来像"：同一秒、同主体、相近文本都不算。
+// 幂等：补过一次之后 Ref 就存在了，再跑不再加。返回补了几条。
+//
+// 只补**跨域**那一类：域内信封按口径不进 audit（信封日志已经记着它），补了就是造假账。
+func (g *envelopeIngress) recoverEnvelopeAudit() (int, error) {
+	recs, err := envelope.Load(g.DataDir)
+	if err != nil {
+		return 0, err
+	}
+	if len(recs) == 0 {
+		return 0, nil
+	}
+	o, err := org.Load(g.Vault)
+	if err != nil {
+		return 0, fmt.Errorf("真相源加载失败，补不了账：%w", err)
+	}
+	done := map[string]bool{}
+	if doc, aerr := audit.Load(g.Vault); aerr == nil {
+		for _, r := range doc.Records {
+			if ref := strings.TrimSpace(r.Ref); ref != "" {
+				done[ref] = true
+			}
+		}
+	} else {
+		return 0, fmt.Errorf("审计读不动，补不了账：%w", aerr)
+	}
+
+	fixed := 0
+	for _, lr := range recs {
+		e := lr.Envelope
+		id := strings.TrimSpace(e.ID)
+		if id == "" {
+			continue // 连身份都没有的记录不猜（旧数据）
+		}
+		ref := "envelope:" + id
+		if done[ref] {
+			continue
+		}
+		_, verdict := envelope.Gate(o, e, o.Policy)
+		if !verdict.CrossDomain {
+			continue
+		}
+		at, perr := time.Parse(time.RFC3339, strings.TrimSpace(lr.At))
+		if perr != nil {
+			at = g.now()
+		}
+		if err := g.auditEnvelope(verdict, id, audit.ResultOK, gateNote(verdict), at); err != nil {
+			return fixed, err
+		}
+		done[ref] = true
+		fixed++
+	}
+	return fixed, nil
 }
