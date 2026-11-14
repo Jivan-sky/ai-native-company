@@ -2436,3 +2436,16 @@ table.cost tr.zero td { color: var(--muted); }
 .chat-launcher.busy {
   box-shadow: 0 0 0 2px rgba(255,255,255,.9), 0 0 18px rgba(120,150,255,.5);
 }
+
+
+
+/* 光晕跟着鼠标走：鼠标在哪一侧，那一侧的光更强、色相角也朝那边。
+   这是"有生命"和"描边"的区别 —— 但它只在指针真的在面板上时生效，
+   指针离开就退回缓慢自转，免得静止画面里出现一块不动的死光。 */
+.chat-panel.streaming.pointer { animation: none; }
+.chat-panel.pointer::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  background: radial-gradient(200px 140px at var(--mx, 50%) var(--my, 50%),
+    rgba(255,255,255,.55), transparent 70%);
+  mix-blend-mode: screen;
+}

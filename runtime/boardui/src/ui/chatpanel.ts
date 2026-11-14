@@ -165,6 +165,23 @@ export function mountChatPanel(): void {
     if (wasMove) launcher.dataset.justDragged = "1";
     else return;
   });
+  // 光晕跟鼠标：算出指针相对面板中心的角度，直接写给 --glow-ang。
+  // 同时给一个白色聚光点（--mx/--my），让"光"落在指针那一侧。
+  panel.addEventListener("mousemove", (ev) => {
+    const r = panel.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    panel.style.setProperty("--mx", x + "px");
+    panel.style.setProperty("--my", y + "px");
+    if (!panel.classList.contains("streaming")) return;
+    const deg = (Math.atan2(y - r.height / 2, x - r.width / 2) * 180) / Math.PI + 90;
+    panel.style.setProperty("--glow-ang", Math.round(deg) + "deg");
+    panel.classList.add("pointer");
+  });
+  panel.addEventListener("mouseleave", () => {
+    panel.classList.remove("pointer");
+    panel.style.removeProperty("--glow-ang"); // 交还给 CSS 的自转动画
+  });
+
   launcher.addEventListener("click", () => {
     if (launcher.dataset.justDragged === "1") { delete launcher.dataset.justDragged; return; }
     toggle(!panelOpen);
