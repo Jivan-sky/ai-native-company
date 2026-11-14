@@ -66,6 +66,9 @@ func TestWriteRoutesAreTheKnownOnes(t *testing.T) {
 	want := map[string]bool{
 		WritePath: true, SettlePath: true,
 		"/api/intake/preview": true, "/api/intake/apply": true, "/api/intake/stop": true,
+		// 授权表的两条（2026-11-14 加）：签发与撤回。
+		// 它们是**控制面**的写口 —— 比接入那三条更敏感：动的不是"跑不跑"，是"谁能碰什么"。
+		"/api/authz/grant": true, "/api/authz/revoke": true,
 	}
 	for p, k := range routeKindSet {
 		if k == KindWrite && !want[p] {
