@@ -8,7 +8,9 @@ import (
 )
 
 func goodDraft(name, caseKey string) string {
-	return "---\nname: " + name + "\nstatus: draft\ncase: " + caseKey + "\nhead_event: c1\n---\n\n# 对账\n\n" +
+	// A6：description 是宿主发现技能的唯一依据，完整草稿必须有（中文触发语 + 英文触发语）。
+	return "---\nname: " + name + "\nstatus: draft\ncase: " + caseKey + "\nhead_event: c1\n" +
+		"description: 月末核对账单时使用；reconcile month-end statements when closing the books\n---\n\n# 对账\n\n" +
 		"## 何时用\n月底对账时。\n\n## 输入\n账单 CSV。\n\n## 步骤\n1. 对齐单号。\n\n## 验证\n差异为零。\n"
 }
 
@@ -144,5 +146,66 @@ func TestCheckFlagsStaleHeadEvent(t *testing.T) {
 	in.Draft = fresh
 	if it := itemOf(Check(in), "case.head_event"); it == nil || it.Level != LevelOK {
 		t.Fatalf("绑在当前结案事件上该通过：%+v", it)
+	}
+}
+
+// A6-1：「只补了四段、没写 description」必须被拦下 —— 这条以前是**通过**的。
+// 宿主靠 description 决定什么时候选这个技能；没有它，发布出去等于隐身。
+func TestCheckBlocksMissingDescription(t *testing.T) {
+	in := checkInput("reconcile", strings.Replace(goodDraft("reconcile", "case-md"),
+		"description: 月末核对账单时使用；reconcile month-end statements when closing the books\n", "", 1))
+	r := Check(in)
+	it := itemOf(r, "draft.description")
+	if it == nil || it.Level != LevelFail {
+		t.Fatalf("缺 description 必须判失败：%+v", it)
+	}
+	if r.Ok {
+		t.Error("有失败项时 Ok 不能是 true")
+	}
+}
+
+// A6-2：折行描述（`>` 块标量）必须与单行读成同一句 ——
+// 否则校验器读一句、宿主读另一句，"我们校验通过"就成了自欺。
+func TestDescriptionFoldedScalarIsSameText(t *testing.T) {
+	// 折行的规则是「相邻行之间补一个空格」—— 所以单行写法要写成同样带空格的形态，
+	// 两者才该读成同一句。这条测的是"读法一致"，不是"排版好看"。
+	oneLine := "月末核对账单时使用； reconcile month-end statements when closing the books"
+	folded := "description: >\n  月末核对账单时使用；\n  reconcile month-end statements\n  when closing the books\n"
+	fm, problems, ok := parseFrontmatter("---\nname: x\n" + folded + "---\n")
+	if !ok || len(problems) > 0 {
+		t.Fatalf("折行写法的 frontmatter 该能读：ok=%v problems=%v", ok, problems)
+	}
+	if got := fm["description"]; got != oneLine {
+		t.Fatalf("折行该折成同一句：\n 得到 %q\n 期望 %q", got, oneLine)
+	}
+	if why := descriptionProblem(fm["description"]); why != "" {
+		t.Errorf("折行读出来的描述该合格：%s", why)
+	}
+}
+
+// 重复键：宿主只会认一个，我们不猜是哪个 —— 报出来。
+func TestFrontmatterDuplicateKeyReported(t *testing.T) {
+	_, problems, ok := parseFrontmatter("---\nname: a\nname: b\n---\n")
+	if !ok {
+		t.Fatal("该认出 frontmatter")
+	}
+	if len(problems) == 0 {
+		t.Fatal("重复键要报问题")
+	}
+	if !strings.Contains(problems[0], "name") {
+		t.Errorf("要指出是哪个字段：%v", problems)
+	}
+}
+
+// 只有中文、没有英文触发语（或反之）→ 不合格：两套宿主各读一套。
+func TestDescriptionNeedsBothLanguages(t *testing.T) {
+	if why := descriptionProblem("月末核对账单时使用，用来对齐单号与差异"); why == "" {
+		t.Error("只有中文该判不合格")
+	}
+	if why := descriptionProblem("reconcile month-end statements and diff the numbers"); why == "" {
+		t.Error("只有英文该判不合格")
+	}
+	if why := descriptionProblem(""); why == "" {
+		t.Error("空描述该判不合格")
 	}
 }

@@ -1,6 +1,7 @@
 package distill
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -91,15 +92,27 @@ func Check(in CheckInput) CheckReport {
 		add("draft.exists", LevelFail, "草稿不存在", r.Draft+" —— 先用 anc distill draft 生成")
 	} else {
 		add("draft.exists", LevelOK, "草稿存在", r.Draft)
-		fm, fmOK := parseFrontmatter(in.Draft)
+		fm, problems, fmOK := parseFrontmatter(in.Draft)
 		switch {
 		case !fmOK:
 			add("draft.frontmatter", LevelFail, "frontmatter 读不懂", "第一行必须是 ---，并用第二个 --- 收尾")
 		default:
+			if len(problems) > 0 {
+				add("draft.meta", LevelFail, "frontmatter 有疑义", strings.Join(problems, "；"))
+			} else {
+				add("draft.meta", LevelOK, "frontmatter 解析通过", "单行 / 折行 / 块标量都按同一份约定读")
+			}
 			if got := strings.TrimSpace(fm["name"]); got != in.Name {
 				add("draft.name_matches", LevelFail, "frontmatter 的 name 与文件名不一致", "文件是 "+in.Name+"，里面写的是 "+quoteOrEmpty(got))
 			} else {
 				add("draft.name_matches", LevelOK, "frontmatter 与文件名一致", in.Name)
+			}
+			// A6：description 是**宿主发现技能的唯一依据**（它决定 agent 什么时候会选它）。
+			// 以前这一项压根没查，于是"没有描述的技能"也能通过校验、发布出去。
+			if why := descriptionProblem(fm["description"]); why != "" {
+				add("draft.description", LevelFail, "description 不合格", why)
+			} else {
+				add("draft.description", LevelOK, "description 合格", "中英触发语都有")
 			}
 		}
 		secs := parseSections(in.Draft)
@@ -199,17 +212,40 @@ func finish(r CheckReport) CheckReport {
 	return r
 }
 
-func parseFrontmatter(md string) (map[string]string, bool) {
+// parseFrontmatter 读 SKILL.md 的 YAML 头。
+//
+// 这一版起**与宿主读法对齐**（A6）：以前按行 `Cut(":")`，只认单行值 ——
+// 折行描述（`description: >` / `|`，或缩进续行）会被读成空串或半句，
+// 于是"我们校验通过、宿主读出来是另一句"成了可能。
+//
+// 支持：
+//   - 单行 `key: value`
+//   - 块标量 `key: >`（折成一行，空行转换行）/ `key: |`（保留换行）
+//   - 缩进续行（没有块标记，但下一行缩进更深 → 拼进去）
+//   - 重复键 → 报问题（不静默取后者）
+//
+// 返回值第二个是问题清单（空 = 没问题），第三个是「有没有 frontmatter」。
+func parseFrontmatter(md string) (map[string]string, []string, bool) {
 	s := strings.TrimPrefix(md, "\ufeff")
 	lines := strings.Split(strings.ReplaceAll(s, "\r\n", "\n"), "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return nil, false
+		return nil, nil, false
 	}
 	out := map[string]string{}
+	var problems []string
+	seen := map[string]int{}
 	for i := 1; i < len(lines); i++ {
-		ln := strings.TrimSpace(lines[i])
+		raw := lines[i]
+		ln := strings.TrimSpace(raw)
 		if ln == "---" {
-			return out, true
+			return out, problems, true
+		}
+		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		// 缩进的行属于上一个键的续行（已在下面消费掉；走到这里说明没有上一个键）
+		if raw != strings.TrimLeft(raw, " \t") {
+			continue
 		}
 		k, v, ok := strings.Cut(ln, ":")
 		if !ok {
@@ -217,11 +253,87 @@ func parseFrontmatter(md string) (map[string]string, bool) {
 		}
 		key := strings.TrimSpace(k)
 		val := strings.TrimSpace(v)
-		if key != "" {
-			out[key] = val
+		if key == "" {
+			continue
 		}
+		if first, dup := seen[key]; dup {
+			problems = append(problems, fmt.Sprintf("字段 %s 重复（第 %d 行与第 %d 行）—— 宿主只会认一个，我们不猜是哪个", key, first, i+1))
+			continue
+		}
+		seen[key] = i + 1
+
+		// 块标量 / 续行
+		switch val {
+		case ">", "|", ">-", "|-", ">+", "|+":
+			var body []string
+			j := i + 1
+			for ; j < len(lines); j++ {
+				nxt := lines[j]
+				if strings.TrimSpace(nxt) == "---" {
+					break
+				}
+				if strings.TrimSpace(nxt) == "" {
+					body = append(body, "")
+					continue
+				}
+				if nxt == strings.TrimLeft(nxt, " \t") {
+					break // 回到顶格 = 下一个键
+				}
+				body = append(body, strings.TrimSpace(nxt))
+			}
+			i = j - 1
+			if strings.HasPrefix(val, "|") {
+				out[key] = strings.TrimSpace(strings.Join(body, "\n"))
+			} else {
+				out[key] = strings.TrimSpace(foldLines(body))
+			}
+			continue
+		}
+		if val == "" {
+			// 可能是缩进续行
+			var body []string
+			j := i + 1
+			for ; j < len(lines); j++ {
+				nxt := lines[j]
+				if strings.TrimSpace(nxt) == "---" {
+					break
+				}
+				if strings.TrimSpace(nxt) == "" {
+					continue
+				}
+				if nxt == strings.TrimLeft(nxt, " \t") {
+					break
+				}
+				body = append(body, strings.TrimSpace(nxt))
+			}
+			if len(body) > 0 {
+				i = j - 1
+				out[key] = strings.TrimSpace(foldLines(body))
+				continue
+			}
+		}
+		out[key] = strings.Trim(val, `"'`)
 	}
-	return nil, false
+	return nil, problems, false
+}
+
+// foldLines 是 YAML 的「折行」：相邻行拼成一句话，空行留一个换行。
+func foldLines(body []string) string {
+	var b strings.Builder
+	prevBlank := true
+	for _, ln := range body {
+		if ln == "" {
+			b.WriteString("\n")
+			prevBlank = true
+			continue
+		}
+		if !prevBlank {
+			b.WriteString(" ")
+		}
+		b.WriteString(ln)
+		prevBlank = false
+	}
+	return b.String()
 }
 
 var h2RE = regexp.MustCompile(`^##\s+(.+?)\s*$`)
@@ -302,7 +414,7 @@ func declaringRoles(roles []RoleSkills, name string) []string {
 }
 
 func findGreenCase(entries []timeline.Entry, name, draft string) (string, string) {
-	fm, ok := parseFrontmatter(draft)
+	fm, _, ok := parseFrontmatter(draft)
 	if !ok {
 		return "", "草稿没有 frontmatter —— 判不出它来源哪个 case"
 	}
@@ -334,7 +446,7 @@ func draftHeadStale(entries []timeline.Entry, draft string) string {
 	if strings.TrimSpace(draft) == "" {
 		return ""
 	}
-	fm, ok := parseFrontmatter(draft)
+	fm, _, ok := parseFrontmatter(draft)
 	if !ok {
 		return "草稿没有 frontmatter —— 判不出它依据哪一条结案事件"
 	}
@@ -392,4 +504,38 @@ func joinInts(v []int) string {
 		parts = append(parts, strconv.Itoa(n))
 	}
 	return strings.Join(parts, ", ")
+}
+
+// descriptionProblem 判 description 够不够格被宿主发现。
+//
+// 三条要求，都是从「宿主怎么挑技能」倒推的：
+//  1. 非空 —— 空的描述在技能清单里等于隐身
+//  2. 说清何时用 —— 至少要有一句人话（不是 "TODO"）
+//  3. 中英触发语都有 —— 中文团队与英文 harness 各读一套，缺一套就会漏触发
+func descriptionProblem(desc string) string {
+	d := strings.TrimSpace(desc)
+	if d == "" {
+		return "缺 description —— 宿主靠它决定什么时候选这个技能，空的等于没发布"
+	}
+	if len([]rune(d)) < 12 {
+		return "description 太短（" + strconv.Itoa(len([]rune(d))) + " 字）—— 要写清「什么时候用」"
+	}
+	hasCJK := false
+	for _, r := range d {
+		if r >= 0x4e00 && r <= 0x9fff {
+			hasCJK = true
+			break
+		}
+	}
+	hasLatin := false
+	for _, r := range d {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			hasLatin = true
+			break
+		}
+	}
+	if !hasCJK || !hasLatin {
+		return "description 要同时有中文与英文触发语（现在是" + map[bool]string{true: "只有中文", false: "只有英文"}[hasCJK] + "）"
+	}
+	return ""
 }
