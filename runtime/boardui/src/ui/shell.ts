@@ -220,6 +220,9 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
     const startX = ev.clientX;
     const startW = side.getBoundingClientRect().width;
     const app = document.querySelector<HTMLElement>(".app");
+    // 拖宽 = 明确表示"我要展开"。清掉收起态，否则宽度会被 56px 压回去（两个状态源打架）。
+    app?.classList.remove("rail-min");
+    try { localStorage.setItem("anc.rail.min", "0"); } catch { /* 不记 */ }
     // 记住"我要的宽度"，而不是 mouseup 那一刻量到的宽度 ——
     // 列宽有 0.25s 过渡，mouseup 时量到的还是动画中的中间值，
     // 存下来的就是这个错误数字（不变量检查抓到：356 → 327）。
@@ -500,9 +503,11 @@ export function shell(): void {
   app.append(mountDrawer(), mountPalette());
   root.replaceChildren(app);
   // 收起态要先恢复：否则刷新后侧栏展开，而记住的宽度又被套上去，两者打架。
+  // 默认收起成窄轨：侧栏是浮板，展开时会盖住正文 —— 一开始就全展开等于把内容藏起来。
   try {
-    if (localStorage.getItem("anc.rail.min") === "1") app.classList.add("rail-min");
-  } catch { /* 隐私模式不记 */ }
+    const pref = localStorage.getItem("anc.rail.min");
+    if (pref === null || pref === "1") app.classList.add("rail-min");
+  } catch { app.classList.add("rail-min"); }
   // 挂载完成后再写侧栏宽度：此刻 .app 才是新节点。
   applyRailWidth();
   app.querySelector(".side-scrim")?.addEventListener("click", () => app.classList.remove("nav-open"));
