@@ -297,7 +297,10 @@ func (g *envelopeIngress) searchKnowledge(args map[string]any) (string, bool) {
 		g.auditTool("anc_search", who, object, audit.ResultFailed, "检索失败", now)
 		return "检索失败：" + err.Error(), true
 	}
-	g.auditTool("anc_search", who, object, audit.ResultOK, "", now)
+	// 同 A5：痕没写上就不释放结果。检索结果同样是「被授权才能看」的数据。
+	if err := g.auditTool("anc_search", who, object, audit.ResultOK, "", now); err != nil {
+		return "没有返回检索结果：审计暂时写不进去（" + err.Error() + "）。\n修好后重搜 —— 重搜会重新判权。", true
+	}
 
 	out := map[string]any{
 		"who": who, "scope": retrieval.ScopeLabels(sc), "backend": ix.Name(),
