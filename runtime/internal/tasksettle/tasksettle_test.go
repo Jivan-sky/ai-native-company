@@ -256,3 +256,78 @@ func TestSettleDoesNotDropNewerState(t *testing.T) {
 		t.Error("把别人交接后的那一条删了")
 	}
 }
+
+// A1-3 结账先赢：回执一旦落库，别的写入口（交接）就能看见它。
+// 这里测的是那个共享判据：Receipt() 认的是**结账行自己的身份**，不是同 case 的任何一行。
+func TestReceiptVisibleToOtherWriters(t *testing.T) {
+	vault := t.TempDir()
+	id := "t-handoff"
+	st := &fakeSettleStore{m: map[string]hot.State{
+		id: {ID: id, Status: "done", Stage: hot.StageDone, By: "anc", To: "bob", Title: "处理单据", Version: 2},
+	}}
+	// 落账之前：别的写入口看得到"没有回执"，可以交接
+	if _, settled, err := Receipt(vault, id); err != nil || settled {
+		t.Fatalf("还没结账时不该看见回执（settled=%v err=%v）", settled, err)
+	}
+	res, err := Settle(st, vault, id, Opts{At: settleAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 落账之后：交接必须看见它，并拿到原回执
+	rec, settled, err := Receipt(vault, id)
+	if err != nil || !settled {
+		t.Fatalf("结账后要能查到回执（settled=%v err=%v）", settled, err)
+	}
+	if rec.ID != res.Entry.ID {
+		t.Fatalf("回执身份要对得上：%q vs %q", rec.ID, res.Entry.ID)
+	}
+	if rec.Status == "" {
+		t.Error("回执要带终态 —— 拒绝交接时得说清「已经结成了什么」")
+	}
+}
+
+// A1-4 中断与重放：四个点位里最容易丢的三个（回执前 / 回执后未清队 / 清队后响应丢失）。
+// 每个点位都模拟「进程重启」——重放靠 `Settle` 本身幂等，不依赖内存状态。
+func TestSettleReplayAtInterruptPoints(t *testing.T) {
+	// ① 回执前中断：什么都没写，重放要能正常结账
+	vault := t.TempDir()
+	st := &fakeSettleStore{m: map[string]hot.State{
+		"t-a": {ID: "t-a", Status: "done", Stage: hot.StageDone, By: "anc", To: "bob", Title: "单据", Version: 1},
+	}}
+	if _, err := Settle(st, vault, "t-a", Opts{At: settleAt}); err != nil {
+		t.Fatal(err)
+	}
+
+	// ② 回执后、清队前中断：热层还在、账上已有
+	vault2 := t.TempDir()
+	st2 := &fakeSettleStore{m: map[string]hot.State{
+		"t-b": {ID: "t-b", Status: "done", Stage: hot.StageDone, By: "anc", To: "bob", Title: "单据", Version: 1},
+	}}
+	if _, err := Settle(st2, vault2, "t-b", Opts{At: settleAt}); err != nil {
+		t.Fatal(err)
+	}
+	st2.m["t-b"] = hot.State{ID: "t-b", Status: "done", Stage: hot.StageDone, By: "anc", To: "bob", Title: "单据", Version: 1} // 模拟「没清掉」
+	res, err := Settle(st2, vault2, "t-b", Opts{At: settleAt})
+	if err != nil {
+		t.Fatalf("重放该幂等成功：%v", err)
+	}
+	if !res.Already {
+		t.Error("第二次要标 Already")
+	}
+	if _, still := st2.m["t-b"]; still {
+		t.Error("重放要把那一刀补清")
+	}
+
+	// ③ 清队后、响应丢失：热层没了，账上还在 —— 重放要回原回执，不能再写一行
+	res2, err := Settle(st2, vault2, "t-b", Opts{At: settleAt})
+	if err != nil {
+		t.Fatalf("队列已清时重放也该幂等：%v", err)
+	}
+	if !res2.Already || res2.Entry.ID != res.Entry.ID {
+		t.Fatalf("要回原回执：%+v", res2.Entry)
+	}
+	doc, _ := timeline.Load(vault2)
+	if n := len(doc.Entries); n != 1 {
+		t.Fatalf("三个点位走完，账上只该有 1 条终态，实际 %d", n)
+	}
+}

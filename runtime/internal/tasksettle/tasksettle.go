@@ -166,6 +166,14 @@ func Settle(st Store, vault, id string, o Opts) (Result, error) {
 	return res, nil
 }
 
+// Receipt 找这条任务的**结账回执**（timeline 里 `task-<id>` 那一行）。
+//
+// 导出它是为了让别的写入口也能问一句「这条结过账没有」——
+// 交接就是这样一个入口：账上已经落了取消，热层里再换个人接手，就是「抹掉一个已经做出的决定」。
+func Receipt(vault, id string) (timeline.Entry, bool, error) {
+	return settledEntry(vault, id)
+}
+
 // settledEntry 找 timeline 里已经沉淀过的同 case 行。
 // 读不出来就报错：宁可这一刀不下，也不要在「不知道有没有」的时候追加重复记录。
 func settledEntry(vault, id string) (timeline.Entry, bool, error) {
