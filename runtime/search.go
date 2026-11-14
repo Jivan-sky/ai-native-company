@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -247,6 +249,53 @@ func dashOr(s string) string {
 
 // searchKnowledge 是 anc_search 的实现：与 CLI 同一套口径（resolveSearchScope / retrieval.Load），
 // 每次调用留一条痕。看不见的域不是「零结果」，是**拒**并指路。
+// srcRef 是「这份整理稿的原件」的可核验状态。
+//
+// 状态名按 A7 的提案：unlinked / missing / available / unavailable。
+// 这一版**不提供「打开原件字节」的能力** —— 原件权限模型还没有，
+// 所以 available 只表示「登记在案、在原位、能算出版本」，不表示「你有权读它」。
+type srcRef struct {
+	Status  string `json:"status"`
+	Ref     string `json:"ref,omitempty"`     // vault 相对路径；vault 之外一律不报
+	Version string `json:"version,omitempty"` // 原件内容摘要前 12 位
+	Note    string `json:"note,omitempty"`
+}
+
+func (g *envelopeIngress) sourceRefOf(raw string) srcRef {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return srcRef{Status: "unlinked", Note: "整理稿没有登记 source_file —— 无法指回原件"}
+	}
+	p := s
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(g.Vault, filepath.FromSlash(p))
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return srcRef{Status: "unavailable"}
+	}
+	vabs, err := filepath.Abs(g.Vault)
+	if err != nil {
+		return srcRef{Status: "unavailable"}
+	}
+	rel, err := filepath.Rel(vabs, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		// 原件登记在 vault 之外：不暴露本机路径（看板与 MCP 都只出相对指针）。
+		return srcRef{Status: "unavailable", Note: "原件登记在 vault 之外 —— 这里不报本机路径"}
+	}
+	if _, err := os.Stat(abs); err != nil {
+		if os.IsNotExist(err) {
+			return srcRef{Status: "missing", Note: "有来源登记，但指定原件不可得 —— 请维护人核实"}
+		}
+		return srcRef{Status: "unavailable", Note: err.Error()}
+	}
+	b, err := os.ReadFile(abs)
+	if err != nil {
+		return srcRef{Status: "unavailable", Note: err.Error()}
+	}
+	return srcRef{Status: "available", Ref: filepath.ToSlash(rel), Version: hash12(b)}
+}
+
 func (g *envelopeIngress) searchKnowledge(args map[string]any) (string, bool) {
 	now := g.now()
 	who := strArg(args, "who")
@@ -363,6 +412,10 @@ func (g *envelopeIngress) getDocument(args map[string]any) (string, bool) {
 	out := map[string]any{
 		"path": d.Path, "title": d.Title, "domain": d.Domain, "body": body,
 		"total_bytes": len(d.Body), "truncated": truncated, "at": now.Format(time.RFC3339),
+		// A7：正文之外还要能指回**签发原件**，并且给出「这是哪一版整理稿」。
+		// 读者据此判断「我看到的这一段对应哪份原件」，而不是拿到一个整理稿路径就完事。
+		"document_version": d.Version,
+		"source":           g.sourceRefOf(d.SourceFile),
 	}
 	if len(warns) > 0 {
 		out["warnings"] = warns
@@ -387,4 +440,10 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// hash12 与 retrieval 里那份同一个口径：够区分版本，又不把响应当日志用。
+func hash12(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])[:12]
 }

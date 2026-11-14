@@ -14,6 +14,8 @@
 package retrieval
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"math"
@@ -44,6 +46,13 @@ type Doc struct {
 	Title   string
 	Body    string
 	ModTime time.Time
+
+	// SourceFile 是整理稿 frontmatter 里的 `source_file`：它指向**签发原件**
+	// （扫描件 / 合同 / PDF）。正文一样、来源不同时，靠它选对原件 —— A7。
+	SourceFile string
+	// Version 是这一版整理稿的标识：整份文件（含 frontmatter）的 sha256 前 12 位。
+	// 用「正文散列」不够：正文不变、把 source_file 从 A 改成 B 也是一次改版。
+	Version string
 }
 
 // Hit 是回给调用方的一条命中。Body 故意不在这里：检索给指针与片段，正文用 Get 取。
@@ -385,6 +394,8 @@ func Load(vault string, o *org.Org, opt LoadOptions) (*Index, []string, error) {
 			docs = append(docs, Doc{
 				Path: rel, Domain: domainFor(o, rel, fm), Title: title,
 				Body: body, ModTime: info.ModTime(),
+				SourceFile: strings.TrimSpace(fm["source_file"]),
+				Version:    hash12(b),
 			})
 			return nil
 		})
@@ -393,6 +404,12 @@ func Load(vault string, o *org.Org, opt LoadOptions) (*Index, []string, error) {
 		}
 	}
 	return New(docs), warnings, nil
+}
+
+// hash12 给一份字节算个短指纹：够用来区分版本，又不至于把响应当日志用。
+func hash12(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])[:12]
 }
 
 func relOf(vault, p string) string {

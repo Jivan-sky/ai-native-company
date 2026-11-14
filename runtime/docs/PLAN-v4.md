@@ -148,6 +148,32 @@ FAIL: TestIngressNoOkAuditWhenReceiptFails
 **A1-4 也做了**（测试层）：三个点位（回执前 / 回执后未清队 / 清队后响应丢失）各模拟一次重启，
 走完账上仍只有 1 条终态，重放回原回执。
 
+## 四之五、A7 已修（2026-11-14）
+
+审计说「索引剥离 frontmatter，MCP 的读者无法据此选对原件」——**成立**：
+索引只留路径 / 域 / 标题 / 正文 / mtime，`source_file` 在扫目录那一步就丢了。
+
+修法：
+
+1. `retrieval.Doc` 多两个字段：`SourceFile`（frontmatter 的 `source_file`）与
+   `Version`（**整份文件**含 frontmatter 的 sha256 前 12 位）。
+   用「正文散列」不够 —— 正文不变、把来源从 A 改成 B 也是一次改版。
+2. `anc_get` 的响应多两个字段：`document_version` 与结构化的 `source`：
+   `unlinked`（没登记）/ `missing`（登记了但缺件）/ `available`（在位，带 vault 相对引用与原件版本摘要）/
+   `unavailable`（读不了，**含「登记在 vault 之外」—— 不报本机路径**）。
+3. 这一版**不提供「打开原件字节」**：原件权限模型还没有。所以 `available` 只表示
+   「登记在案、在原位、能算出版本」，不表示「你有权读它」。这句话写在代码注释里。
+
+证据（去掉那两个字段就红）：
+
+```
+FAIL: TestGetMCPCarriesSourceAndVersion
+  来源该是 available 且指到那份原件：{Status: Ref: Version:}
+```
+
+**还没做**：A7-2/A7-3 的「原件权限比整理稿更窄」与「不许透露目标是否存在」——
+两者都需要真身份 + 原件权限模型；A7-6 取文后撤权同理。
+
 ## 五、这一周的第一步
 
 1. ✅ A1 / A2 / A5 三件 P0 已收口，含 A1-3（交接认回执）、A1-4（三个中断点重放）、
