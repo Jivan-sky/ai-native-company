@@ -189,20 +189,6 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
     allowed(role, pageId)
       ? el("div", { class: "side-meter " + cls }, el("span", {}, label), el("b", {}, n === null ? "—" : String(n)))
       : "";
-  const foot = el("div", { class: "side-foot" },
-    el("div", { class: "side-health" },
-      el("span", { class: status ? statusDot(status) : "dot" }),
-      el("span", {}, status ? statusText(status) : "读取中"),
-      el("span", { class: "micro" }, d?.board ? localTime(d.board.generated_at) : "")),
-    el("div", { class: "side-meters" },
-      meter("待批", pending, "gold", "approvals"),
-      meter("卡点", cases, "red", "cases"),
-      meter("bot 红", botRed, "red", "system")),
-    el("div", { class: "micro env" }, d?.board ? d.board.schema : "vault · waiting"),
-    el("div", { class: "foot-links" },
-      el("a", { href: "#/overview" }, "总览"),
-      el("a", { href: "#/timeline" }, "时间线"),
-      el("span", {}, "只读观测")));
   const collapse = el("button", { class: "collapse-btn", type: "button", "aria-label": "收起或展开侧栏", title: "收起 / 展开侧栏" }, icon("chevronL", 14));
   collapse.addEventListener("click", () => {
     const app = document.querySelector(".app");
@@ -214,12 +200,14 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
       el("span", { class: "brand-orb" }),
       el("span", { class: "bt" }, el("b", {}, "ANC"), el("small", {}, "AI-NATIVE COMPANY")),
       collapse),
-    el("div", { class: "side-workspace" },
+    el("div", { class: "side-workspace", title: c ? [c.platform, c.timezone].filter(Boolean).join(" · ") : "" },
       el("span", { class: "ws-dot" }),
-      el("span", { class: "ws-text" },
-        el("b", {}, c ? dash(c.name) : "还没读到投影"),
-        el("small", {}, c ? dash(c.platform) + " · " + dash(c.timezone) : "vault · waiting"))),
-    nav, foot);
+      el("span", { class: "ws-text" }, el("b", {}, c ? dash(c.name) : "还没读到投影"))),
+    nav);
+    // 侧栏底部原来挂了四块给工程师看的东西：校验状态、待批/卡点/bot红 三个计数器、
+    // schema 版本（ANC.BOARD.V3）、以及「总览 · 时间线 · 只读观测」三个链接。
+    // 它们讲的是"系统自己"，不是"用户的活" —— 而这几格恰好是客户第一眼看到的东西。
+    // 计数挪到各页顶部（那里有上下文），schema 进「系统」页，其余删掉。
 }
 
 export function copyLink(): void {
