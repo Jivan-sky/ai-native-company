@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,9 +35,31 @@ func writeGrantFile(t *testing.T, vault, slug, body string) {
 }
 
 // grantFile 拼一份最小授权：四个必填字段 + 一句 reason，正文不写。
+//
+// A3 之后还要 `issued_by`：一条签不出「谁签的」的授权，判定会如实说「无法证明」而不是放行。
+// 用例里统一让受托签发人 alice 签（权威源见 writeAuthority）。
 func grantFile(from, to, action, object string) string {
+	return grantFileBy("member:alice", from, to, action, object)
+}
+
+func grantFileBy(issuedBy, from, to, action, object string) string {
 	return "---\ngrant:\n  from: " + from + "\n  to: " + to +
-		"\n  action: " + action + "\n  object: " + object + "\n  reason: 用例\n---\n"
+		"\n  action: " + action + "\n  object: " + object +
+		"\n  issued_by: " + issuedBy + "\n  reason: 用例\n---\n"
+}
+
+// writeAuthority 在 vault 里放一份权威源（模拟件）：受托签发人 + 版本 + 撤权记录。
+func writeAuthority(t *testing.T, vault, issuer string, version int, revoked string) {
+	t.Helper()
+	body := "---\nauthority:\n  version: " + strconv.Itoa(version) +
+		"\n  issuer: " + issuer + "\n"
+	if revoked != "" {
+		body += "  revoked: " + revoked + "\n"
+	}
+	body += "  note: 用例用的模拟委任\n---\n"
+	if err := os.WriteFile(filepath.Join(vault, "authority.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // gateRules 跑一次判权，返回规则 id 列表。
@@ -109,6 +132,7 @@ func TestGateAcceptsCoveredCrossDomain(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			vault := copyFixture(t, "domains")
+			writeAuthority(t, vault, "member:alice", 1, "")
 			writeGrantFile(t, vault, "cross", c.grant)
 			got := gateRules(t, vault, envelope.Envelope{
 				Who: "alice", OnBehalfOf: "member:alice",
@@ -226,6 +250,7 @@ func TestIngressDeniesCrossDomainAndLeavesTrace(t *testing.T) {
 // ⑦ 跨域且被授权：照收、进信封日志、audit 留一条 ok（**进去了也记** —— 审计不是只记拒绝）。
 func TestIngressAllowsGrantedCrossDomainAndLogsOk(t *testing.T) {
 	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 1, "")
 	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
 	data := t.TempDir()
 	g := &envelopeIngress{Vault: vault, DataDir: data}
@@ -333,6 +358,7 @@ func TestIngressAcceptsCrossDomainProposalAndLogs(t *testing.T) {
 // 审计里却躺着一条 ok —— 事后查账会得出"这封收下了"，而它根本没收到。
 func TestIngressNoOkAuditWhenReceiptFails(t *testing.T) {
 	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 1, "")
 	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
 	// 把信封日志目录做成一个文件 → Append 必然失败
 	data := filepath.Join(t.TempDir(), "data")
@@ -355,6 +381,7 @@ func TestIngressNoOkAuditWhenReceiptFails(t *testing.T) {
 // A5-3 已收件、审计失败：收件算成功，但必须如实说"审计待补"。
 func TestIngressReceiptSucceedsButAuditFails(t *testing.T) {
 	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 1, "")
 	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
 	// 把 audit 目录做成一个文件 → 入账必然失败
 	if err := os.RemoveAll(filepath.Join(vault, "audit")); err != nil {
@@ -383,6 +410,7 @@ func TestIngressReceiptSucceedsButAuditFails(t *testing.T) {
 // A5-3 补账恢复：已经收件、但审计没入上的那几笔，启动时补齐 —— 且**只补一次**。
 func TestRecoverEnvelopeAuditFillsExactlyOnce(t *testing.T) {
 	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 1, "")
 	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
 	data := t.TempDir()
 
@@ -448,5 +476,118 @@ func TestRecoverEnvelopeAuditSkipsOwnDomain(t *testing.T) {
 	}
 	if n != 0 || len(auditRecords(t, vault)) != 0 {
 		t.Fatalf("域内信封不该被补进 audit：补了 %d 条，账上 %d 条", n, len(auditRecords(t, vault)))
+	}
+}
+
+// gateVerdict 跑一次判权，返回规则 id + 结论（链、权威版本、是否无法判定）。
+func gateVerdict(t *testing.T, vault string, e envelope.Envelope) ([]string, envelope.GateOutcome) {
+	t.Helper()
+	o, err := org.Load(vault)
+	if err != nil {
+		t.Fatalf("真相源加载失败：%v", err)
+	}
+	issues, out := envelope.Gate(o, e, o.Policy)
+	ids := make([]string, 0, len(issues))
+	for _, i := range issues {
+		ids = append(ids, i.Rule)
+	}
+	return ids, out
+}
+
+func crossEnvelope() envelope.Envelope {
+	return envelope.Envelope{
+		Who: "alice", OnBehalfOf: "member:alice",
+		Scope: envelope.Scope{Domain: "logistics"},
+	}
+}
+
+// A3 生效的那一刀：有覆盖的 grant **不够**，还得这条授权现在成立。
+func TestGateRejectsRevokedGrant(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 2, "grants/cross.md@2")
+	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
+	ids, out := gateVerdict(t, vault, crossEnvelope())
+	if len(ids) == 0 {
+		t.Fatal("撤了权的授权不该放行 —— 恰恰是 A3 要挡的那一刀")
+	}
+	if out.Grant != "" {
+		t.Errorf("被拒时不该报命中：%q", out.Grant)
+	}
+	if out.Undecided {
+		t.Error("撤权是「明确拒绝」，不是「无法判定」")
+	}
+	found := false
+	for _, id := range ids {
+		if id == "grant.invalid" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("要用 grant.invalid 报出来，实际 %v", ids)
+	}
+}
+
+// 没有权威源 = 无法判定：不放行，也不能说成「拒绝」。
+func TestGateUndecidedWithoutAuthority(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
+	ids, out := gateVerdict(t, vault, crossEnvelope())
+	if !out.Undecided {
+		t.Fatalf("没有权威源必须标成无法判定：%+v", out)
+	}
+	if out.Grant != "" {
+		t.Error("无法判定时不报命中")
+	}
+	found := false
+	for _, id := range ids {
+		if id == "grant.undecided" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("要用 grant.undecided 报出来，实际 %v", ids)
+	}
+}
+
+// 放行时带上依据：链 + 权威版本。出了事要能照这个回核。
+func TestGateAllowCarriesChainAndVersion(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 7, "")
+	writeGrantFile(t, vault, "cross", grantFile("member:bob", "member:alice", "read", "logistics"))
+	ids, out := gateVerdict(t, vault, crossEnvelope())
+	if len(ids) != 0 {
+		t.Fatalf("该放行，实际发现 %v", ids)
+	}
+	if out.AuthorityVersion != 7 {
+		t.Errorf("要带上判定用的权威版本，拿到 %d", out.AuthorityVersion)
+	}
+	if len(out.Chain) == 0 || out.Chain[0] != "cross" {
+		t.Errorf("要带上授权链，拿到 %v", out.Chain)
+	}
+}
+
+// 到期 = 明确拒绝（左闭右开：到期那一刻就失效）。
+func TestGateRejectsExpiredGrant(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 1, "")
+	writeGrantFile(t, vault, "cross",
+		"---\ngrant:\n  from: member:bob\n  to: member:alice\n  action: read\n  object: logistics\n"+
+			"  issued_by: member:alice\n  expires_at: 2020-01-01T00:00:00Z\n---\n")
+	ids, out := gateVerdict(t, vault, crossEnvelope())
+	if len(ids) == 0 || out.Undecided {
+		t.Fatalf("过期的授权要明确拒绝：ids=%v out=%+v", ids, out)
+	}
+}
+
+// 没写 issued_by 的老授权：**判不出来**（不是放行，也不是拒绝）。
+// 这条守的是「老数据不会因为缺字段就被当成有效」。
+func TestGateUndecidedForGrantWithoutIssuer(t *testing.T) {
+	vault := copyFixture(t, "domains")
+	writeAuthority(t, vault, "member:alice", 1, "")
+	writeGrantFile(t, vault, "cross",
+		"---\ngrant:\n  from: member:bob\n  to: member:alice\n  action: read\n  object: logistics\n---\n")
+	_, out := gateVerdict(t, vault, crossEnvelope())
+	if !out.Undecided {
+		t.Fatalf("缺 issued_by 该判「无法证明」：%+v", out)
 	}
 }
