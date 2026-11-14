@@ -220,19 +220,21 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
     const startX = ev.clientX;
     const startW = side.getBoundingClientRect().width;
     const app = document.querySelector<HTMLElement>(".app");
+    // 记住"我要的宽度"，而不是 mouseup 那一刻量到的宽度 ——
+    // 列宽有 0.25s 过渡，mouseup 时量到的还是动画中的中间值，
+    // 存下来的就是这个错误数字（不变量检查抓到：356 → 327）。
+    let wanted = Math.round(startW);
     const move = (e: MouseEvent): void => {
       const w = Math.max(200, Math.min(380, startW + (e.clientX - startX)));
       // 改的是版面唯一的那个变量，不是 aside 自己的宽度 —— 后者只会让它盖住正文。
+      wanted = Math.round(w);
       app?.style.setProperty("--side-w", w + "px");
     };
     const up = (): void => {
       grip.classList.remove("dragging");
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
-      try {
-        const side2 = grip.parentElement;
-        if (side2) localStorage.setItem("anc.rail.width", String(Math.round(side2.getBoundingClientRect().width)));
-      } catch { /* 隐私模式不记 */ }
+      try { localStorage.setItem("anc.rail.width", String(wanted)); } catch { /* 隐私模式不记 */ }
       app?.classList.remove("dragging-rail");
     };
     document.addEventListener("mousemove", move);
@@ -250,10 +252,8 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
   // 宽度必须在这里读回来。拖拽只改了 DOM 上的 style.width，而任何一次重绘
   // （点按钮 → API → shell()）都会重建这个 aside —— 不读回来，用户拖完点一下就弹回原位。
   // 这是"存了却没恢复"，等于没存。
-  try {
-    const w = localStorage.getItem("anc.rail.width");
-    if (w) document.querySelector<HTMLElement>(".app")?.style.setProperty("--side-w", w + "px");
-  } catch { /* 隐私模式不记 */ }
+  // 宽度恢复不在这里做 —— 此刻 .app 还是旧节点（新树还没挂上去）。
+  // 统一在 shell() 挂载完成后调用 applyRailWidth()。
   return aside;
     // 侧栏底部原来挂了四块给工程师看的东西：校验状态、待批/卡点/bot红 三个计数器、
     // schema 版本（ANC.BOARD.V3）、以及「总览 · 时间线 · 只读观测」三个链接。
@@ -499,6 +499,8 @@ export function shell(): void {
 
   app.append(mountDrawer(), mountPalette());
   root.replaceChildren(app);
+  // 挂载完成后再写侧栏宽度：此刻 .app 才是新节点。
+  applyRailWidth();
   app.querySelector(".side-scrim")?.addEventListener("click", () => app.classList.remove("nav-open"));
 
   if (page.id === "overview" && d !== null) {
@@ -530,3 +532,16 @@ function liveChip(at: number): HTMLElement {
 let suppressEnterAnim = false;
 export function setSuppressEnter(v: boolean): void { suppressEnterAnim = v; }
 function enterAnimSuppressed(): boolean { return suppressEnterAnim; }
+
+// applyRailWidth：把记住的侧栏宽度写到**当前**的 .app 上。
+//
+// 必须在 shell() 挂载完成之后调 —— 在构建过程中调，写的是上一棵树。
+// （这条 bug 是被 dev/ui-invariants.mjs 抓住的：跨页后宽度 316 → 246。）
+export function applyRailWidth(): void {
+  const app = document.querySelector<HTMLElement>(".app");
+  if (!app) return;
+  try {
+    const w = localStorage.getItem("anc.rail.width");
+    if (w) app.style.setProperty("--side-w", w + "px");
+  } catch { /* 隐私模式不记 */ }
+}
