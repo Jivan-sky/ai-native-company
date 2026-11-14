@@ -7,6 +7,9 @@ README 题图的源文件与构建方式。
 | `background.jpg` | 背景原稿（1920×960，2:1）。由原始插图居中裁成 2:1 后缩放，未做其它处理 |
 | `cover.svg` | 题图源文件。相对引用 `background.jpg`；面板的玻璃质感由 SVG 滤镜实现（对背景做模糊 + 饱和 + 亮度提升，再叠高光边与投影） |
 | `cover.jpg` | README 实际引用的成品（1920×960，JPEG q90） |
+| `dsh-avatar.jpg` | 作者栏用的头像（DeepSeek Harness，96×96 显示） |
+
+> 看板截图**暂不放在仓库里**：界面还在迭代，截图会不断过期。等收敛之后统一补一批（到时放 `assets/screens/`）。
 
 ## 重新生成 cover.jpg
 
