@@ -28,7 +28,8 @@ const SettlePath = "/api/tasks/settle"
 // TaskSettler 是结账要的两件事（同 tasksettle.Store）。`*hot.Store` 满足它。
 type TaskSettler interface {
 	Get(id string) (hot.State, bool, error)
-	Drop(id string) error
+	// 按版本条件清：结账不能把别人刚交接的那一版抹掉。
+	DropCAS(id string, version int64) (bool, error)
 }
 
 // SettleRequest 是看板归档的请求体。

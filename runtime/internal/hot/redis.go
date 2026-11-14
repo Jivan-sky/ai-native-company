@@ -603,6 +603,42 @@ func (st *Store) deleteLease(id string) error {
 	return err
 }
 
+// dropCASScript：只有热层里的 version 仍等于 ARGV[1] 时才删。
+//
+// 为什么必须是原子的：结账先读任务、再落库、最后清热层。这中间如果在办交接（版本变了），
+// 无条件 DEL 会把**交接成功后的那一条**一起抹掉 —— 交接的行还在，热层却空了。
+// 返回：1 = 删了；0 = 本来就没有；-1 = 版本已经变了（没删）。
+const dropCASScript = `
+local v = redis.call('HGET', KEYS[1], 'version')
+if not v then return 0 end
+if tostring(v) ~= tostring(ARGV[1]) then return -1 end
+redis.call('DEL', KEYS[1])
+return 1
+`
+
+// DropCAS 是「按版本清」：版本对不上就不动。
+//
+// 返回值：true = 清掉了；false = 没清（版本已变或本来就没有）——
+// 调用方据此知道「这一刀没清成」，而不是以为清干净了。
+func (st *Store) DropCAS(id string, version int64) (bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false, errors.New("hot: DropCAS 需要 id")
+	}
+	key := TaskKey(st.prefix, id)
+	rep, err := st.do("EVAL", dropCASScript, "1", key, strconv.FormatInt(version, 10))
+	if err != nil {
+		return false, err
+	}
+	code, _ := rep.(int64)
+	if code != 1 {
+		return false, nil
+	}
+	// 围栏与租约跟着这一条走（同 Drop 的理由）。
+	_, err = st.do("DEL", LeaseKey(st.prefix, id), FenceKey(st.prefix, id))
+	return true, err
+}
+
 // Drop 把一条进行中的状态从热层清走（状态 + 租约）。
 // **只该在「已经落库」之后用**：清之前，真相源里没有的东西就真没了。
 func (st *Store) Drop(id string) error {

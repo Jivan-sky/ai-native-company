@@ -23,7 +23,9 @@ var ErrOpen = errors.New("任务还没结束")
 // 没有 pull / ack —— 结账不改状态，改状态是回执那一步的事。
 type Store interface {
 	Get(id string) (hot.State, bool, error)
-	Drop(id string) error
+	// DropCAS 只在热层版本仍等于 version 时才清。返回 false = 没清（版本变了或本来没有）。
+	// 为什么不用「先 Get 再 Drop」：那中间正好是交接落地的窗口。
+	DropCAS(id string, version int64) (bool, error)
 }
 
 type Opts struct {
@@ -34,7 +36,14 @@ type Opts struct {
 	Note   string   // 结账说明，接在任务正文后面
 	Refs   []string // 文件 / 链接
 	At     time.Time
+	// ExpectedVersion 是调用者看到的版本（0 = 不校验，兼容旧客户端）。
+	// 结账要凭它判「这一刀是不是基于已经过期的现场」。
+	ExpectedVersion int64
 }
+
+// ErrStale：请求基于的版本已经不是当前版本（中间有人交接 / 改状态）。
+// 单列一个哨兵：三个前端要把它和「还没做完」分开报。
+var ErrStale = errors.New("现场已经变了")
 
 type Result struct {
 	Task    hot.State
@@ -79,7 +88,8 @@ func Settle(st Store, vault, id string, o Opts) (Result, error) {
 	if already {
 		res := Result{Task: t, Entry: prev, Already: true}
 		if found {
-			if err := st.Drop(id); err != nil {
+			// 只补清「我读到的那一版」：中间若有人交接，别把新的一版删掉。
+			if _, err := st.DropCAS(id, t.Version); err != nil {
 				return res, fmt.Errorf("这条早已沉淀；热层没清掉 —— 重跑 settle 只补清这一刀：%w", err)
 			}
 		}
@@ -87,6 +97,12 @@ func Settle(st Store, vault, id string, o Opts) (Result, error) {
 	}
 	if !found {
 		return Result{}, fmt.Errorf("%w：%s", hot.ErrNotFound, id)
+	}
+
+	// 版本先行：这一刀是不是基于已经过期的现场。
+	if o.ExpectedVersion > 0 && found && t.Version != o.ExpectedVersion {
+		return Result{}, fmt.Errorf("%w：你看到的是 v%d，现在是 v%d —— 重新读一遍再决定",
+			ErrStale, o.ExpectedVersion, t.Version)
 	}
 
 	status := firstNonEmpty(o.Status, t.Status)
@@ -137,8 +153,15 @@ func Settle(st Store, vault, id string, o Opts) (Result, error) {
 		return Result{}, fmt.Errorf("落库失败，热层没动（先落库、再清热层）：%w", err)
 	}
 	res := Result{Task: t, Entry: ent, Path: path}
-	if err := st.Drop(id); err != nil {
-		return res, fmt.Errorf("库已落（%s），热层没清掉 —— 重跑 settle 只会补清这一刀：%w", path, err)
+	dropped, derr := st.DropCAS(id, t.Version)
+	if derr != nil {
+		return res, fmt.Errorf("库已落（%s），热层没清掉 —— 重跑 settle 只会补清这一刀：%w", path, derr)
+	}
+	if !dropped {
+		// 落库之后才发现版本变了：终态行已经写了（事实不能撤），但热层那一条是别人的现场。
+		// 如实说清，不假装清干净了。
+		return res, fmt.Errorf("库已落（%s），但热层那一条已被别人改动（不是 v%d）—— 没清，去核一下谁在办：%w",
+			path, t.Version, ErrStale)
 	}
 	return res, nil
 }
@@ -150,8 +173,12 @@ func settledEntry(vault, id string) (timeline.Entry, bool, error) {
 	if err != nil {
 		return timeline.Entry{}, false, err
 	}
+	// **只认结账行自己的身份**（`task-<id>`），不认「同一个 case 下的任何一行」。
+	// 之前按 case 匹配，结果一条同案进度备注就能让 settle 判成「早已沉淀」，
+	// 然后把还在跑的任务从热层删掉 —— 备注把活干掉了。
+	want := "task-" + id
 	for _, e := range doc.Entries {
-		if strings.TrimSpace(e.Case) == id || strings.TrimSpace(e.ID) == "task-"+id {
+		if strings.TrimSpace(e.ID) == want {
 			return e, true, nil
 		}
 	}

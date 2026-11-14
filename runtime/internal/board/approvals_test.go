@@ -40,6 +40,18 @@ func (f *boardFakeQueue) Drop(id string) error {
 	return nil
 }
 
+// DropCAS：版本对不上就不删（与 *hot.Store 同一条纪律）
+func (f *boardFakeQueue) DropCAS(id string, version int64) (bool, error) {
+	k := strings.TrimSpace(id)
+	cur, ok := f.items[k]
+	if !ok || cur.Version != version {
+		return false, nil
+	}
+	delete(f.items, k)
+	f.drops = append(f.drops, id)
+	return true, nil
+}
+
 func (f *boardFakeQueue) List() ([]hot.State, error) {
 	out := make([]hot.State, 0, len(f.items))
 	for _, s := range f.items {
