@@ -172,7 +172,26 @@ export async function decide(
   });
   if (res.status === 200 && res.body && res.body.ok) {
     lastReceipt = res.body;
-    reload(true);
+    // 签完**原地变回执**，不刷新整页。
+    //
+    // 为什么：签是一个"我做过这件事"的证据。整页重绘会把它冲掉，人只看到数字少了一个，
+    // 却看不到自己刚签的字。台账的规矩是"签过的地方留章"，不是"翻到下一页就没了"。
+    // 队列计数由 30 秒静默刷新去对齐，不靠这一下重绘。
+    const slip = row.closest(".ledger-slip");
+    const lr = slip?.previousElementSibling as HTMLElement | null;
+    if (lr) {
+      const v = (res.body.verdict ?? "").trim();
+      const at = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+      lr.className = "ledger-row signed";
+      lr.textContent = "";
+      lr.append(
+        el("div", { class: "who" }, "已签"),
+        el("div", { class: "what" }, (who || "你") + " · " + (v === "" ? "已表态" : v)),
+        el("div", { class: "when" }, at));
+      lr.removeAttribute("role");
+      lr.removeAttribute("tabindex");
+    }
+    slip?.remove();
     return;
   }
   const msg = res.body?.error ?? res.err;
