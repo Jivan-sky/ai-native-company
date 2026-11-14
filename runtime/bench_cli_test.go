@@ -19,6 +19,7 @@ grant:
   action: read
   object: 10-knowledge
   ttl: forever
+  issued_by: member:alice
   reason: 测试夹具
 ---
 
@@ -36,6 +37,10 @@ func TestBenchCLISaysNo(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, grantPath, benchGrant)
+	// A4 之后：判定要真看这条授权成不成立，所以夹具也得有一份权威源 ——
+	// 没有受托签发人的世界，基准不该报"拿得到"。
+	writeFile(t, filepath.Join(vault, "authority.md"),
+		"---\nauthority:\n  version: 1\n  issuer: member:alice\n---\n")
 
 	suite := t.TempDir()
 	writeFile(t, filepath.Join(suite, "t1.json"), `{

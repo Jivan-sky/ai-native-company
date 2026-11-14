@@ -78,7 +78,7 @@ func cmdBench(args []string) int {
 		pass := true
 		for _, who := range bench.FilterViews(t.As, *k) {
 			out, _ := ctxpack.Assemble(o, vault, who, "", "", now, ctxpack.TasksIn{})
-			v := bench.Grade(out, allowedToolsOf(o, out), t)
+			v := bench.Grade(out, o, allowedToolsOf(o, out), t)
 			tr.Views = append(tr.Views, v)
 			if !v.AllDelivered() {
 				pass = false

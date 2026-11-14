@@ -3,9 +3,11 @@ package bench
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"anc/internal/ctxpack"
+	"anc/internal/org"
 )
 
 // tester 是装配结果的最小构造器：测判分时只要那几格，别把整个 vault 拖进来。
@@ -21,7 +23,7 @@ func TestGradeDomainNeedsDataPointer(t *testing.T) {
 	ok := packOf(func(p *ctxpack.Out) {
 		p.Domains = []ctxpack.DomainOut{{Slug: "trade", Name: "大宗贸易", Data: "10-knowledge"}}
 	})
-	if v := Grade(ok, nil, task); !v.AllDelivered() {
+	if v := Grade(ok, nil, nil, task); !v.AllDelivered() {
 		t.Fatalf("整行都在、data 也指得到，应该到手：%+v", v)
 	}
 
@@ -29,7 +31,7 @@ func TestGradeDomainNeedsDataPointer(t *testing.T) {
 	half := packOf(func(p *ctxpack.Out) {
 		p.Domains = []ctxpack.DomainOut{{Slug: "trade", Name: "大宗贸易"}}
 	})
-	v := Grade(half, nil, task)
+	v := Grade(half, nil, nil, task)
 	if v.Delivered != 0 {
 		t.Fatalf("没有 data 指针不该算到手：%+v", v)
 	}
@@ -48,7 +50,7 @@ func TestGradeProjectAndSkill(t *testing.T) {
 		// 登记了但正文不在 = 拿不到它。
 		p.Skills = []ctxpack.SkillOut{{Name: "anc-distill", Missing: true}}
 	})
-	v := Grade(p, nil, task)
+	v := Grade(p, nil, nil, task)
 	if v.Delivered != 1 {
 		t.Fatalf("项目到手、技能正文缺失，应该 1/2：%+v", v)
 	}
@@ -58,35 +60,80 @@ func TestGradeProjectAndSkill(t *testing.T) {
 }
 
 func TestGradeGrant(t *testing.T) {
+	// A4 之后：判定要真看那条授权成不成立（撤权 / 到期 / 谁签的）。
+	// 所以这里不再"手搓一个视图就行"，得给一份能成立的组织事实。
+	vault := t.TempDir()
+	writeAt(t, vault, "authority.md", "---\nauthority:\n  version: 1\n  issuer: member:alice\n---\n")
+	o := &org.Org{Root: vault, Grants: []org.Grant{{
+		Slug: "g1", Path: "grants/g1.md",
+		From: "member:bob", To: "member:alice", Action: "read", Object: "domain:10-knowledge",
+		IssuedBy: "member:alice",
+	}}}
 	p := packOf(func(p *ctxpack.Out) {
 		p.Grants = &ctxpack.GrantsOut{Total: 1, Shown: 1, Rows: []ctxpack.GrantRowOut{
-			{Action: "read", Object: "10-knowledge"},
+			{Slug: "g1", Action: "read", Object: "domain:10-knowledge"},
 		}}
 	})
 	cases := []struct {
 		value string
 		want  bool
 	}{
-		{"read", true},              // 只要动作覆盖
-		{"read:10-knowledge", true}, // 动作 + 客体都对
-		{"read:20-ops", false},      // 对象不对
-		{"write", false},            // 没有写授权
+		{"read", true},                     // 只要动作覆盖
+		{"read:domain:10-knowledge", true}, // 动作 + 客体都对
+		{"read:20-ops", false},             // 对象不对
+		{"write", false},                   // 没有写授权
 	}
 	for _, c := range cases {
-		v := Grade(p, nil, Task{ID: "t", As: []string{"alice"}, Needs: []Need{{Kind: KindGrant, Value: c.value}}})
+		v := Grade(p, o, nil, Task{ID: "t", As: []string{"alice"}, Needs: []Need{{Kind: KindGrant, Value: c.value}}})
 		if v.Needs[0].Delivered != c.want {
 			t.Errorf("%s：想 %v，得到 %v（%s）", c.value, c.want, v.Needs[0].Delivered, v.Needs[0].Where)
 		}
 	}
 }
 
+// A4 的关键一条：**撤了权的授权，基准也不能说"拿得到"**。
+// 以前基准只看装配视图里有没有那一行，撤权之后照报绿灯 —— 于是"基准说拿得到、真到门口被拒"长期共存。
+func TestGradeGrantRespectsRevocation(t *testing.T) {
+	vault := t.TempDir()
+	writeAt(t, vault, "authority.md",
+		"---\nauthority:\n  version: 2\n  issuer: member:alice\n  revoked: grants/g1.md@1\n---\n")
+	o := &org.Org{Root: vault, Grants: []org.Grant{{
+		Slug: "g1", Path: "grants/g1.md",
+		From: "member:bob", To: "member:alice", Action: "read", Object: "domain:10-knowledge",
+		IssuedBy: "member:alice",
+	}}}
+	p := packOf(func(p *ctxpack.Out) {
+		p.Grants = &ctxpack.GrantsOut{Total: 1, Shown: 1, Rows: []ctxpack.GrantRowOut{
+			{Slug: "g1", Action: "read", Object: "domain:10-knowledge"},
+		}}
+	})
+	v := Grade(p, o, nil, Task{ID: "t", As: []string{"alice"}, Needs: []Need{{Kind: KindGrant, Value: "read"}}})
+	if v.Needs[0].Delivered {
+		t.Fatalf("撤了权不该算到手：%+v", v.Needs[0])
+	}
+	if !strings.Contains(v.Needs[0].Where, "撤回") {
+		t.Errorf("理由要说清是撤回，拿到 %q", v.Needs[0].Where)
+	}
+}
+
+func writeAt(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGradeToolIsCaseInsensitive(t *testing.T) {
 	task := Task{ID: "t", As: []string{"alice"}, Needs: []Need{{Kind: KindTool, Value: "grep"}}}
-	if v := Grade(packOf(func(*ctxpack.Out) {}), []string{"Read", " Grep "}, task); !v.AllDelivered() {
+	if v := Grade(packOf(func(*ctxpack.Out) {}), nil, []string{"Read", " Grep "}, task); !v.AllDelivered() {
 		t.Fatalf("allowed_tools 里写了 Grep，大小写与空格不该判错：%+v", v)
 	}
 	// dontAsk 下没预授权 = 调不动，等于没到手。
-	if v := Grade(packOf(func(*ctxpack.Out) {}), []string{"Read"}, task); v.Delivered != 0 {
+	if v := Grade(packOf(func(*ctxpack.Out) {}), nil, []string{"Read"}, task); v.Delivered != 0 {
 		t.Fatalf("没预授权不该算到手：%+v", v)
 	}
 }
@@ -99,7 +146,7 @@ func TestGradeRefusedSaysWhoToAsk(t *testing.T) {
 	p := packOf(func(p *ctxpack.Out) {
 		p.Refused = &ctxpack.Refusal{Reason: "「logistics」不在你的可见范围", Ask: "Carol（运营）"}
 	})
-	v := Grade(p, nil, task)
+	v := Grade(p, nil, nil, task)
 	if v.Asks != 2 || v.Delivered != 0 {
 		t.Fatalf("拒答时全部算没到手：%+v", v)
 	}
@@ -115,7 +162,7 @@ func TestWhoToAskFromDirectory(t *testing.T) {
 	p := packOf(func(p *ctxpack.Out) {
 		p.Directory = []ctxpack.BriefOut{{Slug: "logistics", Name: "物流", Who: "Carol（运营）"}}
 	})
-	v := Grade(p, nil, Task{ID: "t", As: []string{"alice"}, Needs: []Need{{Kind: KindDomain, Value: "logistics"}}})
+	v := Grade(p, nil, nil, Task{ID: "t", As: []string{"alice"}, Needs: []Need{{Kind: KindDomain, Value: "logistics"}}})
 	if v.Needs[0].Ask != "Carol（运营）" {
 		t.Fatalf("别域目录里的 who 应该被带出来：%+v", v.Needs[0])
 	}
