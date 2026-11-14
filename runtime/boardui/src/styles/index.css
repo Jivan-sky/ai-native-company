@@ -461,3 +461,12 @@ table.cost tr.zero td { color: var(--muted); }
 /* ③ 顶栏：统一圆角 10px（搜索框、图标按钮、身份下拉一个值） */
 .topbar, .cmd-btn, .icon-btn, .role-select, .top-actions > * { border-radius: 10px !important; }
 .cmd-btn { border: 1px solid var(--line) !important; }
+
+/* 错误态的动作条：一个「重试」比一段解释有用 */
+.state-actions { margin-top: 10px; display: flex; gap: 8px; }
+.state-retry {
+  font: inherit; font-size: 12.5px; padding: 5px 12px; border-radius: 8px;
+  border: 1px solid var(--line-2); background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.state-retry:hover { border-color: var(--accent); color: var(--accent); }
+.state-retry:disabled { opacity: .6; cursor: default; }

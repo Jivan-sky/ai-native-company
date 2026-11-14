@@ -1,5 +1,6 @@
 import type { Kid } from "../core/types";
 import { el } from "../core/dom";
+import { reload } from "../core/refresh";
 
 // 三种「没有内容」的状态，共用一套骨架：
 //
@@ -28,8 +29,25 @@ export function stateBlock(kind: StateKind, title: Kid | string, next: Kid | str
 
 export const emptyState = (title: Kid | string, next: Kid | string): HTMLElement =>
   stateBlock("empty", title, next);
-export const unknownState = (title: Kid | string, next: Kid | string): HTMLElement =>
-  stateBlock("unknown", title, next);
+// unknownState 现在自带一个「重试」—— 17 处「答不了」里只有 2 处给了下一步，
+// 读者卡在"读不到"上没路可走。改在这一处，等于一次给 17 个错误态补上动作。
+//
+// 重试 = 静默重新取数（不清空现有内容、不整页重绘），失败就还是这个状态。
+export const unknownState = (title: Kid | string, next: Kid | string): HTMLElement => {
+  const box = stateBlock("unknown", title, next);
+  const body = box.querySelector(".state-next");
+  if (body) {
+    const again = el("button", { class: "state-retry", type: "button" }, "重试");
+    again.addEventListener("click", () => {
+      again.setAttribute("disabled", "disabled");
+      again.textContent = "重试中…";
+      reload(true);
+      setTimeout(() => { again.removeAttribute("disabled"); again.textContent = "重试"; }, 1200);
+    });
+    body.append(el("div", { class: "state-actions" }, again));
+  }
+  return box;
+};
 export const deniedState = (title: Kid | string, next: Kid | string): HTMLElement =>
   stateBlock("denied", title, next);
 
