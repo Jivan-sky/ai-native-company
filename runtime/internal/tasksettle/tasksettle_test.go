@@ -27,13 +27,21 @@ func (f *fakeSettleStore) Get(id string) (hot.State, bool, error) {
 	return s, ok, nil
 }
 
-func (f *fakeSettleStore) Drop(id string) error {
+func (f *fakeSettleStore) DropCAS(id string, version int64) (bool, error) {
 	if f.dropErr != nil {
-		return f.dropErr
+		return false, f.dropErr
+	}
+	cur, ok := f.m[id]
+	if !ok {
+		return false, nil
+	}
+	// 与真实现同一条纪律：版本对不上就不动。
+	if cur.Version != version {
+		return false, nil
 	}
 	delete(f.m, id)
 	f.dropped = append(f.dropped, id)
-	return nil
+	return true, nil
 }
 
 var settleAt = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -168,5 +176,83 @@ func TestSettleTaskReportsDropFailure(t *testing.T) {
 	doc, _ := timeline.Load(vault)
 	if len(doc.Entries) != 1 {
 		t.Fatalf("库应已落一条：%d", len(doc.Entries))
+	}
+}
+
+// A1-1 普通备注：同案的一条进度备注**不能**让 settle 判成「早已沉淀」。
+// 之前按 case 匹配，备注会被当结账回执，然后把还在跑的任务从热层删掉。
+func TestSettleIgnoresSameCaseNote(t *testing.T) {
+	vault := t.TempDir()
+	id := "t-note"
+	// 先写一条同 case 的进度备注（不是结账行：ID 不是 task-<id>）
+	if _, err := timeline.Append(vault, timeline.Entry{
+		ID: "note-1", Case: id, At: settleAt.Format(time.RFC3339),
+		Kind: "note", Status: "running", By: "bob", Title: "进度：还在等对方回",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := &fakeSettleStore{m: map[string]hot.State{
+		id: {ID: id, Status: "running", Stage: hot.StageRunning, By: "anc", To: "bob", Title: "处理单据", Version: 2},
+	}}
+
+	_, err := Settle(st, vault, id, Opts{At: settleAt})
+	if !errors.Is(err, ErrOpen) {
+		t.Fatalf("进行中的任务要报「还没结束」，得到 %v", err)
+	}
+	if _, still := st.m[id]; !still {
+		t.Fatal("备注把活干掉了：任务被从热层删了")
+	}
+	doc, _ := timeline.Load(vault)
+	if len(doc.Entries) != 1 {
+		t.Fatalf("不该多写结账行，时间线应仍是 1 条，得到 %d", len(doc.Entries))
+	}
+}
+
+// A1-2 交接先赢：请求基于 v2，但现场已经到 v3 —— 必须判冲突，且不写行、不清热层。
+func TestSettleStaleVersionIsConflict(t *testing.T) {
+	vault := t.TempDir()
+	id := "t-stale"
+	st := &fakeSettleStore{m: map[string]hot.State{
+		id: {ID: id, Status: "running", Stage: hot.StageRunning, By: "anc", To: "bob", Title: "处理单据", Version: 3},
+	}}
+	_, err := Settle(st, vault, id, Opts{Status: "cancelled", By: "alice", ExpectedVersion: 2, At: settleAt})
+	if !errors.Is(err, ErrStale) {
+		t.Fatalf("版本过期要判冲突，得到 %v", err)
+	}
+	if len(st.dropped) != 0 {
+		t.Error("冲突时不该清热层")
+	}
+	if doc, _ := timeline.Load(vault); len(doc.Entries) != 0 {
+		t.Errorf("冲突时不该写时间线，得到 %d 条", len(doc.Entries))
+	}
+}
+
+// 落库后才发现版本变了：终态行已写（事实不能撤），但热层那一条是别人的现场，不能删。
+type racyStore struct{ inner *fakeSettleStore }
+
+func (r *racyStore) Get(id string) (hot.State, bool, error) { return r.inner.Get(id) }
+func (r *racyStore) DropCAS(id string, version int64) (bool, error) {
+	// 模拟：读完到清理之间，有人交接把版本顶到 v9
+	s := r.inner.m[id]
+	s.Version = 9
+	r.inner.m[id] = s
+	return false, nil
+}
+
+func TestSettleDoesNotDropNewerState(t *testing.T) {
+	vault := t.TempDir()
+	id := "t-race"
+	inner := &fakeSettleStore{m: map[string]hot.State{
+		id: {ID: id, Status: "done", Stage: hot.StageDone, By: "anc", To: "bob", Title: "处理单据", Version: 2},
+	}}
+	_, err := Settle(&racyStore{inner: inner}, vault, id, Opts{At: settleAt})
+	if err == nil {
+		t.Fatal("清不掉要如实报错，不能假装清干净了")
+	}
+	if !errors.Is(err, ErrStale) {
+		t.Errorf("错误里要能认出「现场变了」，得到 %v", err)
+	}
+	if _, still := inner.m[id]; !still {
+		t.Error("把别人交接后的那一条删了")
 	}
 }

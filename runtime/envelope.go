@@ -259,9 +259,9 @@ type taskQueue interface {
 	VerifyTask(id, who, verdict, note string) (hot.State, error)
 	EscalateTask(id, who string, fence int64, to, note string) (hot.State, error)
 	List() ([]hot.State, error)
-	// Get / Drop 是「结账」那一刀：先落 timeline，再把当前值清走。
+	// Get / DropCAS 是「结账」那一刀：先落 timeline，再按版本把当前值清走。
 	Get(id string) (hot.State, bool, error)
-	Drop(id string) error
+	DropCAS(id string, version int64) (bool, error)
 }
 
 // envelopeIngress 是接入面本身：一个 vault + 一个 data 目录 + 一个热层 + 一个时钟。

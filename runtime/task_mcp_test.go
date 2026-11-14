@@ -207,9 +207,13 @@ func (f *fakeTasks) Get(id string) (hot.State, bool, error) {
 	return s, ok, nil
 }
 
-func (f *fakeTasks) Drop(id string) error {
+func (f *fakeTasks) DropCAS(id string, version int64) (bool, error) {
+	cur, ok := f.m[id]
+	if !ok || cur.Version != version {
+		return false, nil
+	}
 	delete(f.m, id)
-	return nil
+	return true, nil
 }
 
 func (f *fakeTasks) List() ([]hot.State, error) {
