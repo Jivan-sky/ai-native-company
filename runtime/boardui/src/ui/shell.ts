@@ -195,6 +195,32 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
     app?.classList.toggle("rail-min");
     try { localStorage.setItem("anc.rail.min", app?.classList.contains("rail-min") ? "1" : "0"); } catch { /* 隐私模式不记 */ }
   });
+  // 拖拽改宽度：把手放在侧栏右缘，宽度存 localStorage。
+  // 原来只能靠一个按钮在两档之间跳 —— 而每个团队想要的宽度不一样。
+  const grip = el("div", { class: "side-resizer", "aria-hidden": "true" });
+  grip.addEventListener("mousedown", (ev) => {
+    ev.preventDefault();
+    grip.classList.add("dragging");
+    const side = grip.parentElement;
+    if (!side) return;
+    const startX = ev.clientX;
+    const startW = side.getBoundingClientRect().width;
+    const move = (e: MouseEvent): void => {
+      const w = Math.max(180, Math.min(360, startW + (e.clientX - startX)));
+      side.style.width = w + "px";
+    };
+    const up = (): void => {
+      grip.classList.remove("dragging");
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      try {
+        const side2 = grip.parentElement;
+        if (side2) localStorage.setItem("anc.rail.width", String(Math.round(side2.getBoundingClientRect().width)));
+      } catch { /* 隐私模式不记 */ }
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  });
   return el("aside", { class: "side" },
     el("div", { class: "side-brand" },
       el("span", { class: "brand-orb" }),
@@ -203,7 +229,7 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
     el("div", { class: "side-workspace", title: c ? [c.platform, c.timezone].filter(Boolean).join(" · ") : "" },
       el("span", { class: "ws-dot" }),
       el("span", { class: "ws-text" }, el("b", {}, c ? dash(c.name) : "还没读到投影"))),
-    nav);
+    nav, grip);
     // 侧栏底部原来挂了四块给工程师看的东西：校验状态、待批/卡点/bot红 三个计数器、
     // schema 版本（ANC.BOARD.V3）、以及「总览 · 时间线 · 只读观测」三个链接。
     // 它们讲的是"系统自己"，不是"用户的活" —— 而这几格恰好是客户第一眼看到的东西。
@@ -290,6 +316,10 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
   // 于是徽标亮着、数字冻着，读的人以为在看实时画面。
   // 现在它说的是实话：`live-chip` 亮 = 30 秒内取到过；超过就降级成「快照」。
   const live = d && d.board ? liveChip(lastLoadedAt()) : "";
+  // 顶栏只留「我在哪 + 我要找什么 + 我以谁的身份看」。
+  // 原来这里挂着 LIVE、校验干净、「生成 20:19:51」三块调试 HUD ——
+  // 它们是给写代码的人看的，客户看到的是"这系统还没装好"。
+  // 状态与时间戳挪进「系统」页；这里只留一个可点的公司名（点了去设置）。
   return el("header", { class: "topbar" },
     menu,
     el("div", { class: "crumbs" },
@@ -299,11 +329,8 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
       el("b", {}, page.label)),
     cmd,
     el("div", { class: "top-actions" },
-      live,
       domainSwitcher(page, d),
       roleSel,
-      pill,
-      d?.board ? el("span", { class: "meta-pill" }, "生成 " + localTime(d.board.generated_at)) : "",
       themeBtn, refresh, copy));
 }
 

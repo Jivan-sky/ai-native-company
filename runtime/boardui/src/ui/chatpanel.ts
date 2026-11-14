@@ -41,8 +41,7 @@ async function send(text: string, log: HTMLElement, out: HTMLElement, meta: HTML
     body: JSON.stringify({ prompt: text }),
   });
   if (!res.ok || !res.body) {
-    const body = await res.text();
-    out.textContent = "被拒绝了：" + body.slice(0, 300);
+    out.textContent = await humanError(res);
     return;
   }
   const reader = res.body.getReader();
@@ -125,4 +124,34 @@ export function mountChatPanel(): void {
   input.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); void submit(); }
   });
+}
+
+// humanError 把服务端的机器话翻成一句人话。
+//
+// 原来这里直接把响应体截 300 字贴出来，于是用户打一句「你好」，屏幕上出现
+// {"error":"拒绝","reason":"令牌读不懂"} —— 对方要的是对话，我们回给他一个 JSON。
+// 这比自己不懂更糟：它让人确认"这东西坏了"。
+async function humanError(res: Response): Promise<string> {
+  let raw = "";
+  try { raw = await res.text(); } catch { /* 读不到就只能报状态码 */ }
+  let j: { error?: string; reason?: string } | null = null;
+  try { j = JSON.parse(raw) as { error?: string; reason?: string }; } catch { j = null; }
+  const why = (j && (j.reason || j.error)) || "";
+  switch (res.status) {
+    case 501:
+      // 没配模型端点：这是**部署时少给了参数**，不是用户做错了什么。
+      return "这个看板还没接模型，所以对话用不了。\n" +
+        "启动看板时加上 --chat-base-url 和 --chat-model 就有了；不加也没关系 —— 看板其余部分不依赖它。";
+    case 401:
+    case 403:
+      return "这次对话没有拿到授权（看板给界面发的那张短时票没被接受）。\n" +
+        (why ? "服务端说：" + why : "") + "\n换个页面再回来会重新取票。";
+    case 429:
+      return "问得太快了，歇一下再试。";
+    case 503:
+      return "对话服务暂时不可用。\n" + (why ? "原因：" + why : "") +
+        "\n（看板其余部分不受影响，可以继续用。）";
+  }
+  if (why) return "没成功：" + why;
+  return "没成功（HTTP " + res.status + "）。服务端没有给原因 —— 这是它的问题，不是你的输入问题。";
 }
