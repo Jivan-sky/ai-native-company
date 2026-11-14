@@ -21,6 +21,9 @@
 package bench
 
 import (
+	"time"
+
+	"anc/internal/org"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -202,7 +205,28 @@ type View struct {
 func (v View) AllDelivered() bool { return v.Total > 0 && v.Delivered == v.Total }
 
 // Grade 判一个任务在一个视角下「要不要开口」。纯函数：不加载、不落盘、不打印。
-func Grade(p ctxpack.Out, tools []string, t Task) View {
+//
+// `o` 是**同一份**组织事实（真相源）。它进来只为一件事：授权那几项要跟跨域准入用
+// **同一个判据**（org.Exercise）—— 否则「基准说拿得到、真到门口被拒」会长期共存（A4）。
+func Grade(p ctxpack.Out, o *org.Org, tools []string, t Task) View {
+	gc := &gradeCtx{org: o}
+	if o != nil {
+		auth, wired, err := org.LoadAuthority(o.Root)
+		if err == nil {
+			gc.auth, gc.authWired = auth, wired
+		}
+	}
+	return grade(p, gc, tools, t)
+}
+
+// gradeCtx 把「判权要的上下文」收一处：权威源只读一次，不每项都去读文件。
+type gradeCtx struct {
+	org       *org.Org
+	auth      org.Authority
+	authWired bool
+}
+
+func grade(p ctxpack.Out, gc *gradeCtx, tools []string, t Task) View {
 	v := View{Who: p.Who, Total: len(t.Needs), Refused: p.Refused != nil}
 	if p.Identity != nil {
 		v.Name, v.Role = p.Identity.Name, p.Identity.Role
@@ -217,7 +241,7 @@ func Grade(p ctxpack.Out, tools []string, t Task) View {
 		case KindSkill:
 			r.Delivered, r.Where = hasSkill(p, n.Value)
 		case KindGrant:
-			r.Delivered, r.Where = hasGrant(p, n.Value)
+			r.Delivered, r.Where = hasGrant(p, gc, n.Value)
 		case KindTool:
 			r.Delivered, r.Where = hasTool(tools, n.Value)
 		}
@@ -270,11 +294,14 @@ func hasSkill(p ctxpack.Out, name string) (bool, string) {
 	return false, ""
 }
 
-// hasGrant：value 是 `action` 或 `action:object`。装配点给出的 grants 已经按主体滤过，
-// 所以「在这几行里找得到」就是「覆盖到了」（同一支判据：org.GrantHitsSubject）。
-func hasGrant(p ctxpack.Out, value string) (bool, string) {
+// hasGrant：value 是 `action` 或 `action:object`。
+//
+// A4：**与跨域准入同一个判据**。以前是「装配视图里找得到就算送达」——
+// 那份视图只按主体滤过，不看撤权 / 到期 / 链，于是基准会报「拿得到」而真到门口被拒。
+// 现在按 slug 找回 org.Grant，交给 org.Exercise 判那四件事；只有 OK 才算送达。
+func hasGrant(p ctxpack.Out, gc *gradeCtx, value string) (bool, string) {
 	action, object, _ := strings.Cut(value, ":")
-	if p.Grants == nil {
+	if p.Grants == nil || gc == nil || gc.org == nil {
 		return false, ""
 	}
 	for i, r := range p.Grants.Rows {
@@ -284,9 +311,30 @@ func hasGrant(p ctxpack.Out, value string) (bool, string) {
 		if object != "" && r.Object != object {
 			continue
 		}
-		return true, fmt.Sprintf("grants.rows[%d] %s→%s", i, r.Action, r.Object)
+		g, ok := grantBySlug(gc.org, r.Slug)
+		if !ok {
+			// 视图里有、真相源里找不到：数据不一致，不猜。
+			return false, "grants.rows[" + fmt.Sprint(i) + "] 与真相源对不上"
+		}
+		v := gc.org.Exercise(g, gc.auth, gc.authWired, time.Now())
+		if v.OK {
+			return true, "grants/" + g.Slug + "（链 " + fmt.Sprint(len(v.Chain)) + " 段，权威 v" + fmt.Sprint(v.Version) + "）"
+		}
+		if v.Unknown {
+			return false, "判不出：" + v.Reason
+		}
+		return false, "不成立：" + v.Reason
 	}
 	return false, ""
+}
+
+func grantBySlug(o *org.Org, slug string) (org.Grant, bool) {
+	for _, g := range o.Grants {
+		if g.Slug == slug {
+			return g, true
+		}
+	}
+	return org.Grant{}, false
 }
 
 // hasTool：角色被预授权了才叫「能调」。dontAsk 下没预授权的工具会被自动拒绝（实测）。
