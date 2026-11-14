@@ -442,7 +442,8 @@ export function shell(): void {
     el("div", { class: "side-scrim" }),
     el("div", { class: "main" },
       topbar(page, d),
-      tabbar(page),
+      // 顶部那排 tab 与左栏是同一份导航的第二个副本（设计评审：首屏 37% 被三套导航吃掉）。
+      // 左栏已经是全量导航且带分组，这里删掉，首屏立刻多出 44px。
       el("main", { class: "pagewrap", id: "main", tabindex: "-1" }, el("div", { class: "page page-" + page.id }, col)),
       el("footer", { class: "statusbar" },
         el("span", { class: "sb-item" }, el("i", { class: "sb-dot" }), d?.board ? dash(d.board.company.name) : "ANC 看板"),

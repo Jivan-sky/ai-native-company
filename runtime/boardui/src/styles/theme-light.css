@@ -6,9 +6,12 @@
 :root { color-scheme: dark; }
 [data-theme="light"] {
   color-scheme: light;
-  --bg: #f3f2ed;
-  --bg-2: #ecebe5;
-  --panel: rgba(255, 255, 255, 0.82);
+  /* 2026-11-14 骨架重做：暖米底 → 中性近白。
+     暖底把每张卖出去的截图都染黄，进客户的 PPT 直接掉一档；而且它让"卡片浮在雾里"——
+     卡面与底色亮度差只有 1.18:1，分块靠猜。中性底 + 纯白卡面才有前后景。 */
+  --bg: #fafafa;
+  --bg-2: #f2f2f2;
+  --panel: #ffffff;
   --glass: linear-gradient(158deg, rgba(255,255,255,0.95), rgba(249,248,244,0.88) 58%, rgba(255,255,255,0.93));
   --line: rgba(28, 31, 26, 0.10);
   --line-2: rgba(28, 31, 26, 0.18);
@@ -25,15 +28,14 @@
   --green: #16855a;
   --amber: #96610e;   /* 4.67 —— 原来是 4.07，同一批小字 */
   --indigo: #505fc0;
-  --shadow: 0 28px 70px -42px rgba(38, 42, 34, 0.30);
+  --shadow: none;
 }
 
+/* 单一底色，零装饰。原来这里叠了四层径向渐变（金/紫/绿/再一层），
+   每层都只有 0.10–0.16 的不透明度 —— 合起来就是把整屏洗成米色。
+   装饰不能制造层级；层级只能来自字号、对比与留白。 */
 [data-theme="light"] body {
-  background:
-    radial-gradient(900px 520px at 12% -10%, rgba(196, 174, 116, 0.16), transparent 70%),
-    radial-gradient(760px 460px at 96% 4%, rgba(154, 132, 148, 0.10), transparent 72%),
-    radial-gradient(900px 620px at 48% 110%, rgba(104, 148, 130, 0.10), transparent 70%),
-    linear-gradient(180deg, #f8f7f3 0%, #f2f1ec 52%, #f5f4ef 100%);
+  background: var(--bg);
 }
 [data-theme="light"] ::selection { background: rgba(158, 118, 38, 0.18); color: #1c1f1a; }
 [data-theme="light"] a:hover { color: #6f5315; }
