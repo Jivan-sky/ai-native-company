@@ -30,6 +30,13 @@ type Grant struct {
 	OnBehalfOf string // 署名：bot 发出的必须带（它不自有权限，只是代理对象的投影）
 	Reason     string // 一句话：为什么给
 	Body       string // 正文（自由文本，给人写「展开」的地方）
+
+	// 下面四个是 A3 要的：谁签的、什么时候生效、什么时候到期、从哪一条转授来的。
+	// 空着不是错（老数据就没有），但判定时会如实说「缺依据」而不是猜。
+	IssuedBy  string // 签发人（member:<名> | 业务 agent slug）
+	IssuedAt  string // RFC3339；空 = 从有记录起就生效
+	ExpiresAt string // RFC3339；空 = 受上游与权威约束，自身不设截止
+	Parent    string // 上游授权的 slug 或路径；空 = 根授权（只能由权威源的 issuer 签）
 }
 
 // GrantsDir 是授权表的落点（vault 顶层）。
@@ -127,6 +134,8 @@ func readGrant(path, rel string, p *Policy) (*Grant, []Issue) {
 	g.From, g.To, g.Action = field("from"), field("to"), field("action")
 	g.Object, g.TTL = field("object"), field("ttl")
 	g.OnBehalfOf, g.Reason = field("on_behalf_of"), field("reason")
+	g.IssuedBy, g.IssuedAt = field("issued_by"), field("issued_at")
+	g.ExpiresAt, g.Parent = field("expires_at"), field("parent")
 
 	// 四个必填字段。**期限不在必填之列**（SPEC §6 / Q25，2026-10-10 改口径：`ttl` 可选、不写 = 永久）。
 	// `grant.ttl.missing` 这条发现**照样发**，只是出厂档是 off（收集时被丢掉）—— 这样客户想要
