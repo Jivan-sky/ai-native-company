@@ -185,10 +185,16 @@ export function mountChatPanel(): void {
       el("div", { class: "chat-role" }, "ANC"), out, log, meta);
     list.append(agent);
     list.scrollTop = list.scrollHeight;
+    // 忙的时候亮彩虹光晕，闲下来就灭 —— 常亮的动效是噪音，不是信号。
+    panel.classList.add("streaming");
+    launcher.classList.add("busy");
     try {
       await send(text, log, out, meta);
     } catch (e) {
       out.textContent = "出错：" + (e instanceof Error ? e.message : String(e));
+    } finally {
+      panel.classList.remove("streaming");
+      launcher.classList.remove("busy");
     }
     list.scrollTop = list.scrollHeight;
   };

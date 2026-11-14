@@ -2398,3 +2398,41 @@ table.cost tr.zero td { color: var(--muted); }
 }
 .chat-empty .chat-eg:hover { border-color: var(--accent); color: var(--accent); }
 .chat-compose input { padding: 10px 13px; border-radius: 12px; }
+
+/* =========================================================================
+   彩虹光晕（vivo OriginOS 那种）—— 只在"正在干活"时亮
+   ------------------------------------------------------------------------
+   做法：面板背后放一层锥形渐变圆环 + 模糊，缓慢转动色相。
+   三个边界，缺一个就会变成廉价的跑马灯：
+   1 只在忙的时候亮（拖拽/空闲时不亮）—— 常亮的动效=噪音
+   2 光在面板**外面**一圈，不盖住文字（z-index:-1 + inset:-2px）
+   3 尊重 prefers-reduced-motion：关掉动画，只留一圈静态彩边
+   ========================================================================= */
+@property --glow-ang { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+
+.chat-panel { position: fixed; overflow: visible; }
+/* 第一版用 mask 挖空做边圈 —— 这个浏览器里 mask-composite 没按预期工作，
+   整片渐变透了出来，把面板内容洗成彩虹。换成经典的"双层背景"：
+   padding-box 是面板本身，border-box 是彩边。不需要 mask，行为可预期。 */
+.chat-panel {
+  border: 2px solid var(--glass-line, var(--line-2));
+  transition: box-shadow .28s ease;
+}
+.chat-panel.streaming {
+  border-color: transparent;
+  background:
+    linear-gradient(rgba(255,255,255,.96), rgba(255,255,255,.96)) padding-box,
+    conic-gradient(from var(--glow-ang),
+      #ff6b8b, #ffb457, #ffe66d, #5ee0a0, #4cbcff, #9a7bff, #ff6b8b) border-box;
+  box-shadow: 0 0 26px rgba(120,150,255,.30), 0 18px 50px rgba(16,18,22,.16);
+  animation: glow-spin 6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-panel::before { animation: none; }
+}
+
+/* 悬浮球也吃一点：忙的时候它亮，闲的时候不亮 */
+.chat-launcher.busy {
+  box-shadow: 0 0 0 2px rgba(255,255,255,.9), 0 0 18px rgba(120,150,255,.5);
+}
