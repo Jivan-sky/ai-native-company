@@ -2,15 +2,20 @@ package approvals
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"anc/internal/audit"
 	"anc/internal/envelope"
 	"anc/internal/hot"
 	"anc/internal/org"
+	"anc/internal/timeline"
 )
 
 // fakeQueue 是热层的假替身。
@@ -18,6 +23,7 @@ import (
 // 用例要测的是**顺序与痕迹**（先落库、再清热层、幂等），不是 Redis 本身 ——
 // 「用真 Redis 跑一遍」留给沙箱里的实测，这里不起服务。
 type fakeQueue struct {
+	mu      sync.Mutex
 	items   map[string]hot.State
 	puts    []string
 	drops   []string
@@ -27,11 +33,15 @@ type fakeQueue struct {
 func newFakeQueue() *fakeQueue { return &fakeQueue{items: map[string]hot.State{}} }
 
 func (f *fakeQueue) Get(id string) (hot.State, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	s, ok := f.items[strings.TrimSpace(id)]
 	return s, ok, nil
 }
 
 func (f *fakeQueue) Put(s hot.State) (hot.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.failPut != nil {
 		return hot.State{}, f.failPut
 	}
@@ -41,12 +51,16 @@ func (f *fakeQueue) Put(s hot.State) (hot.State, error) {
 }
 
 func (f *fakeQueue) Drop(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	delete(f.items, strings.TrimSpace(id))
 	f.drops = append(f.drops, id)
 	return nil
 }
 
 func (f *fakeQueue) List() ([]hot.State, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := make([]hot.State, 0, len(f.items))
 	for _, s := range f.items {
 		out = append(out, s)
@@ -259,10 +273,19 @@ func TestSettleWritesBothAndClearsQueue(t *testing.T) {
 		t.Fatal("结账之后队列里不该还有这条")
 	}
 
-	// 再点一次：不能静默成功，也不能再落一笔痕。
+	// 再点一次：**幂等** —— 返回原裁决，不新增任何行，也不报错。
+	// （契约变了：以前这里报 ErrNotQueued，那是「靠队列没了来防重」；
+	//  现在靠唯一回执防重，重投要回原结果 —— 见 A2-4。错误只留给「换了个决定」。）
 	before := readAll(t, r.Timeline)
-	if _, err := Settle(q, vault, d); !errors.Is(err, ErrNotQueued) {
-		t.Fatalf("重复点头该报 ErrNotQueued，拿到 %v", err)
+	again, err := Settle(q, vault, d)
+	if err != nil {
+		t.Fatalf("同参重投该幂等返回，拿到 %v", err)
+	}
+	if !again.Already {
+		t.Error("重投要标 Already")
+	}
+	if again.Decision.Signal != d.Signal || again.Decision.By != d.By {
+		t.Errorf("重投要回原裁决，拿到 %+v", again.Decision)
 	}
 	if after := readAll(t, r.Timeline); after != before {
 		t.Fatal("重复点头不该再落一笔痕")
@@ -349,4 +372,113 @@ func readAll(t *testing.T, path string) string {
 		t.Fatalf("读不到 %s：%v", path, err)
 	}
 	return string(b)
+}
+
+// A2-1 相反意见：两位操作者都看到待批、各自裁 —— 只有一个能成，另一个拿到冲突。
+// 关键不是"报不报错"，而是**两本流水各只有一条**。
+func TestSettleSecondOppositeDecisionConflicts(t *testing.T) {
+	vault := t.TempDir()
+	q := newFakeQueue()
+	p, err := FromEnvelope(proposal("p-1"), at(t, "2026-10-10T20:01:00+08:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.To = "经理"
+	if _, _, err := Enqueue(q, p); err != nil {
+		t.Fatal(err)
+	}
+	base, err := New("p-1", "alice", SignalApprove, "看着行", at(t, "2026-10-10T21:00:00+08:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Settle(q, vault, base); err != nil {
+		t.Fatalf("第一个裁决该成功：%v", err)
+	}
+	opp, err := New("p-1", "bob", SignalReject, "我不同意", at(t, "2026-10-10T21:05:00+08:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Settle(q, vault, opp); !errors.Is(err, ErrConflict) {
+		t.Fatalf("相反意见要判冲突，拿到 %v", err)
+	}
+	doc, _ := timeline.Load(vault)
+	if n := countIDPrefix(doc, "approval-p-1-"); n != 1 {
+		t.Fatalf("时间线只该有 1 条裁决行，拿到 %d", n)
+	}
+	ad, _ := audit.Load(vault)
+	if n := countAudit(ad, "approval-p-1-"); n != 1 {
+		t.Fatalf("审计只该有 1 条裁决行，拿到 %d", n)
+	}
+}
+
+func countIDPrefix(doc timeline.Doc, prefix string) int {
+	n := 0
+	for _, e := range doc.Entries {
+		if strings.HasPrefix(e.ID, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func countAudit(doc audit.Doc, prefix string) int {
+	n := 0
+	for _, r := range doc.Records {
+		if strings.HasPrefix(r.ID, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// A2-1 并发：两个人同时裁同一条，一个同意一个驳回。
+//
+// 断言的不是"谁报错"，而是**账本只多一行**：时间线 1 条、审计 1 条、成功者 1 个。
+// 这条测试针对的是「都读到待批 → 各写各的两本流水」那个窗口；
+// 串行调用测不出来，因为第一刀已经把队列清了。
+func TestSettleConcurrentOppositeDecisions(t *testing.T) {
+	const rounds = 40
+	for i := 0; i < rounds; i++ {
+		vault := t.TempDir()
+		id := fmt.Sprintf("p-c%d", i)
+		q := newFakeQueue()
+		pend, err := FromEnvelope(proposal(id), at(t, "2026-10-10T20:01:00+08:00"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pend.To = "经理"
+		if _, _, err := Enqueue(q, pend); err != nil {
+			t.Fatal(err)
+		}
+
+		var wg sync.WaitGroup
+		var okCount atomic.Int32
+		for who, sig := range map[string]Signal{"alice": SignalApprove, "bob": SignalReject} {
+			wg.Add(1)
+			go func(who string, sig Signal) {
+				defer wg.Done()
+				d, derr := New(id, who, sig, "理由", at(t, "2026-10-10T21:00:00+08:00"))
+				if derr != nil {
+					t.Error(derr)
+					return
+				}
+				if _, serr := Settle(q, vault, d); serr == nil {
+					okCount.Add(1)
+				}
+			}(who, sig)
+		}
+		wg.Wait()
+
+		doc, _ := timeline.Load(vault)
+		ad, _ := audit.Load(vault)
+		if n := countIDPrefix(doc, "approval-"+id+"-"); n != 1 {
+			t.Fatalf("第 %d 轮：时间线该只有 1 条裁决行，拿到 %d", i, n)
+		}
+		if n := countAudit(ad, "approval-"+id+"-"); n != 1 {
+			t.Fatalf("第 %d 轮：审计该只有 1 条裁决行，拿到 %d", i, n)
+		}
+		if okCount.Load() != 1 {
+			t.Fatalf("第 %d 轮：成功的裁决该恰好 1 个，拿到 %d", i, okCount.Load())
+		}
+	}
 }

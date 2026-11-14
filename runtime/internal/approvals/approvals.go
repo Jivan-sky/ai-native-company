@@ -17,8 +17,11 @@
 package approvals
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -403,12 +406,119 @@ type Receipt struct {
 	Timeline string // 落库那一行写到了哪个文件
 	Audit    string // 审计那一行写到了哪个文件
 	At       string
+	// Already = 本轮早就裁过了，这次是重投（返回原裁决，不新增任何行）。
+	Already bool
 }
 
-// Settle 是「结账」：**先落库、再清热层**（反序就会丢东西 —— hot 的口径）。
+// ErrConflict：这一轮已经有另一个裁决。两个相反意见不能都"成功" ——
+// 谁先落下唯一回执，谁就是这一轮的裁决。
+var ErrConflict = errors.New("这一轮已经裁过")
+
+// DecisionReceipt 是**唯一裁决回执**：一轮（proposal_id）只有一份，用 O_EXCL 创建。
 //
-// 不在队列里就报 ErrNotQueued：那意味着要么没提过，要么已经结过账。这一条**不能静默成功** ——
-// 否则一次点头会变成两条痕，或者干脆没有痕。
+// 它是并发的串行点：两个操作者都读到待批、都想裁，只有一个人能创建成功；
+// 另一个拿到 EEXIST，转去读这份回执 —— 于是「两个相反决定都成功」在物理上不可能。
+//
+// 回执**不可覆盖**，并且自带当时的提案快照：这样即使队列已经清掉，
+// 重投也能凭它把漏掉的投影补齐（`ensureProjections` 按稳定 ID 幂等补）。
+type DecisionReceipt struct {
+	ProposalID string   `json:"proposal_id"`
+	Round      int      `json:"round"` // v1 恒 1：hold 后重新提请会换新提案 ID，不换轮次
+	Decision   Decision `json:"decision"`
+	Pending    Pending  `json:"pending"`
+}
+
+const decisionsDir = "decisions"
+
+func receiptPath(vault, proposalID string) string {
+	return filepath.Join(vault, decisionsDir, proposalID+".json")
+}
+
+func readReceipt(path string) (DecisionReceipt, bool, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return DecisionReceipt{}, false, nil
+		}
+		return DecisionReceipt{}, false, err
+	}
+	var r DecisionReceipt
+	if err := json.Unmarshal(b, &r); err != nil {
+		return DecisionReceipt{}, false, fmt.Errorf("裁决回执读不懂（%s）：%w", path, err)
+	}
+	return r, true, nil
+}
+
+// createReceipt 用 O_EXCL 创建。created=false 表示已经有人先裁了（不是错误）。
+func createReceipt(vault string, d Decision, p Pending) (string, bool, error) {
+	path := receiptPath(vault, d.ProposalID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return path, false, err
+	}
+	b, err := json.MarshalIndent(DecisionReceipt{ProposalID: d.ProposalID, Round: 1, Decision: d, Pending: p}, "", "  ")
+	if err != nil {
+		return path, false, err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return path, false, nil
+		}
+		return path, false, err
+	}
+	defer f.Close()
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		return path, true, err
+	}
+	return path, true, nil
+}
+
+// ensureProjections 按稳定 ID 补写两本流水：已经有的不重复写。
+// 「投影可重复执行」是这套恢复的前提 —— 所以进度不记在回执里，靠 ID 查。
+func ensureProjections(vault string, p Pending, d Decision) (tlPath, auPath string, err error) {
+	want := "approval-" + p.ID + "-" + string(d.Signal)
+
+	have := false
+	if doc, lerr := timeline.Load(vault); lerr == nil {
+		for _, e := range doc.Entries {
+			if e.ID == want {
+				have = true
+				break
+			}
+		}
+	}
+	if !have {
+		tlPath, err = timeline.Append(vault, d.TimelineEntry(p))
+		if err != nil {
+			return "", "", fmt.Errorf("裁决已定（回执已落），但时间线写不进去：%w", err)
+		}
+	}
+
+	have = false
+	if doc, lerr := audit.Load(vault); lerr == nil {
+		for _, r := range doc.Records {
+			if r.ID == want {
+				have = true
+				break
+			}
+		}
+	}
+	if !have {
+		auPath, err = audit.Append(vault, d.AuditRecord(p))
+		if err != nil {
+			return tlPath, "", fmt.Errorf("时间线已写，但审计写不进去（重投会只补这一刀）：%w", err)
+		}
+	}
+	return tlPath, auPath, nil
+}
+
+// Settle 是「结账」：**回执先落 → 投影 → 清热层**。
+//
+// 三段的顺序不能换：
+//   - 回执是唯一裁决点（O_EXCL）。它先于两本流水，才能保证「谁先裁谁赢」，
+//     而不是「谁写得快谁赢」——后者在两本流水之间失败时会留下第二笔。
+//   - 投影可重复执行：按稳定 ID 查重，重投只补缺的那本。
+//   - 热层最后清：清了就看不见还在办的事了。
 func Settle(q Queue, vault string, d Decision) (Receipt, error) {
 	if q == nil {
 		return Receipt{}, errors.New("没有队列 —— 热层没接上")
@@ -416,6 +526,17 @@ func Settle(q Queue, vault string, d Decision) (Receipt, error) {
 	if strings.TrimSpace(vault) == "" {
 		return Receipt{}, errors.New("缺少 vault —— 落库与审计都要写进真相源")
 	}
+	if strings.TrimSpace(d.ProposalID) == "" {
+		return Receipt{}, errors.New("裁决需要提案 id")
+	}
+
+	path := receiptPath(vault, d.ProposalID)
+	if prev, ok, err := readReceipt(path); err != nil {
+		return Receipt{}, err
+	} else if ok {
+		return replay(q, vault, d, prev)
+	}
+
 	s, ok, err := q.Get(QueueID(d.ProposalID))
 	if err != nil {
 		return Receipt{}, err
@@ -428,27 +549,51 @@ func Settle(q Queue, vault string, d Decision) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
-	entry := d.TimelineEntry(p)
-	tlPath, err := timeline.Append(vault, entry)
-	if err != nil {
-		return Receipt{}, fmt.Errorf("落库失败，热层没动（先落库、再清热层）：%w", err)
+
+	if _, created, err := createReceipt(vault, d, p); err != nil {
+		return Receipt{}, err
+	} else if !created {
+		// 输了竞态：对方先落。转去读它的裁决。
+		prev, ok, rerr := readReceipt(path)
+		if rerr != nil {
+			return Receipt{}, rerr
+		}
+		if !ok {
+			return Receipt{}, fmt.Errorf("%w：回执刚被别人建出来又读不到，重试一次", ErrConflict)
+		}
+		return replay(q, vault, d, prev)
 	}
-	rec := d.AuditRecord(p)
-	auditPath, err := audit.Append(vault, rec)
+
+	tlPath, auPath, err := ensureProjections(vault, p, d)
 	if err != nil {
-		return Receipt{}, fmt.Errorf("库落了（%s）但审计没落 —— 热层没动：补上审计后重跑：%w", tlPath, err)
+		// 回执已落、投影没齐 —— 如实报，重投会只补缺的那本。
+		return Receipt{Pending: p, Decision: d, Timeline: tlPath, Audit: auPath, At: d.At.Format(time.RFC3339)}, err
 	}
 	if err := q.Drop(QueueID(d.ProposalID)); err != nil {
-		return Receipt{}, fmt.Errorf("库与审计都落了（%s / %s），热层没清掉 —— 清掉前别再点：%w",
-			tlPath, auditPath, err)
+		return Receipt{Pending: p, Decision: d, Timeline: tlPath, Audit: auPath, At: d.At.Format(time.RFC3339)},
+			fmt.Errorf("库与审计都落了（%s / %s），热层没清掉 —— 清掉前别再点：%w", tlPath, auPath, err)
 	}
-	return Receipt{
-		Pending:  p,
-		Decision: d,
-		Timeline: tlPath,
-		Audit:    auditPath,
-		At:       d.At.Format(time.RFC3339),
-	}, nil
+	return Receipt{Pending: p, Decision: d, Timeline: tlPath, Audit: auPath, At: d.At.Format(time.RFC3339)}, nil
+}
+
+// replay 处理「这一轮已经裁过」：同参重投返回原裁决，换信号 / 换人则冲突。
+// 投影可能还没齐（上次在审计那一步失败），所以这里仍然幂等补一遍。
+func replay(q Queue, vault string, d Decision, prev DecisionReceipt) (Receipt, error) {
+	if string(prev.Decision.Signal) != string(d.Signal) || prev.Decision.By != d.By {
+		return Receipt{}, fmt.Errorf("%w：上一笔是 %s 在 %s 做的「%s」，不是你现在点这个",
+			ErrConflict, prev.Decision.By, prev.Decision.At, prev.Decision.Signal)
+	}
+	tlPath, auPath, err := ensureProjections(vault, prev.Pending, prev.Decision)
+	if err != nil {
+		return Receipt{Pending: prev.Pending, Decision: prev.Decision, Timeline: tlPath, Audit: auPath,
+			At: prev.Decision.At.Format(time.RFC3339), Already: true}, err
+	}
+	// 队列里若还留着（上次清队失败），补清；已经没了就算了。
+	if _, ok, gerr := q.Get(QueueID(prev.ProposalID)); gerr == nil && ok {
+		_ = q.Drop(QueueID(prev.ProposalID))
+	}
+	return Receipt{Pending: prev.Pending, Decision: prev.Decision, Timeline: tlPath, Audit: auPath,
+		At: prev.Decision.At.Format(time.RFC3339), Already: true}, nil
 }
 
 // firstNonEmpty 取第一个非空。本包只用它，不再往 main 里借。
