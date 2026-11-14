@@ -46,6 +46,7 @@ type Report struct {
 	Green          int         `json:"green"`
 	Candidates     []Candidate `json:"candidates"`
 	CandidateTotal int         `json:"candidate_total"`
+	Excluded       []Excluded  `json:"excluded"` // 看着像候选、但判据不够的（附原因；不许静默少几条）
 	Truncated      bool        `json:"truncated,omitempty"`
 	Skills         []Skill     `json:"skills"`
 	Orphans        []string    `json:"orphans"`
@@ -60,6 +61,30 @@ type Report struct {
 // 字段全部是从 timeline 现算的事实：没有「可复用度」「价值分」这种编出来的判断。
 // Signals 只陈述证据（几条推进 / 多少字 / 几个引用 / 同名重复几次），
 // 供人决定要不要把它写成技能。
+// Excluded 是一条「看着像候选、但判据不够」的 case。摆出来而不是丢掉：
+// 少了几条必须能解释，否则「没有可沉淀的资产」和「有但被挡了」看起来一模一样。
+type Excluded struct {
+	Case  string `json:"case"`
+	Title string `json:"title"`
+	Why   string `json:"why"`
+}
+
+// notEligible 判一条绿档 case 为什么还不够格。空串 = 够格。
+func notEligible(c timeline.Case) string {
+	switch {
+	case c.Conflict:
+		return "状态冲突：两份相反主张互不引用，得先裁决用哪一条结的案"
+	case c.Pending:
+		return "顺序待核实：引用的前序还没到齐，可能还有一条会推翻它"
+	case c.Order == "assumed" && c.Entries > 1 && c.BandsMixed:
+		// 老数据里中途状态变过：可能有一条推翻了它，但我们没有前序可依。
+		return "顺序靠推定且中途状态变过：老数据没有 prev，判不出最后那条是不是被推翻了"
+	case strings.TrimSpace(c.Head) == "":
+		return "找不到头事件：判不出拿哪一条当结案依据"
+	}
+	return ""
+}
+
 type Candidate struct {
 	Case        string   `json:"case"`
 	Title       string   `json:"title"`
@@ -73,6 +98,12 @@ type Candidate struct {
 	SameTitle   int      `json:"same_title"`
 	SameDomain  int      `json:"same_domain"`
 	Signals     []string `json:"signals"`
+
+	// HeadEvent 是这次结案的**唯一依据**（头事件 ID）。草稿要绑它，
+	// 发布前还要按它重新核一次 —— 否则重开之后再发旧草稿，发出去的是一份已经过期的结论（B1/B2）。
+	HeadEvent string `json:"head_event"`
+	// Evidence 是依据的「怎么算出来的」一句话：链长、前序是否齐、顺序是算出来的还是推定的。
+	Evidence string `json:"evidence,omitempty"`
 }
 
 // Skill 是一份岗位声明的技能 + 正文在不在 + 谁声明了它。
@@ -91,6 +122,7 @@ func Build(in Input) Report {
 	r := Report{
 		Schema: Schema, Wired: in.TimelineWired, SkillsWired: in.SkillsWired,
 		Candidates: []Candidate{}, Skills: []Skill{}, Orphans: []string{}, Gaps: []string{},
+		Excluded: []Excluded{},
 		Note: "候选 = 已闭环（绿档）的 case，只按最后活动时间排；不打分、不排优先级 —— " +
 			"值不值得写成 skill 由人判断。这一页只读，不写 skills/。",
 	}
@@ -107,6 +139,18 @@ func Build(in Input) Report {
 	titleCount := map[string]int{}
 	domainCount := map[string]int{}
 	for _, c := range cases {
+		// B1：绿档只是必要条件。**判得出来**才进候选：
+		//   状态冲突 → 还没裁决，据以结案的是哪一条都不知道
+		//   顺序待核实 → 前序没到齐，可能还有一条推翻它的
+		//   老数据中途变过状态 → 只能按时间猜，猜出来的闭环不该沉淀成技能
+		// 判不出来的那几种（冲突 / 待核实）即便不是绿档也要记下来解释 —— 它们不是"还没做完"，
+		// 是"我们说不清到底算不算做完"。
+		if why := notEligible(c); why != "" {
+			if c.Band == timeline.BandGreen || c.Conflict || c.Pending {
+				r.Excluded = append(r.Excluded, Excluded{Case: c.Key, Title: c.Title, Why: why})
+			}
+			continue
+		}
 		if c.Band != timeline.BandGreen {
 			continue
 		}
@@ -151,6 +195,7 @@ func Build(in Input) Report {
 		r.Candidates = append(r.Candidates, Candidate{
 			Case: c.Key, Title: c.Title, Domain: c.Domain, Project: c.Project,
 			By: c.By, At: c.LastAt, Entries: c.Entries,
+			HeadEvent: c.Head, Evidence: evidenceOf(c),
 			DetailChars: chars, Refs: len(refs),
 			SameTitle: sameTitle, SameDomain: sameDomain,
 			Signals: signals,
@@ -286,4 +331,13 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// evidenceOf 用一句话说清「这个当前态是怎么算出来的」——草稿上要能看见它。
+func evidenceOf(c timeline.Case) string {
+	order := "按前序算"
+	if c.Order == "assumed" {
+		order = "按时间推定"
+	}
+	return fmt.Sprintf("依据事件 %s · %s · 共 %d 条推进", c.Head, order, c.Entries)
 }
