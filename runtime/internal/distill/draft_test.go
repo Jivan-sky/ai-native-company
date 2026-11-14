@@ -34,7 +34,8 @@ func TestBuildDraftOnlyClosedCases(t *testing.T) {
 func TestDraftMarkdownCarriesFactsOnly(t *testing.T) {
 	entries := []timeline.Entry{
 		row("m1", "case-md", "2026-10-18T10:00:00+08:00", "running", "对账", "trade", "第一步"),
-		row("m2", "case-md", "2026-10-18T11:00:00+08:00", "done", "对账", "trade", "第二步完成", "refs/a.md", "refs/b.md"),
+		withPrev(row("m2", "case-md", "2026-10-18T11:00:00+08:00", "done", "对账", "trade",
+			"第二步完成", "refs/a.md", "refs/b.md"), "m1"),
 	}
 	d, err := BuildDraft(entries, "case-md")
 	if err != nil {

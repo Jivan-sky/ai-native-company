@@ -311,6 +311,8 @@ type Case struct {
 	Conflict bool    `json:"conflict,omitempty"` // 有两个互不引用的头 → 状态冲突
 	Pending  bool    `json:"pending,omitempty"`  // 引用的前序还没到（或坏了）→ 顺序待核实
 	Claims   []Claim `json:"claims,omitempty"`   // 冲突时把两个主张都列出来
+	// BandsMixed：老数据（无 prev）里中途状态变过 —— 判不出最后那条是不是被推翻了。
+	BandsMixed bool `json:"bands_mixed,omitempty"`
 
 	_parent map[string]string // 事件 ID → 前序 ID；只在折叠时用，不进 JSON
 	Recent  []Entry           `json:"recent"`
@@ -373,7 +375,17 @@ func Fold(es []Entry) []Case {
 		if c._parent != nil {
 			applyCausal(c)
 		} else {
+			// 没有前序：按时间取最后一条（老口径不变），但如实标「推定」，
+			// 并把「中途状态变过」记下来 —— 那意味着可能有一条推翻了它，只是我们没证据。
 			c.Order = "assumed"
+			if n := len(c.Recent); n > 0 {
+				c.Head = c.Recent[n-1].ID
+			}
+			bands := map[string]bool{}
+			for _, e := range c.Recent {
+				bands[Band(e.Status)] = true
+			}
+			c.BandsMixed = len(bands) > 1
 		}
 	}
 	for i := range cs {

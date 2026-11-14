@@ -14,6 +14,12 @@ func row(id, caseID, at, status, title, domain, detail string, refs ...string) t
 	}
 }
 
+// withPrev 给一条记录接上前序（B1 之后，「靠时间猜的闭环」不算闭环）。
+func withPrev(e timeline.Entry, prev string) timeline.Entry {
+	e.Prev = prev
+	return e
+}
+
 func firstLineOf(list []string, prefix string) string {
 	for _, s := range list {
 		if strings.HasPrefix(s, prefix) {
@@ -30,7 +36,8 @@ func TestCandidatesOnlyClosedCases(t *testing.T) {
 		TimelineWired: true, SkillsWired: true,
 		Entries: []timeline.Entry{
 			row("a1", "case-a", "2026-10-18T10:00:00+08:00", "running", "对账", "trade", "第一步"),
-			row("a2", "case-a", "2026-10-18T11:00:00+08:00", "done", "对账", "trade", "第二步完成", "refs/a.md"),
+			withPrev(row("a1b", "case-a", "2026-10-18T11:00:00+08:00", "done", "对账", "trade",
+				"第二步完成", "refs/a.md"), "a1"),
 			row("b1", "case-b", "2026-10-18T12:00:00+08:00", "blocked", "等 ETA", "trade", "卡在外部"),
 			row("c1", "case-c", "2026-10-18T13:00:00+08:00", "done", "对账", "ops", "", "refs/b.md", "refs/c.md"),
 			row("d1", "case-d", "2026-10-18T14:00:00+08:00", "done", "单独的事", "", ""),
@@ -111,5 +118,40 @@ func TestSkillsNotWiredIsReported(t *testing.T) {
 	}
 	if got := firstLineOf(r.Gaps, "技能覆盖：org 真相源读不动"); got == "" {
 		t.Fatalf("缺口没交代技能那一段：%v", r.Gaps)
+	}
+}
+
+// B1：绿档但**判不出来**的 case 不进候选，而且要能解释为什么少了几条。
+func TestCandidatesExcludeUndecidable(t *testing.T) {
+	in := Input{
+		TimelineWired: true, SkillsWired: true,
+		Entries: []timeline.Entry{
+			// 冲突：两条互不引用的相反主张（同秒）
+			row("x1", "case-x", "2026-10-18T09:00:00+08:00", "done", "两份报告", "trade", "我完成了"),
+			withPrev(row("x2", "case-x", "2026-10-18T09:00:00+08:00", "running", "两份报告", "trade",
+				"还差一截"), "x0"),
+			// 老数据中途变过状态（无 prev）→ 推定且混档，不沉淀
+			row("y1", "case-y", "2026-10-18T10:00:00+08:00", "running", "老案子", "trade", "在办"),
+			row("y2", "case-y", "2026-10-18T11:00:00+08:00", "done", "老案子", "trade", "做完了"),
+			// 正常闭环（有前序）→ 该进候选
+			row("z0", "case-z", "2026-10-18T10:00:00+08:00", "running", "正常案子", "trade", "开工"),
+			withPrev(row("z1", "case-z", "2026-10-18T12:00:00+08:00", "done", "正常案子", "trade",
+				"收工"), "z0"),
+		},
+	}
+	r := Build(in)
+	if r.CandidateTotal != 1 || len(r.Candidates) != 1 || r.Candidates[0].Case != "case-z" {
+		t.Fatalf("只该有 case-z 一条候选，拿到 %+v", r.Candidates)
+	}
+	if len(r.Excluded) != 2 {
+		t.Fatalf("该有 2 条被排除且附原因，拿到 %+v", r.Excluded)
+	}
+	for _, x := range r.Excluded {
+		if strings.TrimSpace(x.Why) == "" {
+			t.Errorf("%s 被排除了但没写原因", x.Case)
+		}
+	}
+	if r.Candidates[0].HeadEvent != "z1" {
+		t.Errorf("候选要绑住结案那条事件，拿到 %q", r.Candidates[0].HeadEvent)
 	}
 }

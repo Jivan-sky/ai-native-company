@@ -144,10 +144,17 @@ func Check(in CheckInput) CheckReport {
 
 	if !in.TimelineWired {
 		add("case.provenance", LevelWarn, "timeline 读不动", "无法核对来源 case")
-	} else if c := findGreenCase(in.Entries, in.Name, in.Draft); c == "" {
-		add("case.provenance", LevelWarn, "来源 case 对不上", "frontmatter 里的 case 不在绿档闭环里（或被删了）—— 来源无法回溯")
+	} else if c, why := findGreenCase(in.Entries, in.Name, in.Draft); c == "" {
+		add("case.provenance", LevelWarn, "来源 case 对不上", why)
 	} else {
 		add("case.provenance", LevelOK, "来源 case 是绿档", c)
+	}
+	// B2：草稿还绑着**具体哪一条结案事件**吗？重开、重新结案、出现冲突之后，
+	// 旧草稿的 case 可能仍然是绿的 —— 但它依据的那个"完成"已经不是当前态了。
+	if why := draftHeadStale(in.Entries, in.Draft); why != "" {
+		add("case.head_event", LevelWarn, "依据过期", why)
+	} else if in.Draft != "" && in.TimelineWired {
+		add("case.head_event", LevelOK, "依据仍对得上当前态", "")
 	}
 	return finish(r)
 }
@@ -294,19 +301,68 @@ func declaringRoles(roles []RoleSkills, name string) []string {
 	return out
 }
 
-func findGreenCase(entries []timeline.Entry, name, draft string) string {
+func findGreenCase(entries []timeline.Entry, name, draft string) (string, string) {
 	fm, ok := parseFrontmatter(draft)
 	if !ok {
+		return "", "草稿没有 frontmatter —— 判不出它来源哪个 case"
+	}
+	key := strings.TrimSpace(fm["case"])
+	if key == "" {
+		return "", "frontmatter 没写 case —— 来源无法回溯"
+	}
+	for _, c := range Build(Input{Entries: entries, TimelineWired: true}).Candidates {
+		if c.Case == key {
+			return key, ""
+		}
+	}
+	// 在候选之外的原因里找：是被判成冲突 / 待核实，还是根本没闭环。
+	for _, x := range Build(Input{Entries: entries, TimelineWired: true}).Excluded {
+		if x.Case == key {
+			return "", "来源 case 还没法结案：" + x.Why
+		}
+	}
+	return "", "frontmatter 里的 case 不在闭环里（或被删了）—— 来源无法回溯"
+}
+
+// draftHeadStale 判「草稿依据的那条结案事件」是否还是当前态。
+//
+// 三种情况要拦住：
+//  1. 草稿写了 head_event，但现在算出来的头是另一条 → 重开/重新结案了
+//  2. 这个 case 现在判成冲突 / 待核实 → 当前态不确定，草稿的依据也就不可靠
+//  3. 草稿根本没写 head_event（老草稿）→ 只能说"依据未登记"
+func draftHeadStale(entries []timeline.Entry, draft string) string {
+	if strings.TrimSpace(draft) == "" {
 		return ""
+	}
+	fm, ok := parseFrontmatter(draft)
+	if !ok {
+		return "草稿没有 frontmatter —— 判不出它依据哪一条结案事件"
 	}
 	key := strings.TrimSpace(fm["case"])
 	if key == "" {
 		return ""
 	}
-	for _, c := range Build(Input{Entries: entries, TimelineWired: true}).Candidates {
-		if c.Case == key {
-			return key
+	want := strings.TrimSpace(fm["head_event"])
+	cases := timeline.Fold(entries)
+	var c *timeline.Case
+	for i := range cases {
+		if cases[i].Key == key {
+			c = &cases[i]
+			break
 		}
+	}
+	if c == nil {
+		return "这个 case 在时间线里找不到了"
+	}
+	switch {
+	case c.Conflict:
+		return "这个 case 现在状态冲突（两份相反主张互不引用）—— 草稿依据的结论还不成立"
+	case c.Pending:
+		return "这个 case 顺序待核实（前序没到齐）—— 可能还有一条会推翻草稿的依据"
+	case want == "":
+		return "草稿没登记 head_event（老草稿）—— 无法确认它依据的是哪一次结案"
+	case want != c.Head:
+		return "草稿依据的是 " + want + "，但当前态已经是 " + c.Head + " —— 重开或重新结案过了"
 	}
 	return ""
 }

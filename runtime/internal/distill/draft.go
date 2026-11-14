@@ -64,7 +64,10 @@ func BuildDraft(entries []timeline.Entry, caseKey string) (Draft, error) {
 // Markdown 渲染草稿正文。name 是技能名（已校验），at 是生成时刻。
 func (d Draft) Markdown(name, at string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nname: %s\nstatus: draft\ncase: %s\ngenerated_at: %s\nsource: timeline\n---\n\n", name, d.Case.Case, at)
+	// B2：草稿要绑死**依据哪一条事件结的案**（head_event）。
+	// 只写 case 不够 —— 同一个 case 重开再结案之后，旧草稿看起来仍然"对应得上"。
+	fmt.Fprintf(&b, "---\nname: %s\nstatus: draft\ncase: %s\nhead_event: %s\ngenerated_at: %s\nsource: timeline\n---\n\n",
+		name, d.Case.Case, d.Case.HeadEvent, at)
 	fmt.Fprintf(&b, "# %s\n\n", oneLine(d.Case.Title))
 	b.WriteString("这份是**草稿**：只装 timeline 里可核对的事实，不是可执行技能。\n")
 	fmt.Fprintf(&b, "要发布，先补「何时用 / 输入 / 步骤 / 验证」四段，再落到 `skills/%s/SKILL.md`。\n\n", name)
@@ -83,6 +86,9 @@ func (d Draft) Markdown(name, at string) string {
 	fmt.Fprintf(&b, "- 推进记录：%d 条\n", d.Case.Entries)
 
 	b.WriteString("\n## 证据\n")
+	if d.Case.Evidence != "" {
+		fmt.Fprintf(&b, "- 依据：%s\n", oneLine(d.Case.Evidence))
+	}
 	for _, s := range d.Case.Signals {
 		fmt.Fprintf(&b, "- %s\n", s)
 	}

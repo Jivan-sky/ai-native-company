@@ -17,7 +17,7 @@ func distillFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	lines := `{"id":"t1","case":"case-1","at":"2026-10-18T10:00:00+08:00","status":"running","by":"cs-owner","title":"在跑的事"}
-{"id":"t2","case":"case-1","at":"2026-10-18T11:00:00+08:00","status":"done","by":"cs-owner","title":"在跑的事","detail":"做完了"}
+{"id":"t2","case":"case-1","at":"2026-10-18T11:00:00+08:00","status":"done","by":"cs-owner","title":"在跑的事","detail":"做完了","prev":"t1"}
 {"id":"t3","case":"case-2","at":"2026-10-18T12:00:00+08:00","status":"done","by":"cs-owner","title":"另一件闭环"}
 `
 	if err := os.MkdirAll(filepath.Join(vault, "timeline"), 0o755); err != nil {
