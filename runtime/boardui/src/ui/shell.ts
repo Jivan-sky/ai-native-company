@@ -174,7 +174,9 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
       class: p.id === page.id ? "nav-item active" : "nav-item",
       href: "#/" + p.id,
       title: p.question,
-    }, iconBox(p.icon), el("span", { class: "lab" }, p.label), el("span", { class: "nav-hint" }, p.question), navBadge(p, d));
+      // 副标（那句问题）不进列表：两行字挤在 21px 行高里，读者说"密集、看不懂"。
+      // 它本来就在 title 里，悬停能看到 —— 列表一行只留页名。
+    }, iconBox(p.icon), el("span", { class: "lab" }, p.label), navBadge(p, d));
     if (p.id === page.id) a.setAttribute("aria-current", "page");
     box?.append(a);
   }
@@ -327,7 +329,7 @@ export function topbar(page: Page, d: Data | null): HTMLElement {
   const menu = el("button", { class: "icon-btn menu-btn", type: "button", "aria-label": "打开导航" }, icon("menu", 15));
   menu.addEventListener("click", () => document.querySelector(".app")?.classList.toggle("nav-open"));
   const cmd = el("button", { class: "cmd-btn", type: "button", "aria-label": "搜索与跳转" },
-    icon("search", 14), el("span", { class: "label" }, "搜索页面、成员、项目、Agent…"), el("span", { class: "kbd" }, "Ctrl K"));
+    icon("search", 14), el("span", { class: "label" }, "搜索页面、成员、项目、Agent…"), el("span", { class: "kbd" }, isMac() ? "⌘K" : "Ctrl K"));
   cmd.addEventListener("click", openPalette);
   const refresh = el("button", { class: "icon-btn", type: "button", "aria-label": "刷新", title: "刷新" }, icon("refresh", 15));
   refresh.addEventListener("click", () => reload(true));
@@ -495,7 +497,7 @@ export function shell(): void {
         // 状态栏只留"这是哪家公司"。schema 版本与生成时间戳是调试信息，
         // 客户看到的是"这系统在报自己的内部状态"。
         el("span", { class: "sb-grow" }),
-        el("span", { class: "sb-item" }, "Ctrl K"))));
+        el("span", { class: "sb-item" }, isMac() ? "⌘K" : "Ctrl K"))));
   try {
     if (localStorage.getItem("anc.rail.min") === "1") app.classList.add("rail-min");
   } catch { /* 隐私模式不读 */ }
@@ -555,4 +557,10 @@ export function applyRailWidth(): void {
     const w = localStorage.getItem("anc.rail.width");
     if (w) app.style.setProperty("--side-w", w + "px");
   } catch { /* 隐私模式不记 */ }
+}
+
+// 快捷键在 Mac 上该显示 ⌘K 而不是 Ctrl K —— 一个按不到的提示等于没有提示。
+function isMac(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
 }
