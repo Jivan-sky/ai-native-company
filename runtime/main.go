@@ -181,6 +181,8 @@ func main() {
 		os.Exit(cmdIngest(args))
 	case "import":
 		os.Exit(cmdImport(args))
+	case "authz":
+		os.Exit(cmdAuthz(args))
 	case "org":
 		if len(args) > 0 && args[0] == "check" {
 			os.Exit(cmdOrgCheck(args[1:]))
