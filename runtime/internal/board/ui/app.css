@@ -686,7 +686,10 @@ body {
 }
 
 /* ---------- 侧栏 ---------- */
-.app { grid-template-columns: 278px minmax(0, 1fr); transition: grid-template-columns 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+/* 侧栏宽度由 --side-w 一个变量说了算。
+   以前列宽写死 278px，而拖拽改的是 aside 自己的 width —— 于是把手能拖、
+   正文不让位，侧栏直接压在内容上。版面只有一个真相：这个变量。 */
+.app { grid-template-columns: var(--side-w, 278px) minmax(0, 1fr); transition: grid-template-columns 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
 .side {
   background: linear-gradient(180deg, rgba(14, 15, 17, 0.98), rgba(7, 8, 9, 0.96));
   border-right: 1px solid var(--line);
@@ -1099,13 +1102,13 @@ tbody tr:hover td { background: rgba(255,255,255,0.025); color: var(--text); }
 
 /* ---------- 窄屏 ---------- */
 @media (max-width: 1280px) {
-  .app { grid-template-columns: 246px minmax(0, 1fr); }
+  .app { grid-template-columns: var(--side-w, 246px) minmax(0, 1fr); }
   .stage-hero { padding: 42px 36px 24px; gap: 30px; }
   .stage-dock { padding: 0 20px 18px; }
   .loop { margin: 0 20px 20px; }
 }
 @media (max-width: 1080px) {
-  .app { grid-template-columns: 224px minmax(0, 1fr); }
+  .app { grid-template-columns: var(--side-w, 224px) minmax(0, 1fr); }
   .stage-hero { grid-template-columns: minmax(0, 1fr); padding: 38px 30px 8px; }
   .hero-orbit { display: none; }
   .stage-dock { grid-template-columns: minmax(0, 1fr); padding: 0 20px 20px; }
@@ -2240,3 +2243,21 @@ table.matrix .no { color: var(--line-3); }
 .others-h { font-size: 14px; color: var(--muted); font-weight: 500; margin-top: 6px; }
 .banner.ok .next { margin: 6px 0 4px; font-size: 13.5px; }
 .banner.ok details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+
+/* 业务模块矩阵：一屏看完全公司有哪几块业务 */
+.mods { margin: 4px 0 14px; }
+.mods-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.mods-h h2 { margin: 0; }
+.mods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.mcell {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--line-2); border-radius: var(--radius);
+  background: var(--panel); padding: 12px 13px;
+  transition: border-color .12s ease, transform .12s ease;
+}
+.mcell:hover { border-color: var(--accent); transform: translateY(-1px); }
+.mcell .m-name { font-size: 14.5px; font-weight: 600; margin-bottom: 6px; }
+.mcell .m-nums { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.mcell .m-nums b { color: var(--ink); font-size: 14px; }
+.mcell .m-what { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.mcell.empty { border-style: dashed; opacity: .78; }

@@ -191,19 +191,19 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
       : "";
   const collapse = el("button", { class: "collapse-btn", type: "button", "aria-label": "收起或展开侧栏", title: "收起 / 展开侧栏" }, icon("chevronL", 14));
   collapse.addEventListener("click", () => {
-    const app = document.querySelector(".app");
+    const app = document.querySelector<HTMLElement>(".app");
     app?.classList.toggle("rail-min");
     const min = app?.classList.contains("rail-min") ?? false;
     // 收起时把内联宽度让出去（否则 .rail-min 的 56px 被内联样式压住），
     // 展开时再按记住的宽度放回来。
-    if (aside) {
+    if (app) {
       if (min) {
-        aside.style.width = "";
+        app.style.setProperty("--side-w", "56px");
       } else {
         try {
           const w = localStorage.getItem("anc.rail.width");
-          if (w) aside.style.width = w + "px";
-        } catch { /* 隐私模式不记 */ }
+          app.style.setProperty("--side-w", (w ? w : "278") + "px");
+        } catch { app.style.setProperty("--side-w", "278px"); }
       }
     }
     try { localStorage.setItem("anc.rail.min", min ? "1" : "0"); } catch { /* 隐私模式不记 */ }
@@ -214,13 +214,16 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
   grip.addEventListener("mousedown", (ev) => {
     ev.preventDefault();
     grip.classList.add("dragging");
+    document.querySelector(".app")?.classList.add("dragging-rail");
     const side = grip.parentElement;
     if (!side) return;
     const startX = ev.clientX;
     const startW = side.getBoundingClientRect().width;
+    const app = document.querySelector<HTMLElement>(".app");
     const move = (e: MouseEvent): void => {
-      const w = Math.max(180, Math.min(360, startW + (e.clientX - startX)));
-      side.style.width = w + "px";
+      const w = Math.max(200, Math.min(380, startW + (e.clientX - startX)));
+      // 改的是版面唯一的那个变量，不是 aside 自己的宽度 —— 后者只会让它盖住正文。
+      app?.style.setProperty("--side-w", w + "px");
     };
     const up = (): void => {
       grip.classList.remove("dragging");
@@ -230,6 +233,7 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
         const side2 = grip.parentElement;
         if (side2) localStorage.setItem("anc.rail.width", String(Math.round(side2.getBoundingClientRect().width)));
       } catch { /* 隐私模式不记 */ }
+      app?.classList.remove("dragging-rail");
     };
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
@@ -248,7 +252,7 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
   // 这是"存了却没恢复"，等于没存。
   try {
     const w = localStorage.getItem("anc.rail.width");
-    if (w) aside.style.width = w + "px";
+    if (w) document.querySelector<HTMLElement>(".app")?.style.setProperty("--side-w", w + "px");
   } catch { /* 隐私模式不记 */ }
   return aside;
     // 侧栏底部原来挂了四块给工程师看的东西：校验状态、待批/卡点/bot红 三个计数器、

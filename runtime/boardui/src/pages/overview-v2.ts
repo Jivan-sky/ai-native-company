@@ -1,4 +1,4 @@
-import type { Data, Kid } from "../core/types";
+import type { Data, DomainRow, Kid } from "../core/types";
 import { el } from "../core/dom";
 import { allowed, currentRole } from "../core/roles";
 import { metricButton } from "../core/metrics";
@@ -132,19 +132,58 @@ export function renderOverviewV2(d: Data): Kid[] {
           (issueCount(d) > 0 ? ` · 校验 ${issueCount(d)} 处` : "")),
       ),
       el("div", { class: "stats" },
-        el("div", { class: "stat block" }, el("div", { class: "n" }, metricButton("bot-red", String(redBots(d)))), el("div", { class: "k" }, "bot 红")),
-        el("div", { class: "stat warn" }, el("div", { class: "n" }, metricButton("pending", String(pendingCount(d)))), el("div", { class: "k" }, "待批")),
-        el("div", { class: "stat" }, el("div", { class: "n" }, metricButton("projects", String(b?.projects?.length ?? 0))), el("div", { class: "k" }, "项目")),
+        el("div", { class: "stat warn" }, el("div", { class: "n" }, metricButton("pending", String(pendingCount(d)))), el("div", { class: "k" }, "等你点头")),
+        el("div", { class: "stat" }, el("div", { class: "n" }, String(domainsOf(d).length)), el("div", { class: "k" }, "业务模块")),
+        el("div", { class: "stat" }, el("div", { class: "n" }, String(b?.projects?.length ?? 0)), el("div", { class: "k" }, "在办项目")),
       ),
     ),
     // 「效率」那块原本在这里，用 done ÷ (done+failed) 算达成率。
     // 那个公式是替客户定义"什么叫效率"—— 客户接的是 ERP 与工单，人效根本不是这个算法。
     // 口径必须是配置项（谁定义、按什么算、窗口多长），写死在代码里就是在逼客户造假。
     // 在口径可配置之前，这块先不下屏 —— 空着比编一个强。
+    modulesGrid(d),
     el("div", { class: "cols" }, todoCard(d), whereCard(d), historyCard(d)),
     el("div", { class: "links" },
       ...SHORTCUTS.filter((s) => allowed(role, s.id))
         .map((s) => el("a", { href: s.href ?? "#" + s.id }, s.label + " →"))),
   );
   return [summary as unknown as Kid];
+}
+
+// modulesGrid：一屏之内看「这家公司有哪几块业务、每块几个人几件事」。
+//
+// 格子**从真相源的业务域生成**，不是我在代码里写死的四个格。
+// 客户加一个域（domains.md 多一行），这里就多一格 —— 这才叫可配置。
+// 空域也要画出来：它「有人认领但还没资料」是真实状态，藏起来就成了假绿。
+function domainsOf(d: Data): DomainRow[] {
+  return d.board?.domains ?? [];
+}
+
+function modulesGrid(d: Data): Kid {
+  const doms = domainsOf(d);
+  if (doms.length === 0) {
+    return el("div", { class: "v2" },
+      el("div", { class: "card" },
+        el("p", { class: "quiet" }, "真相源里还没有业务域（domains.md）—— 这一格空着是事实，不是错误。")));
+  }
+  const members = d.board?.members ?? [];
+  const projects = d.board?.projects ?? [];
+  const agents = d.board?.agents ?? [];
+  const cells = doms.map((dom) => {
+    const people = members.filter((m) => !m.disabled && (m.domains ?? []).includes(dom.slug)).length;
+    const projs = projects.filter((p) => p.domain === dom.slug).length;
+    const ags = agents.filter((a) => a.domain === dom.slug).length;
+    const empty = people === 0 && projs === 0 && ags === 0;
+    return el("a", { class: "mcell" + (empty ? " empty" : ""), href: "#/projects?domain=" + encodeURIComponent(dom.slug) },
+      el("div", { class: "m-name" }, dom.name || dom.slug),
+      el("div", { class: "m-nums" },
+        el("span", {}, el("b", {}, String(people)), " 人"),
+        el("span", {}, el("b", {}, String(projs)), " 项目"),
+        el("span", {}, el("b", {}, String(ags)), " agent")),
+      el("div", { class: "m-what" }, empty ? "有人认领，但还没有资料" : (dom.what || "—")));
+  });
+  return el("div", { class: "v2" },
+    el("div", { class: "mods" },
+      el("div", { class: "mods-h" }, el("h2", {}, "业务模块"), el("span", { class: "hint" }, doms.length + " 块 · 点进去看这块的活")),
+      el("div", { class: "mods-grid" }, ...cells)));
 }

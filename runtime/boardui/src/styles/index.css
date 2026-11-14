@@ -159,3 +159,21 @@ table.matrix .no { color: var(--line-3); }
 .others-h { font-size: 14px; color: var(--muted); font-weight: 500; margin-top: 6px; }
 .banner.ok .next { margin: 6px 0 4px; font-size: 13.5px; }
 .banner.ok details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+
+/* 业务模块矩阵：一屏看完全公司有哪几块业务 */
+.mods { margin: 4px 0 14px; }
+.mods-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.mods-h h2 { margin: 0; }
+.mods-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.mcell {
+  display: block; text-decoration: none; color: inherit;
+  border: 1px solid var(--line-2); border-radius: var(--radius);
+  background: var(--panel); padding: 12px 13px;
+  transition: border-color .12s ease, transform .12s ease;
+}
+.mcell:hover { border-color: var(--accent); transform: translateY(-1px); }
+.mcell .m-name { font-size: 14.5px; font-weight: 600; margin-bottom: 6px; }
+.mcell .m-nums { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.mcell .m-nums b { color: var(--ink); font-size: 14px; }
+.mcell .m-what { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.mcell.empty { border-style: dashed; opacity: .78; }
