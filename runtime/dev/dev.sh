@@ -51,6 +51,11 @@ mkdir -p "$BOX" "$LOG"
 in_dev() { "${COMPOSE[@]}" run --rm dev sh -c "$1"; }
 
 case "$1" in
+  types)
+    # 契约漂移检查：拿真服务返回核对前端类型（不引任何运行时，只在开发期跑）
+    node "$HERE/gen-types.mjs"
+    ;;
+
   ui)
     ego-browser nodejs < "$HERE/ui-invariants.mjs"
     ;;fmt)
