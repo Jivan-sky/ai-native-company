@@ -214,11 +214,37 @@ export function pendingSection(v: ApprovalView, d: Data | null): Kid {
         el("div", { class: "grid props" }, ...sub.map((p) => pendingCard(v, p)))));
   };
 
+  // 台账行：字段名在左、事在右、时间在最后。一行读完就知道要不要点 —— 不用先点开。
+  // 这是交互设计里的主循环第一步（翻），也是"不用卡片"那条规矩的落地。
+  const ledgerRow = (p: ApprovalPending, sign: boolean): HTMLElement => {
+    const who = (p.who ?? "").trim() || "没署名";
+    const title = (p.title ?? "").trim() || "（没写标题）";
+    const at = (p.enqueued ?? "").replace("T", " ").slice(5, 16);
+    const rowEl = el("div", { class: "ledger-row" + (sign ? " sign" : ""), role: "button", tabindex: "0" },
+      el("div", { class: "who" }, sign ? "待你签" : who),
+      el("div", { class: "what" }, title),
+      el("div", { class: "when" }, at));
+    // 点行 = 展开那张单（附页式）。再点收起。键盘 Enter / Space 同效。
+    const toggle = (): void => {
+      const slip = rowEl.parentElement?.querySelector(".ledger-slip");
+      if (slip) slip.classList.toggle("open");
+    };
+    rowEl.addEventListener("click", toggle);
+    rowEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+    });
+    return rowEl;
+  };
+
   const blocks: Kid[] = [];
   if (mine.length > 0) {
     blocks.push(el("div", { class: "mine" },
-      el("h3", { class: "mine-h" }, el("span", {}, "该你批"), el("span", { class: "hint" }, mine.length + " 件")),
-      el("div", { class: "grid props" }, ...mine.map((p) => pendingCard(v, p)))));
+      el("h3", { class: "mine-h" }, el("span", {}, "待你签"), el("span", { class: "hint" }, mine.length + " 件")),
+      el("div", { class: "ledger" },
+        ...mine.map((p) => el("div", {},
+          ledgerRow(p, true),
+          // 展开的那张"单"：正文 + 签字动作。点行才显示，行本身保持一行高度。
+          el("div", { class: "ledger-slip" }, pendingCard(v, p)))))));
   }
   if (others.length > 0) {
     blocks.push(el("div", { class: "others" },
