@@ -2449,3 +2449,37 @@ table.cost tr.zero td { color: var(--muted); }
     rgba(255,255,255,.55), transparent 70%);
   mix-blend-mode: screen;
 }
+
+/* =========================================================================
+   台账方向（2026-11-14）—— 按 frontend-design 的破绽清单改的
+   ------------------------------------------------------------------------
+   我们原本中了两条模板味：全大写 eyebrow（9 处）、中间点串联的 meta（49 处）、
+   等宽字体当小标签（55 处）。这三样在任何产品上都能出现，所以它们不能替这个产品说话。
+   ========================================================================= */
+
+/* 1 删掉全大写 eyebrow 与字母间距：它不是这个产品的语言 */
+.v2 .kicker,
+.eyebrow {
+  text-transform: none !important;
+  letter-spacing: .02em !important;
+  font-size: 12px !important;
+  color: var(--muted) !important;
+  font-weight: 500 !important;
+}
+
+/* 2 签章红：全站只表示"等你签"一件事 */
+:root, [data-theme="light"], [data-theme="dark"] { --seal: #c03027; }
+
+/* 3 待批列表：横线台账，不是卡片堆。
+   字段名在左、值在右、行间一条线 —— 这是单据的读法，也是最快的扫读方式。 */
+.ledger { border-top: 1px solid var(--rule, var(--line-2)); }
+.ledger-row {
+  display: grid; grid-template-columns: 92px 1fr auto;
+  gap: 12px; align-items: baseline;
+  padding: 10px 2px; border-bottom: 1px solid var(--rule, var(--line-2));
+}
+.ledger-row .who { font-size: 12px; color: var(--muted); }
+.ledger-row .what { font-size: 13.5px; color: var(--ink); }
+.ledger-row .when { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ledger-row.sign .what { font-weight: 600; }
+.ledger-row.sign .who { color: var(--seal); }
