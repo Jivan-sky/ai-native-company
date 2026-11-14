@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,6 +38,8 @@ const taskUsage = `anc task —— 拉取式任务队列（ANC 只入队，agent
   anc task settle <vault> <id> [--by <谁>] [--status <终态>] [--title <一句话>]
                                 [--note <结账说明>] [--kind execution] [--refs a,b]
   anc task ls <vault> [--who <agent>] [--stage queued|running|review|blocked|done] [--status <业务词>]
+  anc task route <vault> --domain <slug> [--role <slug>] [--pick] [--seed N]
+                                这件活该派给谁：候选与分档（默认只算不选；--pick 才在最高档里抽一个）
                      [--overdue] [--limit 50] [--json]
 
 配置：
@@ -88,6 +91,8 @@ func cmdTask(args []string) int {
 		return cmdTaskReap(args[1:])
 	case "settle":
 		return cmdTaskSettle(args[1:])
+	case "route":
+		return cmdTaskRoute(args[1:])
 	case "ls", "list":
 		return cmdTaskLs(args[1:])
 	}
@@ -500,4 +505,57 @@ func cmdTaskSettle(args []string) int {
 func printJSON(v any) {
 	b, _ := json.MarshalIndent(v, "", "  ")
 	fmt.Println(string(b))
+}
+
+// cmdTaskRoute 是「这件活该派给谁」的**只算不派**版本。
+//
+// 为什么先只做 dry-run：派单一旦自动写进 `to`，改的就是"谁会被叫起来干活"。
+// 那是一个行为变更，得先让人看着候选与分档跑几轮，确认档位划分合理，再打开。
+// 形状借自 new-api 的选渠道：分档阶梯 + 档内加权；但它自动重试换渠道，我们不换人 ——
+// 换人要走 handoff 并留痕（见 docs/ROUTING-FROM-NEWAPI.md）。
+func cmdTaskRoute(args []string) int {
+	fs := flag.NewFlagSet("task route", flag.ContinueOnError)
+	domain := fs.String("domain", "", "这件活落在哪块业务（domains.md 的 slug）")
+	role := fs.String("role", "", "这件活要求的岗位（roles/ 的 slug）；空 = 不限")
+	pick := fs.Bool("pick", false, "在最高一档里抽一个（默认只给候选，不选人）")
+	seed := fs.Int64("seed", 0, "随机种子（0 = 按当前时间；给了就可复现）")
+	flagArgs, pos := splitArgs(args, map[string]bool{})
+	if err := fs.Parse(flagArgs); err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprint(os.Stderr, taskUsage)
+		return 2
+	}
+	vault, err := filepath.Abs(pos[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 2
+	}
+	o, err := org.Load(vault)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "真相源加载失败：%v\n", err)
+		return 1
+	}
+	r := org.RouteTask(o, *domain, *role)
+	out := map[string]any{"ok": true, "route": r, "human": r.Human()}
+	if *pick {
+		rnd := rand.New(rand.NewSource(*seed))
+		if *seed == 0 {
+			rnd = rand.New(rand.NewSource(time.Now().UnixNano()))
+		}
+		who, why := r.Pick(rnd)
+		if who == nil {
+			out["ok"] = false
+			out["why"] = why
+		} else {
+			out["picked"] = who
+		}
+	}
+	b, _ := json.MarshalIndent(out, "", "  ")
+	fmt.Println(string(b))
+	if !*pick || out["picked"] != nil {
+		return 0
+	}
+	return 1
 }
