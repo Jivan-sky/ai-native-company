@@ -193,7 +193,20 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
   collapse.addEventListener("click", () => {
     const app = document.querySelector(".app");
     app?.classList.toggle("rail-min");
-    try { localStorage.setItem("anc.rail.min", app?.classList.contains("rail-min") ? "1" : "0"); } catch { /* 隐私模式不记 */ }
+    const min = app?.classList.contains("rail-min") ?? false;
+    // 收起时把内联宽度让出去（否则 .rail-min 的 56px 被内联样式压住），
+    // 展开时再按记住的宽度放回来。
+    if (aside) {
+      if (min) {
+        aside.style.width = "";
+      } else {
+        try {
+          const w = localStorage.getItem("anc.rail.width");
+          if (w) aside.style.width = w + "px";
+        } catch { /* 隐私模式不记 */ }
+      }
+    }
+    try { localStorage.setItem("anc.rail.min", min ? "1" : "0"); } catch { /* 隐私模式不记 */ }
   });
   // 拖拽改宽度：把手放在侧栏右缘，宽度存 localStorage。
   // 原来只能靠一个按钮在两档之间跳 —— 而每个团队想要的宽度不一样。
@@ -221,7 +234,7 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
   });
-  return el("aside", { class: "side" },
+  const aside = el("aside", { class: "side" },
     el("div", { class: "side-brand" },
       el("span", { class: "brand-orb" }),
       el("span", { class: "bt" }, el("b", {}, "ANC"), el("small", {}, "AI-NATIVE COMPANY")),
@@ -230,6 +243,14 @@ export function sidebar(page: Page, d: Data | null): HTMLElement {
       el("span", { class: "ws-dot" }),
       el("span", { class: "ws-text" }, el("b", {}, c ? dash(c.name) : "还没读到投影"))),
     nav, grip);
+  // 宽度必须在这里读回来。拖拽只改了 DOM 上的 style.width，而任何一次重绘
+  // （点按钮 → API → shell()）都会重建这个 aside —— 不读回来，用户拖完点一下就弹回原位。
+  // 这是"存了却没恢复"，等于没存。
+  try {
+    const w = localStorage.getItem("anc.rail.width");
+    if (w) aside.style.width = w + "px";
+  } catch { /* 隐私模式不记 */ }
+  return aside;
     // 侧栏底部原来挂了四块给工程师看的东西：校验状态、待批/卡点/bot红 三个计数器、
     // schema 版本（ANC.BOARD.V3）、以及「总览 · 时间线 · 只读观测」三个链接。
     // 它们讲的是"系统自己"，不是"用户的活" —— 而这几格恰好是客户第一眼看到的东西。
