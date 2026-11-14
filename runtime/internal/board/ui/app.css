@@ -2224,3 +2224,11 @@ table.matrix .no { color: var(--line-3); }
 .gfield .gi:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .gactions { display: flex; gap: 8px; }
 .gmsg { font-size: 12.5px; color: var(--muted); white-space: pre-line; margin-top: 8px; }
+
+/* 身份选择器：比自由输入框省事，也避免"我该填什么" */
+.by-select {
+  font: inherit; font-size: 13px; padding: 7px 9px; min-width: 260px;
+  border-radius: var(--radius-2); border: 1px solid var(--line-2);
+  background: var(--panel); color: var(--ink);
+}
+.by-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
