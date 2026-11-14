@@ -1,5 +1,7 @@
 import type { Data, GrantRow, GrantsView, Kid } from "../core/types";
+import { postJSON } from "../core/api";
 import { banner, dash, el, section, table } from "../core/dom";
+import { reload } from "../core/refresh";
 import { cannot, emptyNote, findingLine } from "../ui/blocks";
 
 // ---------- 授权表页：谁被允许对谁做什么 ----------
@@ -115,7 +117,7 @@ export function renderGrants(d: Data): Kid[] {
     "`grants/` 里逐条搬过来，一个字不改 —— 这一页是给人核对的",
     v.rows.length === 0
       ? grantEmpty(v)
-      : table(["谁给的", "给谁", "动作", "客体", "期限", "为什么", "落点"],
+      : table(["谁给的", "给谁", "动作", "客体", "期限", "为什么", "落点", ""],
           v.rows.map((r) => [
             grantSubjectCell(r, "from"),
             grantSubjectCell(r, "to"),
@@ -126,7 +128,15 @@ export function renderGrants(d: Data): Kid[] {
               : el("span", { class: "mono" }, r.ttl),
             dash(r.reason),
             el("span", { class: "mono nw" }, r.path),
+            revokeButton(r.path),
           ]))));
+
+  // 签发 / 撤回：把只在命令行里能做的事搬到界面上（2026-11-14）。
+  //
+  // 两个都是 POST 到 /api/authz/*，走的是 CLI 用过的同一批领域入口。
+  // 撤回放在每一行里 —— 「撤这一条」是行级动作，不是页面级动作。
+  out.push(section("签发一条授权", "签完立刻生效；同名不覆盖（覆盖等于悄悄改掉一条有审计记录的授权）",
+    grantForm()));
 
   out.push(section("授权表上的校验发现",
     "与 `anc org check` 同一张规则表 —— 档次由规则表定，这一页不另判",
@@ -138,4 +148,65 @@ export function renderGrants(d: Data): Kid[] {
   out.push(section("这一页答不了什么", "如实列 —— 缺的部分不许用「图好看」补上",
     el("ul", {}, ...v.missing.map((m) => el("li", {}, m)))));
   return out;
+}
+
+// grantForm 是最小的签发表单：五个必填 + 两个可选。
+// 不追求好看，先让它**能用**：填完点签发，落盘，刷新后表里能看到。
+function grantForm(): HTMLElement {
+  const f = (label: string, ph: string, key: string): HTMLElement => {
+    const inp = el("input", { class: "gi", type: "text", placeholder: ph, "data-k": key });
+    return el("label", { class: "gfield" }, el("span", {}, label), inp);
+  };
+  const box = el("div", { class: "gform" },
+    f("标识（小写 ascii）", "例如 delivery-read", "slug"),
+    f("给谁", "member:bob 或 role:manager", "to"),
+    f("动作", "read / write / invoke", "action"),
+    f("客体", "domain:<slug>", "object"),
+    f("为什么", "一句话", "reason"),
+    f("到期（可空）", "2026-12-31T00:00:00+08:00", "expires_at"));
+  const msg = el("p", { class: "gmsg" });
+  const btn = el("button", { class: "act approve", type: "button" }, "签发");
+  btn.addEventListener("click", () => {
+    void (async () => {
+      const val = (k: string): string => {
+        const n = box.querySelector<HTMLInputElement>('input[data-k="' + k + '"]');
+        return n ? n.value.trim() : "";
+      };
+      btn.setAttribute("disabled", "disabled");
+      msg.textContent = "签发中…";
+      const res = await postJSON<{ ok?: boolean; error?: string; hint?: string }>("/api/authz/grant", {
+        slug: val("slug"), to: val("to"), action: val("action") || "read",
+        object: val("object"), reason: val("reason"), expires_at: val("expires_at"),
+      });
+      btn.removeAttribute("disabled");
+      if (res.status === 200 && res.body?.ok) {
+        msg.textContent = "已签发。刷新后表里能看到这一条。";
+        reload(true);
+        return;
+      }
+      msg.textContent = (res.body?.error ?? "签发失败") + (res.body?.hint ? "\n" + res.body.hint : "");
+    })();
+  });
+  return el("div", {}, box, el("div", { class: "gactions" }, btn), msg);
+}
+
+// revokeButton 是行级动作：撤这一条。
+function revokeButton(path: string): HTMLElement {
+  const b = el("button", { class: "act reject", type: "button", title: "撤回这一条（版本 +1，历史保留）" }, "撤回");
+  b.addEventListener("click", () => {
+    void (async () => {
+      b.setAttribute("disabled", "disabled");
+      const slug = path.split("/").pop()?.replace(/\.md$/, "") ?? path;
+      const res = await postJSON<{ ok?: boolean; error?: string; version?: number }>("/api/authz/revoke", { ref: slug });
+      if (res.status === 200 && res.body?.ok) {
+        b.textContent = "已撤回 v" + (res.body.version ?? "");
+        reload(true);
+        return;
+      }
+      b.removeAttribute("disabled");
+      b.textContent = "撤回失败";
+      b.title = res.body?.error ?? "";
+    })();
+  });
+  return b;
 }
