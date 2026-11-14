@@ -64,3 +64,11 @@ body, .num, .n, .kpi, .stat, .mono { font-variant-numeric: tabular-nums; }
 
 /* 组标题：它以前看起来像个能点的框。现在只做分区标记。 */
 .side .nav-label { cursor: default; pointer-events: none; }
+
+/* 侧栏宽度可拖（2026-11-14）。使用者原话：「我想拉动侧边栏的宽度，它不行，只能通过一个按钮」。 */
+.side { position: relative; }
+.side-resizer {
+  position: absolute; top: 0; right: -3px; width: 6px; height: 100%;
+  cursor: col-resize; z-index: 30; background: transparent;
+}
+.side-resizer:hover, .side-resizer.dragging { background: var(--line-2); }
