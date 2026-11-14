@@ -1,4 +1,4 @@
-import type { Attrs, ContextView, CtxPack, CtxTask, Data, Kid } from "../core/types";
+import type { Attrs, ContextView, CostReport, CtxPack, CtxTask, Data, Kid } from "../core/types";
 import { banner, card, dash, el, section, table } from "../core/dom";
 import { localTime } from "../core/format";
 import { handOff, statusCell } from "./timeline";
@@ -159,6 +159,8 @@ export function renderContext(d: Data): Kid[] {
   if ((v.error ?? "") !== "") {
     out.push(banner("bad", "真相源读不动", [el("span", {}, dash(v.error))]));
   }
+  // 装配的账摆最前面：这一页要回答的不是"给了什么"，是"为什么只给这些、这次有多贵"。
+  if (v.cost) out.push(ctxCostSection(v.cost));
   out.push(ctxWhoSection(v));
   const p = v.pack;
   if (!p) {
@@ -205,4 +207,20 @@ export function renderContext(d: Data): Kid[] {
       "这一页只摆出来看，不落盘；要一份冻住的副本用 ", el("span", { class: "mono" }, "anc context freeze"),
       "（落 vault 的 context/，进 git）。")));
   return out;
+}
+
+// ctxCostSection：一段一行的账。每行 = 段名 · 多少字 · 几条 · 依据。
+// 空段也列出来 —— "这一段是空的"本身就是信息（比如热层没接上时的待办）。
+function ctxCostSection(c: CostReport): Kid {
+  const rows = c.sections.map((s) => el("tr", { class: s.chars === 0 ? "zero" : "" },
+    el("td", {}, s.name),
+    el("td", { class: "n" }, s.chars === 0 ? "—" : String(s.chars)),
+    el("td", { class: "n" }, s.items === 0 ? "—" : String(s.items)),
+    el("td", { class: "why" }, s.why)));
+  return section("这次装配花了多少", "共 " + c.total + " 字 · 每段都能说出依据",
+    el("table", { class: "cost" },
+      el("thead", {}, el("tr", {},
+        el("th", {}, "段"), el("th", { class: "n" }, "字"), el("th", { class: "n" }, "条"), el("th", {}, "依据"))),
+      el("tbody", {}, ...rows)),
+    el("p", { class: "quiet" }, c.note));
 }

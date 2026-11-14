@@ -38,7 +38,10 @@ type ContextView struct {
 	// TaskBands：任务状态 → 配色档，**只给这一页用**。词表仍然只有一处说了算（timeline.Band），
 	// 前端不另抄一份（同 /api/timeline 那条纪律）。key = 任务编号；认不出的词落 unknown（画灰）。
 	TaskBands map[string]string `json:"task_bands,omitempty"`
-	Note      string            `json:"note"`
+	// Cost 是这次装配的账：每段多少字、依据什么、为什么是空的。
+	// 没有它，这一页只能回答"给了什么"，回答不了"为什么只给这些"和"这次有多贵"。
+	Cost *CostReport `json:"cost,omitempty"`
+	Note string      `json:"note"`
 }
 
 // tasks 读热层里那一摞当前值 —— 「派给我的待办 / 我在做的」这两摞的输入。
@@ -115,6 +118,8 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		out, _ := ctxpack.Assemble(o, s.Vault, view.Who, "", view.Domain, s.now(), tasks)
 		view.Pack = &out
 		view.TaskBands = taskBands(&out)
+		rep := costOf(&out)
+		view.Cost = &rep
 	}
 	writeJSON(w, http.StatusOK, view)
 }

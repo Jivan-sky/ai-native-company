@@ -2261,3 +2261,10 @@ table.matrix .no { color: var(--line-3); }
 .mcell .m-nums b { color: var(--ink); font-size: 14px; }
 .mcell .m-what { font-size: 12px; color: var(--muted); line-height: 1.5; }
 .mcell.empty { border-style: dashed; opacity: .78; }
+
+/* 装配账：段名 / 字 / 条 / 依据。空段灰掉但不隐藏 —— "这段是空的"本身就是信息。 */
+table.cost { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+table.cost th, table.cost td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+table.cost th.n, table.cost td.n { text-align: right; width: 76px; font-variant-numeric: tabular-nums; }
+table.cost td.why { color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+table.cost tr.zero td { color: var(--muted); }
