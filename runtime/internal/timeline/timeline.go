@@ -56,6 +56,26 @@ var bandOf = map[string]string{
 
 // Band 把 status 映射成配色档。认不出的返回 BandUnknown —— **刻意不报错**：
 // 数据里出现新词时，看板照常显示原词 + 灰点，而不是整页崩掉或者把词吞掉。
+// Claim 是一条「对当前态的主张」：冲突时两个都要摆出来，不能只留赢的那个。
+type Claim struct {
+	ID     string `json:"id"`
+	At     string `json:"at"`
+	Status string `json:"status"`
+	By     string `json:"by,omitempty"`
+	Title  string `json:"title"`
+}
+
+// BandConflict / BandPending 是两个**不是业务状态**的档：
+//
+//	conflict = 两份都有效、互不引用、结论相反 —— 需要人裁决
+//	pending  = 引用的前序还没到/坏了 —— 顺序待核实
+//
+// 它们不与 ok / warn / block 混用：那三档说的是「事办到哪了」，这两档说的是「我们判不出来」。
+const (
+	BandConflict = "conflict"
+	BandPending  = "pending"
+)
+
 func Band(status string) string {
 	if b, ok := bandOf[strings.ToLower(strings.TrimSpace(status))]; ok {
 		return b
@@ -82,6 +102,11 @@ type Entry struct {
 	Title   string   `json:"title"`             // 一句话
 	Detail  string   `json:"detail,omitempty"`  // 展开
 	Refs    []string `json:"refs,omitempty"`    // 文件 / 链接
+
+	// Prev 是**前序事件 ID**：这一条取代的是哪一条（重开引用被它推翻的完成、新一轮完成引用重开）。
+	// 有了它，同一 case 的当前态才是**算出来的**，而不是"谁排在后面谁赢"（B1）。
+	// 空 = 老数据没写前序，判定时如实标「顺序按时间推定」，不假装有因果。
+	Prev string `json:"prev,omitempty"`
 
 	// Src 是这条记录**在盘上的哪一行**（`2026-11.anc.jsonl:12`）。加载时填，不写进文件：
 	// 它描述的是位置，不是内容 —— 写进 jsonl 会让「重放同一份数据」多出一个会漂的字段。
@@ -267,19 +292,28 @@ func safeName(s string) string {
 
 // Case 是折叠后的一个 case：一行代表「一个正在被推进的事」。
 type Case struct {
-	Key     string  `json:"key"`
-	Title   string  `json:"title"`
-	Status  string  `json:"status"`
-	Band    string  `json:"band"`
-	FirstAt string  `json:"first_at"`
-	LastAt  string  `json:"last_at"`
-	By      string  `json:"by,omitempty"`
-	Role    string  `json:"role,omitempty"`
-	To      string  `json:"to,omitempty"`
-	Domain  string  `json:"domain,omitempty"`
-	Project string  `json:"project,omitempty"`
-	Entries int     `json:"entries"`
-	Recent  []Entry `json:"recent"`
+	Key     string `json:"key"`
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Band    string `json:"band"`
+	FirstAt string `json:"first_at"`
+	LastAt  string `json:"last_at"`
+	By      string `json:"by,omitempty"`
+	Role    string `json:"role,omitempty"`
+	To      string `json:"to,omitempty"`
+	Domain  string `json:"domain,omitempty"`
+	Project string `json:"project,omitempty"`
+	Entries int    `json:"entries"`
+
+	// 下面四个是 B1 的：当前态是**按前序算出来的**，算不出来就说算不出来。
+	Head     string  `json:"head,omitempty"`     // 当前态那条事件的 ID
+	Order    string  `json:"order"`              // causal = 有前序可依；assumed = 没前序，按时间推定
+	Conflict bool    `json:"conflict,omitempty"` // 有两个互不引用的头 → 状态冲突
+	Pending  bool    `json:"pending,omitempty"`  // 引用的前序还没到（或坏了）→ 顺序待核实
+	Claims   []Claim `json:"claims,omitempty"`   // 冲突时把两个主张都列出来
+
+	_parent map[string]string // 事件 ID → 前序 ID；只在折叠时用，不进 JSON
+	Recent  []Entry           `json:"recent"`
 }
 
 // recentKeep 是每个 case 带几行历史。5 够看「怎么走到这一步」，再多就该去翻原文了。
@@ -324,6 +358,23 @@ func Fold(es []Entry) []Case {
 			c.Project = e.Project
 		}
 		c.Recent = append(c.Recent, e)
+		if strings.TrimSpace(e.Prev) != "" {
+			if c._parent == nil {
+				c._parent = map[string]string{}
+			}
+			c._parent[e.ID] = strings.TrimSpace(e.Prev)
+			c.Order = "causal"
+		}
+	}
+	// 当前态按前序算，不按读入顺序（B1）。老数据一条 prev 都没有 → Order 保持空，
+	// 下面按时间取最后一条，并在 Case.Order 上如实标 assumed。
+	for i := range cs {
+		c := &cs[i]
+		if c._parent != nil {
+			applyCausal(c)
+		} else {
+			c.Order = "assumed"
+		}
 	}
 	for i := range cs {
 		r := cs[i].Recent
@@ -373,4 +424,85 @@ func Tally(cs []Case) Counts {
 		}
 	}
 	return n
+}
+
+// applyCausal 按前序算「当前态」。这是 B1 的核心：**不按谁排在后面，按谁承接了谁**。
+//
+// 三条规则：
+//  1. 头事件（head）= 没有任何事件把它当作前序的那一条。恰好一个头 → 它就是当前态。
+//  2. 多于一个头，且它们**结论不同** → 状态冲突。两份主张都摆出来，不做选择。
+//  3. 有事件引用的前序不在这批数据里 → 顺序待核实（分片可能还没到）。
+//
+// 为什么不用"最后一条覆盖"：那等于用文件读取顺序裁决业务先后 —— 同一秒的两个相反报告，
+// 谁的文件先被读到谁就赢。审计把这类判法列为「没有业务次序」。
+func applyCausal(c *Case) {
+	if c._parent == nil {
+		return
+	}
+	byID := make(map[string]Entry, len(c.Recent))
+	referenced := make(map[string]bool, len(c._parent))
+	for _, e := range c.Recent {
+		byID[e.ID] = e
+	}
+	missing := false
+	for id, prev := range c._parent {
+		referenced[prev] = true
+		if _, ok := byID[prev]; !ok {
+			missing = true
+		}
+		_ = id
+	}
+	var heads []Entry
+	for _, e := range c.Recent {
+		if referenced[e.ID] {
+			continue // 被别人取代了，不是头
+		}
+		heads = append(heads, e)
+	}
+	// 一条 prev 都没有的 case 不会走到这里（Order 已被标成 assumed）。
+	if len(heads) == 0 {
+		c.Pending = true
+		c.Band = BandPending
+		return
+	}
+	// 头的结论是否一致：按 band 比（status 词表不锁死，band 是归一后的那三档）。
+	distinct := map[string]bool{}
+	for _, h := range heads {
+		distinct[Band(h.Status)] = true
+	}
+	if len(heads) > 1 && len(distinct) > 1 {
+		c.Conflict = true
+		c.Band = BandConflict
+		c.Claims = c.Claims[:0]
+		for _, h := range heads {
+			c.Claims = append(c.Claims, Claim{ID: h.ID, At: h.At, Status: h.Status, By: h.By, Title: h.Title})
+		}
+		if missing {
+			c.Pending = true
+		}
+		return
+	}
+	// 选当前态：按时间取最新的那个头（多个头结论一致时，谁新谁算）。
+	head := heads[0]
+	for _, h := range heads[1:] {
+		if h.At > head.At || (h.At == head.At && h.ID > head.ID) {
+			head = h
+		}
+	}
+	c.Head = head.ID
+	c.Status = head.Status
+	c.Band = Band(head.Status)
+	if strings.TrimSpace(head.Title) != "" {
+		c.Title = head.Title
+	}
+	if strings.TrimSpace(head.By) != "" {
+		c.By = head.By
+	}
+	if strings.TrimSpace(head.To) != "" {
+		c.To = head.To
+	}
+	if missing {
+		c.Pending = true
+		c.Band = BandPending
+	}
 }

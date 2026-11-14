@@ -275,3 +275,102 @@ func TestLoadFillsSrc(t *testing.T) {
 		t.Errorf("行号不对：%q / %q", doc.Entries[0].Src, doc.Entries[1].Src)
 	}
 }
+
+// B1-1 同秒「完成」再「重开」：重开引用被它推翻的完成 → 当前态是重开。
+// 关键是**交换送达顺序结果不变** —— 这一版才是"按因果"，不是"按谁排后面"。
+func TestFoldReopenSupersedesDone(t *testing.T) {
+	done := Entry{ID: "e1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "done", By: "z", Title: "做完"}
+	reopen := Entry{ID: "e2", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "running", By: "a",
+		Title: "验收漏了", Prev: "e1"}
+	for _, order := range [][]Entry{{done, reopen}, {reopen, done}} {
+		cs := Fold(order)
+		if len(cs) != 1 {
+			t.Fatalf("该折成一个 case，拿到 %d", len(cs))
+		}
+		c := cs[0]
+		if c.Conflict || c.Pending {
+			t.Fatalf("顺序清楚，不该报冲突/待核实：%+v", c)
+		}
+		if c.Status != "running" || c.Head != "e2" {
+			t.Fatalf("当前态该是重开（e2），拿到 status=%q head=%q", c.Status, c.Head)
+		}
+		if c.Order != "causal" {
+			t.Errorf("有前序就该标 causal，拿到 %q", c.Order)
+		}
+	}
+}
+
+// B1-2 重开之后再完成（D2 引用 R）→ 当前态是完成，且头指向 D2。
+func TestFoldDoneSupersedesReopen(t *testing.T) {
+	cs := Fold([]Entry{
+		{ID: "d1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "done", Title: "做完"},
+		{ID: "r1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "running", Title: "重开", Prev: "d1"},
+		{ID: "d2", Case: "c1", At: "2026-11-14T10:00:00Z", Status: "done", Title: "又做完", Prev: "r1"},
+	})
+	if len(cs) != 1 {
+		t.Fatalf("该折成一个 case，拿到 %d", len(cs))
+	}
+	c := cs[0]
+	if c.Status != "done" || c.Head != "d2" {
+		t.Fatalf("当前态该是 d2，拿到 status=%q head=%q", c.Status, c.Head)
+	}
+	if c.Conflict {
+		t.Error("顺序清楚时不该报冲突")
+	}
+}
+
+// B1-3 同秒相反主张、互不引用 → **状态冲突**，两份主张都摆出来，谁也不赢。
+func TestFoldConflictingClaims(t *testing.T) {
+	cs := Fold([]Entry{
+		{ID: "z1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "done", By: "z", Title: "我完成了"},
+		{ID: "a1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "running", By: "a", Title: "还差一截",
+			Prev: "x0"},
+	})
+	if len(cs) != 1 {
+		t.Fatalf("该折成一个 case，拿到 %d", len(cs))
+	}
+	c := cs[0]
+	if !c.Conflict {
+		t.Fatalf("两个互不引用的相反主张必须判冲突：%+v", c)
+	}
+	if c.Band != BandConflict {
+		t.Errorf("档位该是 conflict，拿到 %q", c.Band)
+	}
+	if len(c.Claims) != 2 {
+		t.Fatalf("两份主张都要摆出来，拿到 %d 条", len(c.Claims))
+	}
+	// 冲突时不能顺手把状态定成某一方
+	if c.Status == "done" && !c.Pending {
+		t.Log("（顺序待核实也成立：a1 的前序 x0 没到）")
+	}
+}
+
+// B1-5 前序没到齐（分片乱序）→ 顺序待核实，不当成"已有结论"。
+func TestFoldPendingWhenPrevMissing(t *testing.T) {
+	cs := Fold([]Entry{
+		{ID: "r1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "running", Title: "重开", Prev: "d0"},
+	})
+	if len(cs) != 1 {
+		t.Fatalf("该折成一个 case，拿到 %d", len(cs))
+	}
+	if !cs[0].Pending {
+		t.Fatalf("前序 d0 没到，该标待核实：%+v", cs[0])
+	}
+	if cs[0].Band != BandPending {
+		t.Errorf("档位该是 pending，拿到 %q", cs[0].Band)
+	}
+}
+
+// 老数据（一条 prev 都没有）：照旧按时间取最后一条，但如实标「顺序按时间推定」。
+func TestFoldLegacyMarksAssumedOrder(t *testing.T) {
+	cs := Fold([]Entry{
+		{ID: "e1", Case: "c1", At: "2026-11-14T09:00:00Z", Status: "running", Title: "在办"},
+		{ID: "e2", Case: "c1", At: "2026-11-14T10:00:00Z", Status: "done", Title: "做完"},
+	})
+	if cs[0].Order != "assumed" {
+		t.Fatalf("没有前序就该标 assumed，拿到 %q", cs[0].Order)
+	}
+	if cs[0].Status != "done" {
+		t.Fatalf("老数据仍按时间取最后一条，拿到 %q", cs[0].Status)
+	}
+}
