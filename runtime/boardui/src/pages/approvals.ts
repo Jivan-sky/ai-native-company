@@ -28,27 +28,59 @@ export function receiptBanner(r: DecideReply): HTMLElement {
 // 那一刻他填的「为什么」已经跟着重画丢了。所以在这里先说，边打边说。
 const BY_OK = /^[A-Za-z0-9._\- ]+$/;
 
-export function bySection(): Kid {
+export function bySection(d: Data | null): Kid {
+  // 身份不再靠手打英文 slug。
+  //
+  // 以前这一栏是一个自由输入框，提示写着「英文名或成员 slug，例如 zhangwei（会写进文件名）」——
+  // 那是在要求使用者**自己把名字编码成文件名**，而这恰恰是系统该做的事。
+  // 现在从组织事实里列人，选一下就完事；手填只作为兜底（组织里还没登记你）。
+  const members = (d?.board?.members ?? []).filter((m) => !m.disabled);
+  const sel = el("select", { class: "by-select" },
+    ...members.map((m) => {
+      const opt = el("option", { value: m.name },
+        (m.display_name && m.display_name !== m.name ? m.display_name + "（" + m.name + "）" : m.name) +
+        " · " + (m.role || "无岗位"));
+      if (m.name === byWho) opt.setAttribute("selected", "selected");
+      return opt;
+    }),
+    el("option", { value: "__manual__" }, "其它（手动输入）"));
   const input = el("input", {
     class: "by", type: "text",
-    placeholder: "英文名或成员 slug，例如 zhangwei（会写进文件名）",
-    value: byWho,
+    placeholder: "英文名或成员 slug，例如 zhangwei",
+    value: BY_OK.test(byWho) ? byWho : "",
     "aria-describedby": "by-rule",
   });
   const rule = el("p", { class: "quiet", id: "by-rule" }, "");
+  const manual = (): boolean => (sel as HTMLSelectElement).value === "__manual__";
+
   const check = (): void => {
-    const v = (input as HTMLInputElement).value.trim();
-    rule.textContent = v === "" || BY_OK.test(v)
-      ? "留痕按名字分文件，所以只收字母、数字、. _ - 和空格。"
-      : "这串字符写不成文件名 —— 留痕按名字分文件，只收字母、数字、. _ - 和空格。";
+    const v = manual() ? (input as HTMLInputElement).value.trim() : (sel as HTMLSelectElement).value;
     rule.classList.toggle("bad", v !== "" && !BY_OK.test(v));
+    rule.textContent = v === ""
+      ? "先选一个人 —— 匿名点头等于没点头（后端也这么拒）。"
+      : BY_OK.test(v)
+        ? "留痕会写到「" + v + "」名下。"
+        : "这串字符写不成文件名：留痕按名字分文件，只收字母、数字、. _ - 和空格。";
+    setByWho(v);
   };
-  input.addEventListener("input", () => {
-    setByWho((input as HTMLInputElement).value);
+
+  input.addEventListener("input", check);
+  sel.addEventListener("change", () => {
+    if (!manual()) (input as HTMLInputElement).value = "";
     check();
   });
+  if (members.length === 0) sel.setAttribute("disabled", "disabled");
+
+  // 默认值：上次选过就用上次的；否则用第一个成员（总比空着强，且看得见是谁）。
+  const first = members[0];
+  if (byWho === "" && first) {
+    (sel as HTMLSelectElement).value = first.name;
+    setByWho(first.name);
+  }
   check();
-  return section("谁在点", "", el("div", { class: "field" }, input, rule));
+
+  return section("谁来点", members.length === 0 ? "组织里还没有登记成员 —— 只能手填" : "从成员里选，不用记 slug",
+    el("div", { class: "field" }, sel, manual() ? input : el("span", {}), rule));
 }
 
 // 一条提案一张卡：状态在上，人话在中，按钮在下。
@@ -206,7 +238,7 @@ export function renderApprovals(d: Data): Kid[] {
 
     ]));
   }
-  out.push(bySection());
+  out.push(bySection(d));
   if (v.wired) out.push(pendingSection(v));
   out.push(agentSection(d));
   return out;
