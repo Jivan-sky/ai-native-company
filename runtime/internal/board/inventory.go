@@ -83,6 +83,7 @@ func (s *Server) Routes() []Route {
 		{"/auth/feishu/start", KindRead, s.handleFeishuStart},
 		{"/auth/feishu/callback", KindRead, s.handleFeishuCallback},
 		{"/login", KindRead, s.handleLoginPage},
+		{"/next", KindRead, s.handleNext},
 	}
 }
 
@@ -100,7 +101,7 @@ var routeKindSet = map[string]RouteKind{
 	"/api/authz/revoke": KindWrite,
 	"/api/auth/login":   KindWrite, "/api/auth/register": KindWrite, "/api/auth/logout": KindWrite,
 	"/api/auth/me": KindRead, "/auth/feishu/start": KindRead,
-	"/auth/feishu/callback": KindRead, "/login": KindRead,
+	"/auth/feishu/callback": KindRead, "/login": KindRead, "/next": KindRead,
 	chatPath: KindModel, chatSessionPath: KindModel,
 	"/api/datasources": KindRead, "/api/query": KindQuery, "/api/catalog": KindRead,
 	"/api/files": KindRead, "/api/files/ls": KindQuery, "/api/files/cat": KindQuery,
