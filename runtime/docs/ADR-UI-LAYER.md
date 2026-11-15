@@ -116,3 +116,48 @@
 - 不做 SSR / 不做多页应用（我们是本地看板，不需要）
 - 不引状态管理库（Pinia 等）：页面级状态够用，等真有跨页共享再加
 - 不为换框架而换：如果实验不过，就停
+
+---
+
+# 修正：判据是「中英两种生态都强」，结论翻到 React
+
+上面那张表把「中文生态」单独列了一列，等于默认了"中文好用优先"。
+**这个判据是错的** —— 应当要求**中英两边都强**。按这条重打：
+
+| | 英文生态 | 中文生态 | 合计 |
+|---|---|---|---|
+| **React** | **第一**（TanStack、Radix、shadcn、MUI、Recharts、Testing Library…） | **强**（Ant Design 中国出品、ahooks、umi，社区巨大） | **两边都第一梯队** |
+| Vue | 第二（PrimeVue/Vuetify/Quasar，够用但不是首选） | 很强（Element Plus、Naive UI 中国出品） | 中文强、英文次一档 |
+| Svelte | 中 | 弱 | 弱 |
+| Lit | 弱 | 弱 | 弱 |
+
+## 还有一条我上一轮低估的：JSX 与手搓的 `el()` 几乎是同构
+
+现在的写法：
+
+```ts
+el("div", { class: "ledger-row" }, el("div", { class: "who" }, "待你签"), el("div", { class: "what" }, title))
+```
+
+换成 JSX：
+
+```tsx
+<div className="ledger-row">
+  <div className="who">待你签</div>
+  <div className="what">{title}</div>
+</div>
+```
+
+**这是一次机械变换**，不是重新设计。Vue 的模板语法与程序化 `el()` 之间反而要绕一层
+（`v-for`/`v-if` 对应到 `map`/三元，心智要换）。
+
+## 修正后的推荐
+
+**React 19 + TypeScript + Ant Design（表格/表单/抽屉/中文文案）+ 按需引入**。
+
+- 交付形态不变：仍是 esbuild/vite 打包出一个 `app.js` → `go:embed` → 单二进制
+- `api.ts` / `types.ts` / 契约校验 / 不变量检查全部原样保留
+- 迁移方式：`el(...)` → JSX 机械替换，一页一页做，每页跑 `dev.sh ui` + `dev.sh types`
+
+**实验不变、对象换了**：仍先做「审计页」，只是用 React + AntD 而不是 Vue + Naive。
+验收四条不变（行数、是否自带排序分页固定列、不变量全绿、契约校验不受影响）。
