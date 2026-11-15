@@ -134,7 +134,22 @@ if (!ball) {
 
 // ④c 新前端（/next）：换框架后这一页的判据与旧 shell 不同，单独一组。
 await page.goto(BASE + "/next");
-await page.waitForTimeout(2500);
+await page.waitForTimeout(2200);
+// /next 现在有多页（总览 + 审计），先确认总览渲染，再切到审计查表格能力。
+const ov = await page.evaluate(function () {
+  return { headline: (document.querySelector("h3") || {}).textContent || "",
+           stats: document.querySelectorAll(".ant-statistic").length,
+           errs: (window.__errs || []).slice(0, 2) };
+});
+ok("新前端总览渲染", ov.headline !== "" && ov.stats === 4, JSON.stringify(ov));
+const clicked = await page.evaluate(function () {
+  const items = Array.from(document.querySelectorAll(".ant-menu-item"));
+  const audit = items.find(function (x) { return x.textContent.trim() === "审计"; });
+  if (audit) audit.click();
+  return !!audit;
+});
+ok("新前端能切到审计", clicked, "菜单里没有审计");
+await page.waitForTimeout(1500);
 const next = await page.evaluate(function () {
   const rows = document.querySelectorAll(".ant-table-row").length;
   const heads = Array.from(document.querySelectorAll(".ant-table-thead th")).map(function (t) { return t.textContent.trim(); });
