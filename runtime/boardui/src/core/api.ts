@@ -55,13 +55,29 @@ export const emptyIssues = (err: string): Issues => ({ ok: false, fatal: [], war
 
 // 「读到了一份能吃的契约」= body 在、schema 是非空字符串。五份契约（board / runtime /
 // dataflow / assets / timeline）各判各的 —— 一份坏了不该让别的页跟着空着。
+// readError：把服务端的错误**归一成一句人话**。
+//
+// 后端现在还活着两种形状（这是它自己的不一致，记录在 docs/FRONTEND-CONTRACT.md 里）：
+//   {"error": "缺 ds 参数"}                     ← catalog / files / auth
+//   {"wired": false, "why": "热层没接上 —— …"}   ← 热层类端点
+// 前端不该在两个地方各猜一次。这里统一取，顺序：why → error → err → 状态码。
+//
+// 为什么不在这里拼 "出错了"：服务端原话往往比我们编的更准确（比如"缺 ds 参数"），
+// 我们只在它什么都没说时才兜底。
+export function readError(body: unknown, status: number, fallback = ""): string {
+  const b = (body ?? {}) as { error?: unknown; why?: unknown; hint?: unknown };
+  const pick = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const main = pick(b.why) || pick(b.error) || fallback;
+  const hint = pick(b.hint);
+  if (main === "") return status > 0 ? "读取失败（HTTP " + status + "）" : "读取失败";
+  return hint !== "" ? main + "（" + hint + "）" : main;
+}
+
 export function contract<T extends { schema?: string }>(res: Fetched<T>, label: string): { v: T | null; err: string } {
   const body = res.body;
   if (body && typeof body.schema === "string" && body.schema !== "") return { v: body, err: "" };
-  return {
-    v: null,
-    err: res.err !== "" ? res.err : label + "读取失败（HTTP " + res.status + "）",
-  };
+  // 没拿到 schema 时，先把服务端自己说的话读出来 —— 再退回到"HTTP 状态码"这种废话。
+  return { v: null, err: readError(body, res.status, res.err !== "" ? res.err : label + "读取失败") };
 }
 
 export async function fetchData(): Promise<Data> {
