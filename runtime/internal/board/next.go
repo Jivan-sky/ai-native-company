@@ -17,6 +17,7 @@ const nextHTML = `<!doctype html>
 <title>ANC · 新前端实验</title>
 <style>html,body{margin:0;background:#f5f7fa}</style>
 </head><body><div id="root"></div>
+<script>window.__errs=[];window.onerror=function(m,src,l,c,e){window.__errs.push(String(m)+" @"+(src||"")+":"+l);};window.addEventListener("unhandledrejection",function(e){window.__errs.push("promise: "+String(e.reason&&e.reason.message||e.reason));});</script>
 <script type="module" src="/app-next.js"></script></body></html>`
 
 func (s *Server) handleNext(w http.ResponseWriter, r *http.Request) {

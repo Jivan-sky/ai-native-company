@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.tsx --bundle --format=esm --target=es2020 --jsx=automatic --minify --outfile=../internal/board/ui/app-next.js",
+    "build": "esbuild src/main.tsx --bundle --format=esm --target=es2020 --jsx=automatic --minify --define:process.env.NODE_ENV='\"production\"' --outfile=../internal/board/ui/app-next.js",
     "check": "tsc --noEmit"
   },
   "dependencies": {
