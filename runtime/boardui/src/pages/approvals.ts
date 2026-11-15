@@ -307,9 +307,11 @@ export function agentSection(d: Data): Kid {
 export function renderApprovals(d: Data): Kid[] {
   const v = d.approvals;
   if (!v) {
-    return [banner("bad", "读不到待批队列", [
-      el("span", {}, d.approvalsErr === "" ? "服务没回 anc.approvals/v1" : d.approvalsErr),
-    ])];
+    // 读不到队列时用 unknownState，不用 banner：
+    // banner 只有一句话，读者没有下一步；unknownState 自带「重试」。
+    // 这个区别是被实测抓出来的 —— 拦掉 /api/approvals 后页面显示"连不上"但没有可点的按钮。
+    return [unknownState("读不到待批队列",
+      d.approvalsErr === "" ? "服务没回 anc.approvals/v1" : d.approvalsErr)];
   }
   const out: Kid[] = [];
   if (lastReceipt) out.push(receiptBanner(lastReceipt));
