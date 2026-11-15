@@ -132,6 +132,25 @@ if (!ball) {
   ok("悬浮球位置跨刷新保持", Math.abs(kept.x - moved.x) <= 2, moved.x + " → " + kept.x);
 }
 
+// ④c 新前端（/next）：换框架后这一页的判据与旧 shell 不同，单独一组。
+await page.goto(BASE + "/next");
+await page.waitForTimeout(2500);
+const next = await page.evaluate(function () {
+  const rows = document.querySelectorAll(".ant-table-row").length;
+  const heads = Array.from(document.querySelectorAll(".ant-table-thead th")).map(function (t) { return t.textContent.trim(); });
+  const t = document.body.innerText;
+  return {
+    rows: rows,
+    heads: heads,
+    pager: !!document.querySelector(".ant-pagination"),
+    leaks: (t.match(/\/Users\/[^\s]*/g) || []).slice(0, 2),
+    err: (document.querySelector(".ant-alert") || {}).textContent || "",
+  };
+});
+ok("新前端有表格行", next.rows > 0, String(next.rows));
+ok("新前端有分页", next.pager, "没有分页组件");
+ok("新前端无本机路径", next.leaks.length === 0, next.leaks.join(","));
+
 // ⑤ 顶栏不许出现调试 HUD（LIVE / 校验干净 / 生成时间戳）
 const hud = await page.evaluate(function () {
   var t = document.querySelector(".topbar") ? document.querySelector(".topbar").innerText : "";
