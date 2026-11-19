@@ -87,6 +87,9 @@ func AppendGrant(vault string, g Grant) (string, error) {
 			b.WriteString("  " + k + ": " + strings.TrimSpace(v) + "\n")
 		}
 	}
+	if g.NormalizeKind() != KindGrant {
+		field("kind", g.NormalizeKind())
+	}
 	field("from", g.From)
 	field("to", g.To)
 	field("action", g.Action)

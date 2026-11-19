@@ -67,6 +67,10 @@ func cmdTimelineAdd(args []string) int {
 	title := fs.String("title", "", "一句话（必填）")
 	detail := fs.String("detail", "", "展开")
 	refs := fs.String("refs", "", "引用，逗号分隔")
+	corrects := fs.String("corrects", "", "更正哪一条（写 id；只追加，不改原文）")
+	retires := fs.String("retires", "", "废止哪个对象（经验/规则/技能 id）")
+	basis := fs.String("basis", "", "凭什么：授权 id / 提案 id / 规则 id")
+	derived := fs.String("derived", "", "出处：事件 id 或 文件:行号，逗号分隔")
 	flagArgs, posArgs := splitArgs(args, map[string]bool{})
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
@@ -85,18 +89,22 @@ func cmdTimelineAdd(args []string) int {
 		stamp = strings.TrimSpace(*at)
 	}
 	ent := timeline.Entry{
-		ID:      strings.TrimSpace(*id),
-		Case:    strings.TrimSpace(*caseID),
-		At:      stamp,
-		Kind:    strings.TrimSpace(*kind),
-		Status:  strings.TrimSpace(*status),
-		By:      strings.TrimSpace(*by),
-		Role:    strings.TrimSpace(*role),
-		To:      strings.TrimSpace(*to),
-		Domain:  strings.TrimSpace(*domain),
-		Project: strings.TrimSpace(*project),
-		Title:   strings.TrimSpace(*title),
-		Detail:  strings.TrimSpace(*detail),
+		Corrects:    *corrects,
+		Retires:     *retires,
+		Basis:       *basis,
+		DerivedFrom: splitCSV(*derived),
+		ID:          strings.TrimSpace(*id),
+		Case:        strings.TrimSpace(*caseID),
+		At:          stamp,
+		Kind:        strings.TrimSpace(*kind),
+		Status:      strings.TrimSpace(*status),
+		By:          strings.TrimSpace(*by),
+		Role:        strings.TrimSpace(*role),
+		To:          strings.TrimSpace(*to),
+		Domain:      strings.TrimSpace(*domain),
+		Project:     strings.TrimSpace(*project),
+		Title:       strings.TrimSpace(*title),
+		Detail:      strings.TrimSpace(*detail),
 	}
 	for _, r := range strings.Split(*refs, ",") {
 		if s := strings.TrimSpace(r); s != "" {

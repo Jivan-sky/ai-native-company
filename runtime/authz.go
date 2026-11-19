@@ -95,6 +95,7 @@ func authzGrant(args []string) int {
 	by := fs.String("by", "", "签发人（默认 = 权威源的 issuer）")
 	expires := fs.String("expires", "", "到期时刻（RFC3339）；空 = 不设自身期限")
 	parent := fs.String("parent", "", "上游授权 slug（转授时写）")
+	kind := fs.String("kind", "", "grant | exception（例外：必须有 reason、by、expires，且 ≤7 天）")
 	reason := fs.String("reason", "", "一句话：为什么给")
 	fa, pos := splitArgs(args, map[string]bool{})
 	if err := fs.Parse(fa); err != nil {
@@ -113,7 +114,7 @@ func authzGrant(args []string) int {
 	g := org.Grant{
 		Slug: *slug, From: firstNonEmpty(*from, issuedBy), To: *to, Action: *action,
 		Object: *object, IssuedBy: issuedBy, ExpiresAt: *expires, Parent: *parent,
-		Reason: *reason, IssuedAt: time.Now().Format(time.RFC3339),
+		Reason: *reason, IssuedAt: time.Now().Format(time.RFC3339), Kind: *kind,
 	}
 	path, err := org.AppendGrant(vault, g)
 	if err != nil {
