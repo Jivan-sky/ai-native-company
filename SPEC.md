@@ -1,10 +1,12 @@
 # ANC 架构规范（SPEC）
 
-> 版本 0.3（2026-10-06，合并稿）· 状态 **Draft** · 载体 `ai-native-company`
+> 版本 0.4（2026-11-19，治理层并入）· 状态 **Draft** · 载体 `ai-native-company`
 >
 > **这份文件是唯一真相源。** 骨架与实现细节来自上游 `HA7CH/ai-native-company` SPEC v0.1（2026-07-24，MIT，含 Climax Racing reference deployment 的生产经验：markdown vault 13+ 周、6-bot 矩阵 8 周、现行 gateway 形态 5 周）；组织模型与方法论层来自本仓库 v0.2（2026-10-06）。合并前的 v0.2 与上游 SPEC v0.1 都留在各自 git 历史里，不并存。
 >
 > 上游的 `docs/LIGHT-MVP.md`、`docs/M1-DESIGN.md`、`docs/PLAN.md`、`docs/RESEARCH.md` 降为**实现视图**——它们细化实现，不改口径；与本文冲突以本文为准。
+>
+> **2026-11-19 起，`runtime/docs/` 下的专题文档一律降为"细则"**：它们回答"具体怎么做"，本文回答"什么算做对"。§14–§19 是这一轮并入的治理层、身份层、契约层与文档分层；§18 是**总索引**（主题 → 细则文档 → 代码 → 现状 → 验法）。
 
 ## 0. 读法与证据边界
 
@@ -951,3 +953,225 @@ cc-connect v1.3.4 的对外口（unix socket `POST /send`）只有文本与附�
 | Q28 | **平台身份怎么对上 org 里的人 / agent**：`open_id` / `app_id` / project 名 → 谁；「这个 agent 属于哪个人」 | ✅ **口径已定 2026-10-10**：**只查表、不猜**（同 `Identity(ref)` 的口径：判不出来 = 这个主体不存在）。`open_id` → 成员（业务 agent 不代表人、没有 open_id）；`app_id` / project 名（`<公司 id>-<名字>`）→ 成员 bot 或业务 agent；两头**各自解、互不代偿**。**「属于谁」只答归属、不答收件**：业务 agent 走 `域 → domains.md 的 who（岗位） → 该岗位上启用中的成员`，与渲染器算收件人的第一段同一支判据；域 who 岗位上没人时**空着并说明**，**不落到 admins**（那是收件兜底 —— 混进归属就等于宣称「没人的域归老板所有」）。成员没有归属人（他属于他自己）。拼法 `<公司 id>-<名字>` 从 render 挪到 `org.ProjectName`（唯一定义处）。嘴：`anc org who`。见 `runtime/DESIGN.md` §7.1.38 |
 | Q29 | **多模型 / 多 agent 编排的自研边界**（议题 #9） | ✅ **口径已定 2026-10-18：极简自研（b），不做通用 workflow engine**。模型抽象用 Eino 库（见 §11），编排优先用上游 harness 自带面（`--agents` / `--bg` / `--fallback-model`）；ANC 只负责「org → 渲染 → 派发 / 收口 → 运维 → 迭代」这一圈，串行 / 并行扇出 / 汇总 / 多模型评审按业务真需要一种一种加。**现状**：一条编排模式都还没实现 —— 今天的多 agent 协作是热层队列 + 事件（见 #60），不假装已有 |
 | Q30 | **语言边界与准入判据**（议题 #10） | ✅ **已定 2026-10-18：判据写在仓库根 `AGENTS.md` 的「技术选型红线」，这里只镜像结论**。控制面 / 编排 / CLI / 装配 = **Go 单 exe**（三平台一份源码、不另带运行时；`-trimpath -ldflags "-s -w"` 实测 **9.78 MB**，2026-10-18 Windows amd64，含内嵌看板前端）；浏览器界面 = **TypeScript**（用该生态的语言，不搭桥）；解释器只许进开发期工具或「重依赖」进程，且**必须报实测启动与 import 成本 + 体积**；现有代码用什么语言不构成继续用的理由。**新增语言时一句话回答「为什么不是 Go」并带体积数字，写不出来不许开工** |
+
+---
+
+# 第二部分 · 治理、身份与契约（2026-11-19 并入）
+
+> 这一部分是把 `runtime/docs/` 里散落的 20+ 份设计文档**收口成规范**的结果。
+> 原则：规范写"什么算做对"，细则文档写"具体怎么做"，代码写"现在实际是什么"。
+> 三者不一致时，**以本文为准**，并把差异记进 §19 未闭合清单。
+
+## 14. 治理层：九类对象与飞轮
+
+### 14.1 为什么要有治理层
+
+产品的硬指标是「新人不必问人就能把活干完，且别人能验」。
+要成立，系统必须能回答三个问题，并**用答案改进自己**：
+
+1. 这个 Agent / 这个人，现在能碰什么？
+2. 它拿到的上下文，为什么是这些？
+3. 上一次踩过的坑，这次有没有被避免？
+
+第一版只有"流水"（timeline / audit），没有"对象"——流水记了事，但没人能据它回答问题。
+
+### 14.2 九类治理对象（D17）
+
+| 对象 | 是什么 | 关键字段 | 谁能写 | 现状 |
+|---|---|---|---|---|
+| **C 上下文** | 给某个主体装配的一次上下文 | who, sections[], chars, why, version, derived_from[] | 装配器（自动） | 有 pack + cost；装配流水 opt-in（14.5） |
+| **D 决策** | 一次拍板 | actor, role, decision, why, basis, commitment_version, prior_cases, worst_case | 人 | role/basis 已落；后三项**未落** |
+| **B 卡点** | 一次阻塞 | case, stage, waiting_on, since, resolved_by | 任何主体 | **只有热层状态，没有独立事件** |
+| **R 突破** | 一次解法 | blocker_id, method, cost, reused_count | 当事人 | **完全未建** |
+| **E 经验** | 可复用条目 | from[], claim, evidence[], scope, status, version | 只能由人确认 | **已落**（14.6） |
+| **A 授权本体** | 谁能对谁做什么 | from, to, action, object, issued_by/at, expires_at, parent, kind | 受托签发人 | 已落（§6 + `grants/`） |
+| **X 例外** | break-glass | 同 A，`kind: exception`，≤7 天且必须有理由与签发人 | 受托签发人 | 已落 |
+| **N 更正** | 更正一条记录 | `corrects: <id>`，只追加 | 任何主体 | 已落（timeline 字段 + `ScanGovernance`） |
+| **T 废止/移交** | 让某个对象不再生效 | `retires: <id>` + 理由 | 任何主体 | 已落（同上） |
+
+**硬纪律**：X 例外**共用同一个 `org.Exercise` 判定**，不新开判定路径。
+开第二条判定路径，等于迟早出现两套答案。
+
+### 14.3 飞轮六步
+
+```
+① 捕获 → ② 统一格式 → ③ 评级 → ④ 提炼 → ⑤ 发下去用 → ⑥ 看有没有用
+                                        └→ 否决 → 垃圾池（可复活）
+```
+
+| 步 | 判据 |
+|---|---|
+| ① 捕获 | 决策/卡点/突破都要有独立事件；缺字段不许入库 |
+| ② 统一格式 | 任取一条经验，能一路回指到原始事件 |
+| ③ 评级 | `score = 影响面 × 不可逆性 × (1 + log2(1+频次))`；**排序原则不可配** |
+| ④ 提炼 | 每条候选必须带证据链、适用边界、反例 |
+| ⑤ 发下去用 | 未经人工确认**不得部署**；部署带版本，可回滚 |
+| ⑥ 看有没有用 | 按月对比同类卡点出现次数 |
+
+**评级为什么必须钉死**（一线负责人的原话，D 类决策的现实依据）：
+权重一旦可配，各团队必然把频次调到最大，上榜全是高频小事，
+低频高损（一次赔付、一次客户翻脸）永远进不来 —— 三个月后没人再往里写。
+所以：客户可改"多严重算严重"，**不可改"影响 > 频次"**。
+
+### 14.4 十五条第 N 方判据（现状）
+
+判据的写法固定为四元组：**对象·字段 | 样本框 | 一条命令 | 期望输出**。
+现场命令：`bash dev/verify-governance.sh <vault>` → 逐条 `PASS / FAIL / UNVERIFIABLE`。
+
+| 状态 | 判据 |
+|---|---|
+| **成立（4）** | 4 按角色归因 · 5 装配可解释（开关开启时）· 6 撤权即时生效 · 7 未确认不得部署 |
+| **部分成立（4）** | 1 出处 · 8 部署可回滚 · 12 飞轮有出口 · 13 决策带依据 |
+| **不成立（7）** | 2 判定单一入口 · 3 账本完整性 · 9 破坏性契约变更 · 10 人能看懂 · 11 边界明确 · 14 同类可回查 · 15 待批按最坏代价排序 |
+
+**老账不补**：`basis` / `derived_from` 只对 2026-11-19 之后写入的行要求；
+回溯期之前的一律不补 —— 补历史就是编证据。
+
+### 14.5 装配流水（判据 5）
+
+- 落点：`<vault>/context/assembly.jsonl`，只记**结构**不记正文
+- **默认关**（D14）：看板原有承诺是"不落盘"，读一次写一条会打破它
+- 打开：`--assembly-log` 或 `ANC_ASSEMBLY_LOG=1`
+- 仍未做：`why` 带 `文件:行号`、被排除项的记录
+
+### 14.6 经验对象的状态机（判据 7/8/12）
+
+```
+candidate ──approve──▶ approved ──deploy──▶ deployed ──retire──▶ retired
+    └────────reject──▶ rejected（可复活）
+```
+
+- `anc experience add|approve|deploy|reject|retire|list`
+- `deploy` 前必须 `approve`，否则 `ErrNotApproved`
+- 每次 `deploy` 记 `version` + 内容 `digest` 到 `experiences/ledger.jsonl`
+- `reject` / `retire` 必须写理由 —— 否决与下线的理由比同意更重要
+
+## 15. 身份、权限与会话
+
+### 15.1 三层不许混
+
+| 层 | 回答 | 落点 | 现状 |
+|---|---|---|---|
+| **组织事实** | 谁属于哪个域、岗位是什么 | `vault/company.md`、`members/`、`domains.md` | 已落 |
+| **凭据** | 你怎么证明你是你 | `accounts.md`（本机密码）/ 飞书 OAuth | 已落（账号是开关） |
+| **会话** | 这次请求是谁 | HttpOnly + SameSite=Lax cookie（12h） | 已落 |
+
+### 15.2 账号是开关，不是必装
+
+- 默认关：看板与以前完全一样（本地只读观测，不落盘、不要求登录）
+- 打开：`--accounts` 或 `ANC_ACCOUNTS=1`；未登录时整站带到 `/login`
+- 注册的新账号**一律 member**：角色不能自选，升权是组织的事
+- 密码只存派生值（sha256 迭代 12 万次 + 每人 salt）。**不是 Argon2/scrypt**，
+  因为交付物必须零第三方依赖；要上生产第一步就换，只动 `hashPassword` 与 `Iter` 两处
+
+### 15.3 飞书 SSO
+
+- 入口 `/auth/feishu/start`、回调 `/auth/feishu/callback`
+- 未配置三个环境变量时返回**能读的说明页**（501），不是 500、不是白屏
+- 飞书认出了你但组织里没你 → 403 + 找管理员在 `members/` 加人，**不自动建人**
+- **v1 短板**：只按**姓名**对齐已有账号，没有 `open_id → member` 映射表
+  → 用户改名就登不上。要做对需要一张映射，仍未做
+
+### 15.4 权限判定现状（判据 2 不成立的原因）
+
+`org.Exercise` 是设计上唯一的判定器，但代码里至少还有四处旁路：
+`board.gate.authorize`、`org.Viewer.CanSeeDomain`、`internal/retrieval` 里又实现一遍、
+`policy` 派生列默认拒绝。**收敛到 3 处是下一步的第一件事，先数清再动。**
+
+## 16. 契约与前端
+
+### 16.1 payload 就是契约
+
+没有 OpenAPI。契约 = **跑着的服务真实返回**。
+`dev/gen-types.mjs` 核 7 份契约类型（board / approvals / timeline / audit / context / grants / runtime），与 `boardui/src/core/types.ts` 逐字段比对，
+不一致即非零退出（`dev.sh types`）。
+
+它拦的是"前端编字段"，**不拦破坏性变更**（删字段 / 改名 / 改可选性三种全绿）—— 判据 9 仍未成立。
+
+### 16.2 错误形状目前有两种（未统一）
+
+```
+{"error": "缺 ds 参数"}
+{"wired": false, "why": "热层没接上 —— …"}
+```
+
+这是后端自身的不一致，记录在案；前端用 `readError()` 归一（why → error → err → 状态码），
+**不在前端改写后端契约**。
+
+### 16.3 前端：React 19 + TypeScript + Ant Design（D13）
+
+- 判据：中英两种生态都必须强；React 是唯一两边都在第一梯队的选项
+- JSX 与手搓的 `el()` 几乎同构，迁移是机械变换
+- 迁移方式：旧界面留在 `/`，新版在 `/next`，一页一页搬，每页跑 `dev.sh ui` + `dev.sh types`
+- 代价：bundle 1.4 MB（未按需引入），9 页表现层要重写
+
+### 16.4 界面不变量
+
+`bash dev/dev.sh ui`（需活看板 + ego-browser）：h1 唯一、无本机绝对路径、侧栏宽度跨页保持、
+30 秒轮询不重建 DOM、无调试 HUD、悬浮球可拖、`/next` 有表格与分页。
+**新老两套界面各有各的判据**，不能拿旧检查去验 React 页。
+
+## 17. 多语言与交付形态
+
+| 层 | 语言 | 理由 |
+|---|---|---|
+| 真相源与业务规则 | **Go，唯一** | 一处真相，别处不许再实现 |
+| 看板前端 | TypeScript（构建期产物进二进制） | 零运行时代价 |
+| 契约校验 / 开发期脚本 | TS 或 Go | 不发货 |
+| Agent 面向动作的接口、MCP | Go | 复用权限与审计 |
+| Python 适配层 | **只做协议转换** | 见下 |
+
+**三种混法，代价不同**：构建期（≈0）· 伴生进程（多一个运行时）· **双核心（红线）**。
+Python 壳是可选件，四条纪律：不碰凭据、不实现业务规则、不进默认安装、**必须能被删掉**。
+交付形态仍是单二进制（`go:embed`），这一点不因任何选型改变。
+
+## 18. 文档分层（总索引）
+
+### 18.1 三层
+
+| 层 | 文件 | 权威性 |
+|---|---|---|
+| **规范** | `SPEC.md`（本文） | 唯一真相源：什么算做对 |
+| **细则** | `runtime/docs/*.md` | 具体怎么做；与本文冲突以本文为准 |
+| **任务定义** | `runtime/docs/prompts/*.md` | 长程任务怎么跑、门禁是什么 |
+
+### 18.2 主题索引
+
+| 主题 | 细则文档 | 代码落点 | 现状 | 验法 |
+|---|---|---|---|---|
+| 产品脊柱（三类人三条回路） | `PRODUCT-SPINE.md` | — | 三条里追溯有底子，决策与新人两条基本没有 | 人工按页对照 |
+| 拍过的板（不复议） | `DECISIONS.md`（17 条） | — | 持续追加 | — |
+| 治理对象与飞轮 | `GOVERNANCE-FLYWHEEL.md` | `internal/{audit,timeline,org,exp}` | 9 类对象落了 7 类（卡点 B、突破 R 未建） | `dev/verify-governance.sh` |
+| 治理盘点（P0） | `GOVERNANCE-P0-INVENTORY.md` | — | 五类对象的字段缺口清单 | 同上 |
+| 长程任务定义 | `prompts/GOVERNANCE-LONG-RUN.md` | — | P0–P4 门禁 | 按阶段门禁 |
+| 检查点 | `GOVERNANCE-CHECKPOINT.md` | — | 已完成/未做/下一轮第一件事 | — |
+| 身份与能力 | `IDENTITY.md`、`C1C2-AUTHORITY-SIM.md` | `internal/org/{capability,authority,authority_write,grants}.go` | 权限判定 5 处未收敛 | 判据 2（未成立） |
+| 上下文治理 | `CONTEXT-GOVERNANCE.md` | `internal/ctxpack`、`board/ctxcost.go` | 装配有、解释部分有、排除原因没有 | 判据 5 |
+| 指标口径 | `METRICS.md` | `internal/board` 相关聚合 | done/达成率有真数据；口径配置化未做 | 单测 + 页面 |
+| 前端契约 | `FRONTEND-CONTRACT.md` | `dev/gen-types.mjs`、`core/types.ts` | 类型比对有；破坏性变更不拦 | `dev.sh types` |
+| 界面设计 | `UI-SPEC-v3.md`、`INTERACTION-DESIGN.md`、`VISUAL-DIRECTION.md` | `boardui/`、`boardui-react/` | 旧界面 9 页；新界面 2 页 | `dev.sh ui` |
+| 界面问题清单 | `UI-ISSUES-LIST.md` | — | A/B/C 类大部分已修 | 人工 |
+| 前端架构决定 | `ADR-UI-LAYER.md` | `boardui-react/` | 实验已过（2 页） | 逐页对照四条判据 |
+| 语言策略 | `LANG-POLICY.md` | `extras/agent-sdk/` | Python 壳已落（可选件） | 删掉它不影响主程序 |
+| Agent 接口面 | `AUDIT-AND-AGENT-SURFACE.md` | `extras/agent-sdk/app.py` | 只读四条接口 | 手动 curl |
+
+### 18.3 文档纪律
+
+1. **一份文档只回答一个问题**；回答不了的挪走，不要堆在里面。
+2. **结论要带证据**：数字、命令输出、`文件:行号`。写了"我们会注意"等于没写。
+3. **不成立就写不成立**；把"计划做"写成"已完成"是最严重的一类错误（判据 4 就栽过）。
+4. **推翻旧决定要新加一条**，写「推翻 #N，因为…」，不要删历史（见 `DECISIONS.md`）。
+
+## 19. 未闭合清单（2026-11-19）
+
+| # | 事项 | 卡在哪 |
+|---|---|---|
+| 1 | 权限判定收敛（判据 2） | 5 处旁路，先数清再合并 |
+| 2 | 账本完整性（判据 3） | 无 hash 链、无签名；`anc audit verify` 未做 |
+| 3 | 契约破坏性变更（判据 9） | 需版本化快照 `contracts/*.json` |
+| 4 | 卡点 B / 突破 R 两类对象 | 完全没有；缺它们， distill 只能从结果猜过程 |
+| 5 | `commitment_version` / `prior_cases` / `worst_case` | 字段未定义，判据 13/14/15 因此不成立 |
+| 6 | 飞书 `open_id → member` 映射 | 现在只按姓名对齐，改名即登不上 |
+| 7 | 前端 9 页迁移 | 已迁 2 页（总览、审计） |
+| 8 | 口径配置化（`metrics.md`） | 总览讲客户业务的前提，未动 |
+| 9 | 仓库历史里的 `node_modules` 大对象 | 需 `git filter-repo` + 强推，待批准 |
