@@ -22,16 +22,20 @@ const precedentSchema = "anc.precedents/v1"
 
 // Precedent 是一条历史决策。
 type Precedent struct {
-	ID      string   `json:"id"`
-	Case    string   `json:"case,omitempty"` // 对应的提案 id
-	At      string   `json:"at"`
-	By      string   `json:"by,omitempty"`
-	To      string   `json:"to,omitempty"`
-	Verdict string   `json:"verdict,omitempty"` // 从标题里取「同意/驳回/挂起」；取不出就空着
-	Title   string   `json:"title"`
-	Detail  string   `json:"detail,omitempty"`
-	Domain  string   `json:"domain,omitempty"`
-	Refs    []string `json:"refs,omitempty"`
+	ID      string `json:"id"`
+	Case    string `json:"case,omitempty"` // 对应的提案 id
+	At      string `json:"at"`
+	By      string `json:"by,omitempty"`
+	To      string `json:"to,omitempty"`
+	Verdict string `json:"verdict,omitempty"` // 从标题里取「同意/驳回/挂起」；取不出就空着
+	// TitleGeneric 表示这条标题是**系统合成**的（"X 申请 Y 的权"），不是提案人写的。
+	// 实测里 agent 正是被这种标题骗过：标题说"申请权"，详情讲的却是另一件事。
+	// 标出来，读的人就知道该以 detail 为准，而不是拿标题当事情本身。
+	TitleGeneric bool     `json:"title_generic,omitempty"`
+	Title        string   `json:"title"`
+	Detail       string   `json:"detail,omitempty"`
+	Domain       string   `json:"domain,omitempty"`
+	Refs         []string `json:"refs,omitempty"`
 }
 
 // PrecedentView 是对外的形状。
@@ -46,6 +50,11 @@ type PrecedentView struct {
 }
 
 // verdictOf 从标题尾部取结论词。取不出就空着 —— 不猜。
+// looksGenerated 判标题是不是 approvals.ProposalTitle 合成的形状。
+func looksGenerated(title string) bool {
+	return strings.Contains(title, " 申请 ") && strings.HasSuffix(strings.TrimSpace(title), "的权")
+}
+
 func verdictOf(title string) string {
 	for _, w := range []string{"同意", "驳回", "挂起"} {
 		if strings.Contains(title, w) {
@@ -73,7 +82,8 @@ func (s *Server) precedentsByDomain(doc timeline.Doc, max int) map[string][]Prec
 			continue
 		}
 		out[d] = append(out[d], Precedent{ID: e.ID, Case: e.Case, At: e.At, By: e.By, To: e.To,
-			Verdict: verdictOf(e.Title), Title: e.Title, Detail: e.Detail, Domain: e.Domain, Refs: e.Refs})
+			Verdict: verdictOf(e.Title), Title: e.Title, TitleGeneric: looksGenerated(e.Title),
+			Detail: e.Detail, Domain: e.Domain, Refs: e.Refs})
 	}
 	for d := range out {
 		list := out[d]
@@ -125,8 +135,8 @@ func (s *Server) handlePrecedents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out = append(out, Precedent{ID: e.ID, Case: e.Case, At: e.At, By: e.By, To: e.To,
-			Verdict: verdictOf(e.Title), Title: e.Title, Detail: e.Detail,
-			Domain: e.Domain, Refs: e.Refs})
+			Verdict: verdictOf(e.Title), Title: e.Title, TitleGeneric: looksGenerated(e.Title),
+			Detail: e.Detail, Domain: e.Domain, Refs: e.Refs})
 	}
 	// 新的排前面：先例的价值在于"最近的怎么收场"
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At > out[j].At })
