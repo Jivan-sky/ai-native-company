@@ -61,6 +61,22 @@ else
   cant "判据 13 —— 没有 timeline/ 目录"
 fi
 
+# ── 判据 3：账本完整性（哈希链）。对象 audit/*.jsonl · 字段 prev_hash/hash
+# 样本框：全部分片；抽样：不需要（全量扫）
+if [ -d "${AUDIT_DIR}" ]; then
+  if command -v anc >/dev/null 2>&1; then
+    if anc audit verify "${VAULT}" >/dev/null 2>&1; then
+      ok "判据 3（账本完整性）：哈希链逐行校验通过"
+    else
+      bad "判据 3（账本完整性）：链断了 —— 跑 anc audit verify ${VAULT} 看是哪一行"
+    fi
+  else
+    cant "判据 3（账本完整性）—— 本机没装 anc，验不了链"
+  fi
+else
+  cant "判据 3（账本完整性）—— 没有 audit/ 目录"
+fi
+
 # ── 判据 1（部分）：事件带出处。对象 timeline+audit 的 derived_from
 # 完整判据还要求"能一路回指到原始事件"，那需要逐条走链；这里先验字段存在。
 if [ -d "$TL_DIR" ] || [ -d "$AUDIT_DIR" ]; then

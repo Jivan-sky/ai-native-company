@@ -27,6 +27,7 @@ const auditUsage = `anc audit —— 行使的流水：谁在什么时候、对�
   anc audit collect <vault> [选项]    从 harness 原生记录归集（默认 dry-run）
   anc audit tools                     打印生效的工具表
   anc audit rules                     打印生效的脱敏表（加了一栏：带上了几条已知密钥值）
+  anc audit verify <vault>            校验账本哈希链（改了/删了行会断链）
   anc audit config <vault>            装机凭据体检：权限 / 产物明文 / 真相源里的秘密文件 / 越权模式（只读）
 
 log 选项：
@@ -91,6 +92,8 @@ func cmdAudit(args []string) int {
 		return cmdAuditRules(args[1:])
 	case "config":
 		return cmdAuditConfig(args[1:])
+	case "verify":
+		return cmdAuditVerify(args[1:])
 	default:
 		fmt.Fprint(os.Stderr, auditUsage)
 		return 2
@@ -635,4 +638,60 @@ func shortTime(iso string) string {
 		return iso
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// cmdAuditVerify —— 校验账本哈希链（治理判据 3）。
+//
+// 它回答一个问题：**这份账本里有没有行被改过/删过？**
+// 有写权就能改文件，但改了之后链会断 —— 断了就报出来，而不是假装完整。
+func cmdAuditVerify(args []string) int {
+	fs := flag.NewFlagSet("audit verify", flag.ContinueOnError)
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	fa, pos := splitArgs(args, map[string]bool{"json": true})
+	if err := fs.Parse(fa); err != nil {
+		return 2
+	}
+	if len(pos) != 1 {
+		fmt.Fprintln(os.Stderr, "用法：anc audit verify <vault> [--json]")
+		return 2
+	}
+	abs, err := filepath.Abs(pos[0])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	rep, err := audit.Verify(abs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	if *asJSON {
+		printJSON(rep)
+		if len(rep.Issues) > 0 {
+			return 1
+		}
+		return 0
+	}
+	fmt.Printf("anc audit verify —— 账本哈希链\n")
+	fmt.Printf("  分片     %d 个 / %d 行\n", rep.Files, rep.Lines)
+	fmt.Printf("  有链     %d 行（逐行校验通过）\n", rep.Chained)
+	if rep.Legacy > 0 {
+		fmt.Printf("  老账     %d 行没有 hash —— 不算伪造，但这一版验不了它们\n", rep.Legacy)
+	}
+	if len(rep.Issues) == 0 {
+		fmt.Println("  结论     ✅ 链完整")
+		return 0
+	}
+	fmt.Printf("  结论     ❌ %d 处对不上（前 5 处）：\n", len(rep.Issues))
+	for i, is := range rep.Issues {
+		if i >= 5 {
+			break
+		}
+		id := ""
+		if is.ID != "" {
+			id = " id=" + is.ID
+		}
+		fmt.Printf("           %s:%d%s — %s\n", is.File, is.Line, id, is.Why)
+	}
+	return 1
 }

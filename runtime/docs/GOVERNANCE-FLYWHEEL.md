@@ -145,7 +145,7 @@ IETF 的 AI 治理记录草案（[draft-reilly-aigov](https://datatracker.ietf.o
 |---|---|---|---|
 | 1 | 经验能回指原始事件 | **部分成立** | `derived_from` 已落（timeline + audit），审批与结账两条主链已带；E 仍无持久实体，逐条走链的验法待 P3 |
 | 2 | 权限判定只有一个入口 | **不成立** | 至少 5 处：`org.Exercise`、`board.gate.authorize`（注释自称"唯一"）、`org.Viewer.CanSeeDomain`、retrieval 里又实现一遍、policy 派生列 |
-| 3 | 任何行使都有痕 | **不成立** | `context pack/freeze` 不留痕；`GET /api/audit` 读账本不落账；越域被拒的 context 不写 audit；而且账本是普通 JSONL，**无链无签名 → 有写权就能改历史** |
+| 3 | 任何行使都有痕 | **部分成立** | 账本已加**按分片哈希链**（`prev_hash`/`hash`）+ `anc audit verify`：改行/删行会被检出。仍未做：全局单链、每日 head 签名与外部锚定（整份文件被替换检测不出）、`context pack/freeze` 与读账本仍不留痕 |
 | 4 | 账本按角色归因 | **成立**（P1 已落） | `audit.Record.Role` 必填，留空拒收（`ErrNoRole`）；11 处构造点全部补齐；`dev/verify-governance.sh` 实测 60 条记录 0 空值 |
 | 5 | 上下文装配可解释 | **不成立** | `why` 只在看板那份（`ctxcost.go`），**agent 真正拿的 `ctxpack.Out` 没有**；且 why 是编译期常量，不随装配变、不带行号；无装配流水可抽（freeze 会覆盖） |
 | 6 | 撤权即时生效 | **成立**（唯一） | 边界要写清：只覆盖过闸的三条面；直写文件系统不受约束；**到期不生效**（代码里写着"已拍挂起"） |

@@ -135,6 +135,11 @@ type Record struct {
 	// Basis 是**凭什么**：一次行使/决策依据的是哪条授权、哪个提案、哪条规则。
 	Basis string `json:"basis,omitempty"`
 
+	// PrevHash / Hash 是本分片内的哈希链（见 chain.go）。
+	// 老数据没有这两个字段 —— verify 把它们算 legacy，不当作伪造。
+	PrevHash string `json:"prev_hash,omitempty"`
+	Hash     string `json:"hash,omitempty"`
+
 	// Src 是这一条在盘上的哪一行（`2026-11.bob.jsonl:3`）。加载时填，**不写进文件**：
 	// 它描述位置不描述内容，写进去会让重放同一份底账多出一个会漂的字段。
 	// 与 timeline 的 Src 同一条纪律。
@@ -286,6 +291,19 @@ func Append(vault string, r Record) (string, error) {
 	// 位置刻意选在 Append：这是全项目唯一的审计写口 —— 归集、补记、信封关卡、
 	// 读出口、审批留痕五条路都从这里过，漏不掉。见 redact.go。
 	Effective().CleanRecord(&r)
+	// 链：先拿锁，读上一行 hash，再算本行 hash —— 顺序反了会写出两条同 prev 的行
+	unlock, lerr := chainLock(path)
+	if lerr != nil {
+		return "", lerr
+	}
+	r.PrevHash = lastHash(path)
+	h, herr := ChainHash(r.PrevHash, r)
+	unlock()
+	if herr != nil {
+		return "", herr
+	}
+	// 先算 hash（此时 Hash 为空），再填回字段并序列化。
+	r.Hash = h
 	b, err := json.Marshal(r)
 	if err != nil {
 		return "", err
