@@ -44,6 +44,7 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request, code int, reason, 
 	_, _ = audit.Append(s.Vault, audit.Record{
 		ID: fmt.Sprintf("gate:%d:%s", time.Now().UnixNano(), jti), At: s.now().Format(time.RFC3339),
 		Actor:  firstNonEmpty(app, "unknown"),
+		Role:   roleOrSystem(s.Vault, app),
 		Action: audit.ActionInvoke, Object: "model:" + firstNonEmpty(jti, "no-token"),
 		Result: audit.ResultDenied, Why: reason, Source: "gate", Ref: r.URL.Path,
 	})

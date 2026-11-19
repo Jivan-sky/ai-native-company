@@ -310,6 +310,7 @@ func cmdAuditAdd(args []string) int {
 		ID:         rid,
 		At:         when.Format(time.RFC3339),
 		Actor:      strings.TrimSpace(*actor),
+		Role:       roleOrSystem(abs, strings.TrimSpace(*actor)),
 		Action:     strings.TrimSpace(*action),
 		Object:     strings.TrimSpace(*object),
 		Result:     strings.TrimSpace(*result),

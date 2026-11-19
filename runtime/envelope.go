@@ -1079,6 +1079,7 @@ func (g *envelopeIngress) auditEnvelope(v envelope.GateOutcome, envelopeID, resu
 		ID:         fmt.Sprintf("send-%d-%s", at.UnixNano(), audit.ShardName(actor)),
 		At:         at.Format(time.RFC3339),
 		Actor:      actor,
+		Role:       roleOrSystem(g.Vault, actor),
 		Action:     audit.ActionInvoke,
 		Object:     object,
 		Result:     result,

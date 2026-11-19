@@ -118,7 +118,7 @@ func TestRedactRunsToFixpointOnStackedShapes(t *testing.T) {
 func TestAppendWritesRedactedToDisk(t *testing.T) {
 	vault := t.TempDir()
 	path, err := Append(vault, Record{
-		ID: "w1", At: "2026-10-10T12:00:00+08:00", Actor: "alice",
+		ID: "w1", At: "2026-10-10T12:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: ActionWrite, Result: ResultOK,
 		Why: "写之前先把口令文件念了一遍：" + fakeSecret,
 	})

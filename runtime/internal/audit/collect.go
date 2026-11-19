@@ -214,9 +214,12 @@ func Collect(opt CollectOptions) CollectResult {
 				continue
 			}
 			r := Record{
-				ID:     id + ":" + a.CallID,
-				At:     a.At.Format(time.RFC3339),
-				Actor:  actor,
+				ID:    id + ":" + a.CallID,
+				At:    a.At.Format(time.RFC3339),
+				Actor: actor,
+				// 归集器拿不到真相源的岗位：它只读 harness 记录。记 system，
+				// 并在 Detail 里标明是归集来的 —— 谁该为这次行使负责，仍要看原记录。
+				Role:   "system",
 				Action: rule.Action,
 				Object: targetOf(a.Input, rule.Target),
 				Tool:   a.Tool,

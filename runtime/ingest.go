@@ -245,6 +245,7 @@ func cmdIngest(args []string) int {
 		ID:     "ingest:" + now.Format(time.RFC3339Nano),
 		At:     now.Format(time.RFC3339),
 		Actor:  strings.TrimSpace(p.By),
+		Role:   roleOrSystem(abs, strings.TrimSpace(p.By)),
 		Action: audit.ActionWrite,
 		Object: strings.Join(ingestPaths(p.Writes), ", "),
 		Result: audit.ResultOK,

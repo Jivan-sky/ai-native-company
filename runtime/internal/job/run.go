@@ -363,6 +363,7 @@ func record(s Spec, opts Options, res *Result) {
 	_, aerr := audit.Append(opts.Vault, audit.Record{
 		ID: id, At: stamp,
 		Actor:  "anc",
+		Role:   "system", // 定时作业由系统发起，不代人
 		Action: audit.ActionInvoke,
 		Object: object,
 		Result: result,

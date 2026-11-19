@@ -347,3 +347,28 @@ func toInt(v any) int {
 	}
 	return 0
 }
+
+// RoleOfVault 把一个主体（成员名 / agent slug）解析成岗位，用于**按角色归因**。
+//
+// 为什么放在 org：岗位是真相源里的事实，不是调用方自报的。审计写口拿到 vault 就能问。
+// 解析不出来返回空串 —— 调用方必须自己决定是拒绝入库还是记成 "system"，
+// 不要在这里替它决定（系统事件与"查无此人"是两件事）。
+func RoleOfVault(vault, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.TrimSpace(vault) == "" {
+		return ""
+	}
+	o, err := Load(vault)
+	if err != nil {
+		return ""
+	}
+	if m, ok := o.Member(ref); ok {
+		return strings.TrimSpace(m.Role)
+	}
+	for _, a := range o.Agents {
+		if a.Slug == ref {
+			return strings.TrimSpace(a.Role)
+		}
+	}
+	return ""
+}

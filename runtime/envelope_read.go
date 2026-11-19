@@ -109,6 +109,7 @@ func (g *envelopeIngress) auditTool(tool, actor, object, result, why string, at 
 		ID:     fmt.Sprintf("read-%d-%s", at.UnixNano(), audit.ShardName(actor)),
 		At:     at.Format(time.RFC3339),
 		Actor:  actor,
+		Role:   roleOrSystem(g.Vault, actor),
 		Action: audit.ActionRead,
 		Object: object,
 		Result: result,

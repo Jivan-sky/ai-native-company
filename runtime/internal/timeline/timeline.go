@@ -108,6 +108,12 @@ type Entry struct {
 	// 空 = 老数据没写前序，判定时如实标「顺序按时间推定」，不假装有因果。
 	Prev string `json:"prev,omitempty"`
 
+	// DerivedFrom 是**出处**：这一条由哪些上游事件/文件行推出来（治理判据 1 的血缘）。
+	// 空数组 = 明确声明"没有上游"，不是"忘了填"。与 audit.Record 同名字段同一含义。
+	DerivedFrom []string `json:"derived_from,omitempty"`
+	// Basis 是**凭什么**：一次决策/行使依据的是哪条授权、哪个提案、哪条规则。
+	Basis string `json:"basis,omitempty"`
+
 	// Src 是这条记录**在盘上的哪一行**（`2026-11.anc.jsonl:12`）。加载时填，不写进文件：
 	// 它描述的是位置，不是内容 —— 写进 jsonl 会让「重放同一份数据」多出一个会漂的字段。
 	// 看板靠它把每一行指回原文，跟汇总数字的「口径回源」是同一条纪律。

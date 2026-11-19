@@ -65,7 +65,8 @@ func filePolicy(vault, ds, subject, path string) (bool, string) {
 
 func fileAudit(vault, ds, subject, path, result, why string) {
 	_, _ = audit.Append(vault, audit.Record{
-		ID: fmt.Sprintf("file:%s:%d", ds, time.Now().UnixNano()), At: time.Now().Format(time.RFC3339),
+		Role: roleOrSystem(vault, subject),
+		ID:   fmt.Sprintf("file:%s:%d", ds, time.Now().UnixNano()), At: time.Now().Format(time.RFC3339),
 		Actor: subject, Action: audit.ActionRead, Object: "file:" + ds + ":" + path,
 		Result: result, Why: why, Tool: "file", Source: "files",
 	})

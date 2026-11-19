@@ -26,6 +26,7 @@ package audit
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,11 +125,24 @@ type Record struct {
 	Ref        string `json:"ref,omitempty"`          // 指回原始记录（会话 id / 行号 / 工具调用 id）
 	Detail     string `json:"detail,omitempty"`       // 展开
 
+	// Role 是**必填**：按角色归因，不按个人归因（IETF AI 治理草案 §16.2）。
+	// 「按人查」是视图，不是存储事实 —— 员工不是监控对象，岗位才是问责单位。
+	// 系统自己发起的事件（定时作业、归集器）写 "system"，不许留空。
+	Role string `json:"role"`
+	// DerivedFrom 是**出处**：这条记录由哪些上游事件/文件行推出来的（治理判据 1 的血缘）。
+	// 空数组 = 明确声明"没有上游"，不是"忘了填"。
+	DerivedFrom []string `json:"derived_from"`
+	// Basis 是**凭什么**：一次行使/决策依据的是哪条授权、哪个提案、哪条规则。
+	Basis string `json:"basis,omitempty"`
+
 	// Src 是这一条在盘上的哪一行（`2026-11.bob.jsonl:3`）。加载时填，**不写进文件**：
 	// 它描述位置不描述内容，写进去会让重放同一份底账多出一个会漂的字段。
 	// 与 timeline 的 Src 同一条纪律。
 	Src string `json:"-"`
 }
+
+// ErrNoRole：记录缺 role。按角色归因是硬规矩，缺了就不许入库。
+var ErrNoRole = errors.New("缺少 role")
 
 // Time 解析 At。解析不了返回零值 + false（调用方据此判「读不懂」）。
 func (r Record) Time() (time.Time, bool) {
@@ -250,6 +264,10 @@ func Append(vault string, r Record) (string, error) {
 	}
 	if strings.TrimSpace(r.Result) == "" {
 		return "", fmt.Errorf("result 不能为空（ok | denied | failed）")
+	}
+	// 判据 4：按角色归因。留空即拒 —— 允许留空就等于允许"这条账不知道是谁的岗"。
+	if strings.TrimSpace(r.Role) == "" {
+		return "", fmt.Errorf("%w：actor=%q —— 按角色归因，不留空（系统事件写 system）", ErrNoRole, r.Actor)
 	}
 	t, ok := r.Time()
 	if !ok {

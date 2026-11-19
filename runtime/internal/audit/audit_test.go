@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func TestOwnerTakesRefShapeSeparatelyFromWhetherTheSlugIsDeclared(t *testing.T) 
 }
 
 func rec(actor, object string) Record {
-	return Record{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: actor,
+	return Record{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: actor, Role: "manager",
 		Action: ActionRead, Object: object, Result: ResultOK}
 }
 
@@ -77,11 +78,11 @@ func TestAppendNeedsAllFive(t *testing.T) {
 	v := t.TempDir()
 	// 五样里少一样都不收 —— 缺哪样这条记录就答不了「谁/何时/对谁/类别/结果」。
 	bad := []Record{
-		{At: "2026-10-08T12:00:00+08:00", Actor: "a", Action: ActionRead, Result: ResultOK},
-		{ID: "x", At: "2026-10-08T12:00:00+08:00", Action: ActionRead, Result: ResultOK},
-		{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: "a", Result: ResultOK},
-		{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: "a", Action: ActionRead},
-		{ID: "x", Actor: "a", Action: ActionRead, Result: ResultOK},
+		{At: "2026-10-08T12:00:00+08:00", Actor: "a", Role: "manager", Action: ActionRead, Result: ResultOK},
+		{ID: "x", At: "2026-10-08T12:00:00+08:00", Role: "manager", Action: ActionRead, Result: ResultOK},
+		{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: "a", Role: "manager", Result: ResultOK},
+		{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: "a", Role: "manager", Action: ActionRead},
+		{ID: "x", Actor: "a", Role: "manager", Action: ActionRead, Result: ResultOK},
 	}
 	for i, r := range bad {
 		if _, err := Append(v, r); err == nil {
@@ -90,19 +91,19 @@ func TestAppendNeedsAllFive(t *testing.T) {
 	}
 	// 目标（Object）**不**必填：为空的意思是「抽不出目标」，是个真实状态（Bash 那类）。
 	if _, err := Append(v, Record{ID: "x", At: "2026-10-08T12:00:00+08:00",
-		Actor: "a", Action: ActionInvoke, Result: ResultDenied}); err != nil {
+		Actor: "a", Role: "manager", Action: ActionInvoke, Result: ResultDenied}); err != nil {
 		t.Fatalf("Object 为空应当收下（它是「抽不出」，不是「缺字段」）：%v", err)
 	}
 }
 
 func TestAppendShardsByActorAndRoundTrips(t *testing.T) {
 	v := t.TempDir()
-	p1, err := Append(v, Record{ID: "1", At: "2026-10-08T10:00:00+08:00", Actor: "alice",
+	p1, err := Append(v, Record{ID: "1", At: "2026-10-08T10:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: ActionRead, Object: "/v/10-knowledge/a.md", Result: ResultOK, Why: "原话"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, err := Append(v, Record{ID: "2", At: "2026-10-08T11:00:00+08:00", Actor: "王小明",
+	p2, err := Append(v, Record{ID: "2", At: "2026-10-08T11:00:00+08:00", Actor: "王小明", Role: "devbot",
 		Action: ActionWrite, Object: "/v/20-ops/b.md", Result: ResultDenied})
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +141,7 @@ func TestAppendShardsByActorAndRoundTrips(t *testing.T) {
 func TestLoadReportsBadLinesInsteadOfSkipping(t *testing.T) {
 	v := t.TempDir()
 	if _, err := Append(v, Record{ID: "ok", At: "2026-10-08T10:00:00+08:00",
-		Actor: "alice", Action: ActionRead, Result: ResultOK}); err != nil {
+		Actor: "alice", Role: "manager", Action: ActionRead, Result: ResultOK}); err != nil {
 		t.Fatal(err)
 	}
 	f, err := os.OpenFile(filepath.Join(v, DirName, "2026-10.alice.jsonl"), os.O_APPEND|os.O_WRONLY, 0o644)
@@ -261,5 +262,18 @@ func TestLoadFillsSrc(t *testing.T) {
 	}
 	if doc.Records[0].Src != "2026-11.bob.jsonl:1" || doc.Records[1].Src != "2026-11.bob.jsonl:2" {
 		t.Errorf("行号不对：%q / %q", doc.Records[0].Src, doc.Records[1].Src)
+	}
+}
+
+// 判据 4：按角色归因。role 留空即拒 —— 允许留空就等于允许"这条账不知道是谁的岗"。
+func TestAppendRejectsEmptyRole(t *testing.T) {
+	v := t.TempDir()
+	_, err := Append(v, Record{ID: "x", At: "2026-10-08T12:00:00+08:00", Actor: "alice",
+		Action: ActionRead, Result: ResultOK})
+	if err == nil {
+		t.Fatal("role 为空应当被拒")
+	}
+	if !errors.Is(err, ErrNoRole) {
+		t.Fatalf("要用 ErrNoRole 报出来，拿到 %v", err)
 	}
 }

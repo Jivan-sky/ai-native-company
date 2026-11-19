@@ -230,7 +230,8 @@ func recordAppRun(vault string, r apps.Result, st apps.Installed) {
 		result = audit.ResultFailed
 	}
 	_, _ = audit.Append(vault, audit.Record{
-		ID: fmt.Sprintf("app:%s:%d", r.App, r.At.UnixNano()), At: at,
+		Role: roleOrSystem(vault, "anc"),
+		ID:   fmt.Sprintf("app:%s:%d", r.App, r.At.UnixNano()), At: at,
 		Actor: "anc", Action: audit.ActionInvoke, Object: "app:" + r.App,
 		Result: result, Why: firstNonEmpty(r.Why, fmt.Sprintf("退出码 %d", r.Code)),
 		Tool: "app:" + r.App, Source: "app", Ref: st.SHA256[:12],

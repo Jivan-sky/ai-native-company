@@ -147,6 +147,9 @@ func Settle(st Store, vault, id string, o Opts) (Result, error) {
 		Title:   title,
 		Detail:  detail(t, o.Note),
 		Refs:    cleanRefs(o.Refs),
+		// 治理判据 1/13：这条终态**凭什么**（任务实例 id）与**从哪来**（热层当前态）。
+		Basis:       "task:" + id,
+		DerivedFrom: []string{"hot:task:" + id},
 	}
 	path, err := timeline.Append(vault, ent)
 	if err != nil {

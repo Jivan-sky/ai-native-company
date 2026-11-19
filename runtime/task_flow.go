@@ -57,7 +57,7 @@ func taskAudit(vault, actor, tool, object string, result string, detail string) 
 	now := time.Now()
 	rec := audit.Record{
 		ID: fmt.Sprintf("%s-%d-%s", tool, now.UnixNano(), audit.ShardName(actor)),
-		At: now.Format(time.RFC3339), Actor: actor, Action: audit.ActionInvoke,
+		At: now.Format(time.RFC3339), Actor: actor, Role: roleOrSystem(vault, actor), Action: audit.ActionInvoke,
 		Object: object, Result: result, Tool: tool, Source: "task", Detail: detail,
 	}
 	if _, err := audit.Append(vault, rec); err != nil {

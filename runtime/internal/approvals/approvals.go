@@ -360,13 +360,17 @@ func (d Decision) AuditRecord(p Pending) audit.Record {
 		ID:     "approval-" + p.ID + "-" + string(d.Signal),
 		At:     d.At.Format(time.RFC3339),
 		Actor:  d.By,
+		Role:   firstNonEmpty(p.To, "system"), // 这条账记在「该谁批」的岗位上
 		Action: audit.ActionInvoke,
 		Object: firstNonEmpty(p.Domain, p.Project),
 		Result: audit.ResultOK,
 		Why:    d.Verdict(),
 		Tool:   "anc approvals",
 		Source: "manual",
-		Detail: "提案 " + p.ID + "：" + p.Title + viaLine(d.Via),
+		// 判据 1/13：这条回执的**依据**是那份提案 —— 决策不能只说"我批了"，要指得出批的是哪一份。
+		Basis:       "proposal:" + p.ID,
+		DerivedFrom: []string{"proposal:" + p.ID},
+		Detail:      "提案 " + p.ID + "：" + p.Title + viaLine(d.Via),
 	}
 }
 
@@ -396,6 +400,9 @@ func (d Decision) TimelineEntry(p Pending) timeline.Entry {
 		Project: p.Project,
 		Title:   p.Title + " —— " + d.Verdict(),
 		Detail:  p.Body,
+		// 判据 1/13：决策的出处（提案）与依据（提案 id 即这一轮的授权起点）。
+		Basis:       "proposal:" + p.ID,
+		DerivedFrom: []string{"proposal:" + p.ID},
 	}
 }
 
@@ -604,4 +611,12 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// roleOrSystem 见 main / board 的同名助手：解析不出岗位就记 system。
+func roleOrSystem(vault, ref string) string {
+	if r := org.RoleOfVault(vault, ref); r != "" {
+		return r
+	}
+	return "system"
 }

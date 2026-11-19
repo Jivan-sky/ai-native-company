@@ -59,9 +59,9 @@ func TestAuditEmptyIsWiredNotBroken(t *testing.T) {
 
 func TestAuditContractAndNewestFirst(t *testing.T) {
 	vault := auditFixture(t)
-	auditWrite(t, vault, audit.Record{ID: "a", At: "2026-10-08T10:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "a", At: "2026-10-08T10:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionRead, Object: filepath.Join(vault, "projects", "x.md"), Result: audit.ResultOK})
-	auditWrite(t, vault, audit.Record{ID: "b", At: "2026-10-08T11:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "b", At: "2026-10-08T11:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionWrite, Object: filepath.Join(vault, "shipments", "y.md"),
 		Result: audit.ResultDenied, Why: "Permission to use Write has been denied"})
 
@@ -96,7 +96,7 @@ func TestAuditContractAndNewestFirst(t *testing.T) {
 func TestAuditDoesNotLeakLocalLayout(t *testing.T) {
 	vault := auditFixture(t)
 	secretDir := filepath.Join(t.TempDir(), "Users", "somebody", ".claude")
-	auditWrite(t, vault, audit.Record{ID: "a", At: "2026-10-08T10:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "a", At: "2026-10-08T10:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionRead, Object: filepath.Join(secretDir, "settings.json"),
 		Result: audit.ResultOK, Why: "File does not exist. Note: your current working directory is " + secretDir,
 		Detail: "ls -la " + secretDir})
@@ -113,7 +113,7 @@ func TestAuditDoesNotLeakLocalLayout(t *testing.T) {
 		t.Error("自由文本不该带到看板（scrub 自由文本永远做不干净）")
 	}
 	// vault 内的目标：保留结构、换成 <vault> 前缀。
-	auditWrite(t, vault, audit.Record{ID: "b", At: "2026-10-08T12:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "b", At: "2026-10-08T12:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionRead, Object: filepath.Join(vault, "projects", "z.md"), Result: audit.ResultOK})
 	v2, raw2 := auditOf(t, &Server{Vault: vault}, "/api/audit")
 	if got := v2.Records[0].Object; got != "<vault>/projects/z.md" {
@@ -123,7 +123,7 @@ func TestAuditDoesNotLeakLocalLayout(t *testing.T) {
 		t.Error("vault 根的绝对路径不该出现")
 	}
 	// 单段的是标识不是路径：不该被加上 …/ 前缀（`ds:demo-pg` 不是「某个目录下的文件」）。
-	auditWrite(t, vault, audit.Record{ID: "c", At: "2026-10-08T13:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "c", At: "2026-10-08T13:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionRead, Object: "ds:demo-pg", Result: audit.ResultOK})
 	v3, _ := auditOf(t, &Server{Vault: vault}, "/api/audit")
 	if got := v3.Records[0].Object; got != "ds:demo-pg" {
@@ -133,11 +133,11 @@ func TestAuditDoesNotLeakLocalLayout(t *testing.T) {
 
 func TestAuditFilters(t *testing.T) {
 	vault := auditFixture(t)
-	auditWrite(t, vault, audit.Record{ID: "a", At: "2026-10-08T10:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "a", At: "2026-10-08T10:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionRead, Object: filepath.Join(vault, "projects", "x.md"), Result: audit.ResultOK})
-	auditWrite(t, vault, audit.Record{ID: "b", At: "2026-10-08T11:00:00+08:00", Actor: "alice",
+	auditWrite(t, vault, audit.Record{ID: "b", At: "2026-10-08T11:00:00+08:00", Actor: "alice", Role: "manager",
 		Action: audit.ActionWrite, Object: filepath.Join(vault, "shipments", "y.md"), Result: audit.ResultDenied})
-	auditWrite(t, vault, audit.Record{ID: "c", At: "2026-10-08T12:00:00+08:00", Actor: "bob",
+	auditWrite(t, vault, audit.Record{ID: "c", At: "2026-10-08T12:00:00+08:00", Actor: "bob", Role: "manager",
 		Action: audit.ActionRead, Object: filepath.Join(vault, "shipments", "z.md"), Result: audit.ResultOK})
 
 	s := &Server{Vault: vault}

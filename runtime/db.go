@@ -142,7 +142,7 @@ func cmdDBQuery(args []string) int {
 	}
 	_, _ = audit.Append(vault, audit.Record{
 		ID: fmt.Sprintf("db:%s:%d", name, time.Now().UnixNano()), At: at,
-		Actor: *subject, Action: audit.ActionRead, Object: "ds:" + name,
+		Actor: *subject, Role: roleOrSystem(vault, *subject), Action: audit.ActionRead, Object: "ds:" + name,
 		Result: result, Why: why, Tool: "db", Source: "db",
 	})
 	if err != nil {
