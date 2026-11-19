@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,22 +51,26 @@ type Experience struct {
 	Status     string
 	By         string // 谁提的
 	ApprovedBy string
-	At         string // 最近一次状态变更
-	Version    int    // 部署版本：每次 deploy +1
-	Note       string
+	// ApprovedDigest 是**确认那一刻**的内容指纹。部署时当前内容必须与它一致 ——
+	// 否则"确认的是 A、部署的是 B"，判据 7 就被绕过了。
+	ApprovedDigest string
+	At             string // 最近一次状态变更
+	Version        int    // 部署版本：每次 deploy +1
+	Note           string
 }
 
 // 台账的一行。
 type Entry struct {
-	At         string `json:"at"`
-	Action     string `json:"action"` // add|approve|deploy|reject|revive|retire
-	ID         string `json:"id"`
-	By         string `json:"by"`
-	Why        string `json:"why,omitempty"`
-	FromStatus string `json:"from_status,omitempty"`
-	ToStatus   string `json:"to_status"`
-	Version    int    `json:"version,omitempty"`
-	Digest     string `json:"digest,omitempty"` // 部署时的内容指纹：回滚要能对得上
+	At          string `json:"at"`
+	Action      string `json:"action"` // add|approve|deploy|reject|revive|retire
+	ID          string `json:"id"`
+	By          string `json:"by"`
+	Why         string `json:"why,omitempty"`
+	FromStatus  string `json:"from_status,omitempty"`
+	ToStatus    string `json:"to_status"`
+	Version     int    `json:"version,omitempty"`
+	Digest      string `json:"digest,omitempty"`       // 部署时的**经验**内容指纹
+	SkillDigest string `json:"skill_digest,omitempty"` // 部署时写出的 SKILL.md 指纹
 }
 
 var (
@@ -114,11 +119,14 @@ func Approve(vault, id, by, why string) (Experience, error) {
 	if by = strings.TrimSpace(by); by == "" {
 		return Experience{}, errors.New("approve 必须写 --by（谁确认的）")
 	}
-	if e.Status != StatusCandidate && e.Status != StatusRejected {
-		return Experience{}, fmt.Errorf("%w：当前 %s", ErrBadState, e.Status)
+	if e.Status == StatusRetired {
+		return Experience{}, fmt.Errorf("%w：已废止的经验要重新走 add", ErrBadState)
 	}
+	// 指纹只覆盖**内容**（标题 / 结论 / 范围 / 出处），不含 status、version、时间 ——
+	// 否则每次状态变化都会让指纹失效，等于逼人反复确认。
+	d := contentDigest(e)
 	from := e.Status
-	e.Status, e.ApprovedBy, e.At = StatusApproved, by, time.Now().Format(time.RFC3339)
+	e.Status, e.ApprovedBy, e.ApprovedDigest, e.At = StatusApproved, by, d, time.Now().Format(time.RFC3339)
 	if err := save(vault, e); err != nil {
 		return Experience{}, err
 	}
@@ -131,23 +139,30 @@ func Deploy(vault, id, by string) (Experience, error) {
 	if err != nil {
 		return Experience{}, err
 	}
-	if e.Status != StatusApproved {
+	if e.Status != StatusApproved && e.Status != StatusDeployed {
 		return Experience{}, fmt.Errorf("%w（当前 %s）—— 先 approve", ErrNotApproved, e.Status)
+	}
+	if e.ApprovedDigest != "" && contentDigest(e) != e.ApprovedDigest {
+		return Experience{}, fmt.Errorf("%w：内容在你确认之后被改过 —— 重新 approve 一次再部署", ErrNotApproved)
 	}
 	if strings.TrimSpace(e.Scope) == "" {
 		return Experience{}, errors.New("scope 不能为空 —— 部署前要写清这条经验用在哪，否则会被套到不该用的地方")
 	}
-	d, err := digest(vault, id)
-	if err != nil {
-		return Experience{}, err
-	}
+	// 指纹只覆盖**内容**（标题 / 结论 / 范围 / 出处），不含 status、version、时间 ——
+	// 否则每次状态变化都会让指纹失效，等于逼人反复确认。
+	d := contentDigest(e)
 	from := e.Status
 	e.Status, e.Version, e.At = StatusDeployed, e.Version+1, time.Now().Format(time.RFC3339)
+	// 固化：写 skills/<id>/SKILL.md（覆盖前归档旧版）；失败就不改状态
+	skillDigest, serr := writeSkill(vault, e)
+	if serr != nil {
+		return Experience{}, fmt.Errorf("写 skills 失败（状态未改）：%w", serr)
+	}
 	if err := save(vault, e); err != nil {
 		return Experience{}, err
 	}
 	return e, appendLedger(vault, Entry{At: e.At, Action: "deploy", ID: id, By: by, FromStatus: from,
-		ToStatus: e.Status, Version: e.Version, Digest: d})
+		ToStatus: e.Status, Version: e.Version, Digest: d, SkillDigest: skillDigest})
 }
 
 // Reject 是否决：进"垃圾池"，但状态可查、也可 revive —— 判据 12 要的出口。
@@ -241,6 +256,14 @@ func LedgerOf(vault string) ([]Entry, error) {
 	return out, nil
 }
 
+// contentDigest 是"这条经验的实质内容"的指纹：标题 / 结论 / 范围 / 出处。
+// 状态与版本不进指纹 —— 它们本来就是会变的元数据。
+func contentDigest(e Experience) string {
+	h := sha256.New()
+	h.Write([]byte(e.Title + "\x00" + e.Claim + "\x00" + e.Scope + "\x00" + strings.Join(e.From, ",")))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func digest(vault, id string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(dirOf(vault), id+".md"))
 	if err != nil {
@@ -285,6 +308,9 @@ func render(e Experience) string {
 	if e.ApprovedBy != "" {
 		fmt.Fprintf(&b, "approved_by: %s\n", e.ApprovedBy)
 	}
+	if e.ApprovedDigest != "" {
+		fmt.Fprintf(&b, "approved_digest: %s\n", e.ApprovedDigest)
+	}
 	fmt.Fprintf(&b, "at: %s\nversion: %d\n", e.At, e.Version)
 	fmt.Fprintf(&b, "from: %s\n", strings.Join(e.From, ", "))
 	if len(e.Evidence) > 0 {
@@ -328,8 +354,15 @@ func parse(s string) (Experience, error) {
 			e.By = v
 		case "approved_by":
 			e.ApprovedBy = v
+		case "approved_digest":
+			e.ApprovedDigest = v
 		case "at":
 			e.At = v
+		case "version":
+			// 不解析版本号 = 每次读回来都是 0，部署永远停在 v1（第一版就是这么错的）
+			if n, err := strconv.Atoi(v); err == nil {
+				e.Version = n
+			}
 		case "from":
 			if v != "" {
 				e.From = strings.Split(v, ",")
@@ -348,6 +381,23 @@ func parse(s string) (Experience, error) {
 	}
 	if e.ID == "" {
 		return e, errors.New("frontmatter 缺 id")
+	}
+	// 正文里有标题与结论 —— 不解析它们，contentDigest 就会在"读回来"之后永远对不上
+	// （第一版就栽在这：approve 时算得出指纹，deploy 读回来 Claim 是空的）。
+	rest := strings.TrimSpace(body[end+5:])
+	if strings.HasPrefix(rest, "# ") {
+		if i := strings.Index(rest, "\n"); i > 0 {
+			if e.Title == "" {
+				e.Title = strings.TrimSpace(strings.TrimPrefix(rest[:i], "# "))
+			}
+			rest = strings.TrimSpace(rest[i+1:])
+		}
+	}
+	if i := strings.Index(rest, "\n## "); i >= 0 {
+		e.Claim = strings.TrimSpace(rest[:i])
+		e.Note = strings.TrimSpace(rest[i:])
+	} else {
+		e.Claim = rest
 	}
 	return e, nil
 }

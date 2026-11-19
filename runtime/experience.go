@@ -24,6 +24,7 @@ const experienceUsage = `anc experience —— 经验对象（候选 → 确认 
   anc experience deploy  --vault D --id ID --by WHO
   anc experience reject  --vault D --id ID --by WHO --why W
   anc experience retire  --vault D --id ID --by WHO --why W
+  anc experience rollback --vault D --id ID --by WHO     # 内容回到上一版（版本号继续往前走）
   anc experience list    --vault D [--json]
 
 纪律：
@@ -79,6 +80,8 @@ func cmdExperience(args []string) int {
 		out, err = exp.Reject(*vault, *id, *by, *why)
 	case "retire":
 		out, err = exp.Retire(*vault, *id, *by, *why)
+	case "rollback":
+		out, err = exp.Rollback(*vault, *id, *by)
 	case "list":
 		var list []exp.Experience
 		list, err = exp.List(*vault)
