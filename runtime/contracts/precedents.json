@@ -1,0 +1,7 @@
+{
+  "domain": "string",
+  "entries": "array<object>",
+  "note": "string",
+  "schema": "string",
+  "total": "number"
+}

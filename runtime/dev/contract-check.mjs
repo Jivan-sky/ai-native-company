@@ -29,6 +29,7 @@ const ENDPOINTS = [
   ["context", "/api/context?who=alice"],
   ["grants", "/api/grants"],
   ["runtime", "/api/runtime"],
+  ["precedents", "/api/precedents?domain=trade"],
 ];
 
 function typeOf(v) {
