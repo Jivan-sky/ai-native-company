@@ -155,6 +155,8 @@ func Read(s Source, rel string) ([]byte, bool, error) {
 }
 
 // safeJoin 把相对路径接到根上，并挡住一切逃逸。
+func SafeJoin(root, rel string) (string, error) { return safeJoin(root, rel) }
+
 func safeJoin(root, rel string) (string, error) {
 	if filepath.IsAbs(rel) {
 		return "", fmt.Errorf("路径必须是相对根目录的")
