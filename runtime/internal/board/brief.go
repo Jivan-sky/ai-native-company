@@ -59,6 +59,9 @@ func briefOf(p PendingView) Brief {
 	if strings.TrimSpace(p.To) == "" {
 		b.Missing = append(b.Missing, "没有指定审批岗位：不知道该谁批")
 	}
+	if len(p.Refs) == 0 {
+		b.Missing = append(b.Missing, "没有依据材料（refs）：核不了这条提案建立在什么之上")
+	}
 	return b
 }
 

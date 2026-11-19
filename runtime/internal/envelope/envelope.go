@@ -61,6 +61,7 @@ type Envelope struct {
 	OnBehalfOf string   `json:"on_behalf_of,omitempty"` // 代谁：member:名字 | role:岗位 | domain:slug，或裸名字
 	Scope      Scope    `json:"scope"`                  // 哪块业务 / 哪个项目
 	Kind       string   `json:"kind,omitempty"`         // ask / report / notify / ingest / proposal（认不出的照收）
+	Title      string   `json:"title,omitempty"`        // 提案人自己写的一句话（没有就由队列合成，见 approvals）
 	Body       string   `json:"body,omitempty"`         // 正文
 	Refs       []string `json:"refs,omitempty"`         // 证据在哪
 	Needs      []string `json:"needs,omitempty"`        // 要不要人拍 —— 自由文本，一个词都不认

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -154,7 +155,8 @@ func TestStateRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back != p {
+	// Pending 现在带 Refs（切片），结构体不再可比较 —— 用 DeepEqual 保持"无损"这个原意。
+	if !reflect.DeepEqual(back, p) {
 		t.Fatalf("往返丢东西：\n写进去 %+v\n读回来 %+v", p, back)
 	}
 	// 队列 id 是前缀 + 提案 id；不属于这个队列的条目要认出来。

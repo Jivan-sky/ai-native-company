@@ -97,6 +97,8 @@ type Pending struct {
 	Body     string // 提案原文
 	Enqueued string // RFC3339：什么时候进的队列
 	Status   string // 当前态；从热层读回来是原样，不在这里改写
+	// Refs 是依据材料（合同条款、比价单、附件）。与 timeline 同一字段名、同一含义。
+	Refs []string
 }
 
 // ProposalTitle 是队列里的一句话。**带上「代谁」** —— 审批的人第一眼要知道是谁在要权。
@@ -134,12 +136,14 @@ func FromEnvelope(e envelope.Envelope, at time.Time) (Pending, error) {
 		return Pending{}, errors.New("信封没有 id —— 队列靠它指认，没有 id 就点不了头")
 	}
 	return Pending{
-		ID:       id,
-		Who:      strings.TrimSpace(e.Who),
-		Domain:   strings.TrimSpace(e.Scope.Domain),
-		Project:  strings.TrimSpace(e.Scope.Project),
-		Title:    ProposalTitle(e.Who, e.OnBehalfOf, e.Scope.Domain, e.Scope.Project),
+		ID:      id,
+		Who:     strings.TrimSpace(e.Who),
+		Domain:  strings.TrimSpace(e.Scope.Domain),
+		Project: strings.TrimSpace(e.Scope.Project),
+		Title: firstNonEmptyApproval(strings.TrimSpace(e.Title),
+			ProposalTitle(e.Who, e.OnBehalfOf, e.Scope.Domain, e.Scope.Project)),
 		Body:     e.Body,
+		Refs:     e.Refs,
 		Enqueued: at.Format(time.RFC3339),
 		Status:   StatusPending,
 	}, nil
@@ -197,6 +201,7 @@ func (p Pending) State() hot.State {
 		Project: p.Project,
 		Title:   p.Title,
 		Note:    p.Body,
+		Refs:    p.Refs,
 		AsOf:    p.Enqueued,
 	}
 }
@@ -218,6 +223,7 @@ func FromState(s hot.State) (Pending, error) {
 		Project:  s.Project,
 		Title:    s.Title,
 		Body:     s.Note,
+		Refs:     s.Refs,
 		Enqueued: s.AsOf,
 		Status:   s.Status,
 	}, nil
@@ -619,4 +625,15 @@ func roleOrSystem(vault, ref string) string {
 		return r
 	}
 	return "system"
+}
+
+// firstNonEmptyApproval 取第一个非空串。写成小函数而不是引外部工具：
+// 这一层只依赖标准库，与包内其他文件的风格一致。
+func firstNonEmptyApproval(xs ...string) string {
+	for _, x := range xs {
+		if s := strings.TrimSpace(x); s != "" {
+			return s
+		}
+	}
+	return ""
 }

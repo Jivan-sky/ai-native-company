@@ -73,18 +73,22 @@ type PendingView struct {
 	Band string `json:"band"`
 	// Brief 是给**下游 agent** 的最低可判材料（五问）；缺什么写 Missing。
 	Brief Brief `json:"brief"`
+	// Refs 是依据材料；空 = 提案人没给，brief.missing 会指出来。
+	Refs []string `json:"refs,omitempty"`
 }
 
 func pendingViews(list []approvals.Pending) []PendingView {
 	out := make([]PendingView, 0, len(list))
 	for _, p := range list {
-		out = append(out, PendingView{
+		v := PendingView{
 			ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain, Project: p.Project,
-			Title: p.Title, Body: p.Body, Enqueued: p.Enqueued, Status: p.Status,
+			Title: p.Title, Body: p.Body, Refs: p.Refs, Enqueued: p.Enqueued, Status: p.Status,
 			Band: BandInputRequired,
-			Brief: briefOf(PendingView{ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain,
-				Project: p.Project, Title: p.Title, Body: p.Body}),
-		})
+		}
+		// 简报基于**完整的那条视图**算（含 refs）—— 上一版传了个临时结构体，
+		// 结果 refs 明明有、missing 还在报"没有依据材料"。
+		v.Brief = briefOf(v)
+		out = append(out, v)
 	}
 	return out
 }

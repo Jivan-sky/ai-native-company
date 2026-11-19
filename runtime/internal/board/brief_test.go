@@ -6,7 +6,8 @@ import "testing"
 // 缺什么必须显式写进 Missing —— 不许编。
 func TestBriefAnswersFiveQuestionsFromRealFields(t *testing.T) {
 	p := PendingView{ID: "p1", Who: "acme-devbot", To: "manager", Domain: "trade",
-		Title: "把 Q3 对账单落到 domains/trade/ledger.md", Body: "正文"}
+		Title: "把 Q3 对账单落到 domains/trade/ledger.md", Body: "正文",
+		Refs: []string{"domains/trade/contract.md"}}
 	b := briefOf(p)
 
 	if b.What.Value == "" || b.What.From != "title" {
@@ -30,8 +31,9 @@ func TestBriefAnswersFiveQuestionsFromRealFields(t *testing.T) {
 func TestBriefReportsMissingFields(t *testing.T) {
 	p := PendingView{ID: "p2"} // 只有一个 id，其余全空
 	b := briefOf(p)
-	if len(b.Missing) < 4 {
-		t.Fatalf("标题/正文/域/审批岗位都缺，该报 4 条，拿到 %v", b.Missing)
+	// 标题 / 正文 / 域 / 审批岗位 / 依据材料 五样都缺
+	if len(b.Missing) < 5 {
+		t.Fatalf("五样都缺，该报 5 条，拿到 %v", b.Missing)
 	}
 	if b.What.Value != "" {
 		t.Fatalf("没有标题时不该编一个答案，拿到 %q", b.What.Value)
