@@ -144,7 +144,7 @@ IETF 的 AI 治理记录草案（[draft-reilly-aigov](https://datatracker.ietf.o
 | # | 判据 | 现状 | 缺什么（可执行地） |
 |---|---|---|---|
 | 1 | 经验能回指原始事件 | **部分成立** | `derived_from` 已落（timeline + audit），审批与结账两条主链已带；E 仍无持久实体，逐条走链的验法待 P3 |
-| 2 | 权限判定只有一个入口 | **不成立** | 至少 5 处：`org.Exercise`、`board.gate.authorize`（注释自称"唯一"）、`org.Viewer.CanSeeDomain`、retrieval 里又实现一遍、policy 派生列 |
+| 2 | 权限判定只有一份实现 + 可合成单视图 | **成立（重述后）** | 判定点**不是 5 处同一件事，而是 5 条轴**（委派/岗位/可见性/数据策略/配额）；可见性轴已合成 `org.Visibility` 一份实现；`dev/authz-entry.sh` 守白名单（多一处即失败，带自测）；`anc authz effective` 出单一视图，并与看板同源（有交叉测试） |
 | 3 | 任何行使都有痕 | **部分成立** | 账本已加**按分片哈希链**（`prev_hash`/`hash`）+ `anc audit verify`：改行/删行会被检出。仍未做：全局单链、每日 head 签名与外部锚定（整份文件被替换检测不出）、`context pack/freeze` 与读账本仍不留痕 |
 | 4 | 账本按角色归因 | **成立**（P1 已落） | `audit.Record.Role` 必填，留空拒收（`ErrNoRole`）；11 处构造点全部补齐；`dev/verify-governance.sh` 实测 60 条记录 0 空值 |
 | 5 | 上下文装配可解释 | **不成立** | `why` 只在看板那份（`ctxcost.go`），**agent 真正拿的 `ctxpack.Out` 没有**；且 why 是编译期常量，不随装配变、不带行号；无装配流水可抽（freeze 会覆盖） |

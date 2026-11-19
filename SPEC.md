@@ -1153,9 +1153,14 @@ candidate ──approve──▶ approved ──deploy──▶ deployed ──r
 
 ### 15.4 权限判定现状（判据 2 不成立的原因）
 
-`org.Exercise` 是设计上唯一的判定器，但代码里至少还有四处旁路：
-`board.gate.authorize`、`org.Viewer.CanSeeDomain`、`internal/retrieval` 里又实现一遍、
-`policy` 派生列默认拒绝。**收敛到 3 处是下一步的第一件事，先数清再动。**
+数清楚之后的结论：**不是 5 处在判同一件事，而是 5 条轴** ——
+委派（`org.Exercise`）/ 岗位（`CapTable.Allow`）/ 可见性（`org.Visibility`）/
+数据策略（`fileAllowed` + `policy.Action`）/ 配额（`board.authorize`）。
+
+判据 2 的正确表述因此改成了：**每一轴只有一份实现，且能合成一个视图**。现在：
+- 可见性轴已合成一份（`org.Visibility`，看板与检索都转发它）
+- `dev/authz-entry.sh` 守白名单：计数必须等于登记数，每条登记要写明"为什么它是独立的一轴"（带自测）
+- `anc authz effective --who X` 出单一视图，每条结论带来源，答不出写「无法判定」
 
 ## 16. 契约与前端
 

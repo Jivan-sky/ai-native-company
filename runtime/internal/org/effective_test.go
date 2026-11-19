@@ -54,3 +54,29 @@ func orgOf(t *testing.T, vault string) *Org {
 	}
 	return o
 }
+
+// 判据 2 的收口：单一视图**不许自己算**可见性 —— 必须与看板/检索同源。
+func TestEffectiveVisibilityMatchesViewer(t *testing.T) {
+	o := orgOf(t, copyVault(t, "domains"))
+	v, err := Effective(o, CapTable{}, Authority{}, false, "devbot", time.Now())
+	if err != nil {
+		t.Fatalf("effective: %v", err)
+	}
+	id, ok := o.Identity("devbot")
+	if !ok {
+		t.Fatal("fixture 里该有 devbot")
+	}
+	// 用看板那条路算出来的可见性，必须与 Effective 给出的一致
+	want := Visibility{Domains: id.Domains}
+	if id.Kind == KindMember {
+		if mv, found := o.ResolveMemberViewer(id.Ref); found {
+			want = mv.Visibility()
+		}
+	}
+	if v.AllDoms != want.All {
+		t.Fatalf("all_domains 不一致：effective=%v viewer=%v", v.AllDoms, want.All)
+	}
+	if strings.Join(v.Domains, ",") != strings.Join(want.Domains, ",") {
+		t.Fatalf("可见域不一致：effective=%v viewer=%v", v.Domains, want.Domains)
+	}
+}

@@ -10,6 +10,11 @@
 set -uo pipefail
 
 VAULT="${1:-}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "${HERE}/.." && pwd)"
+# anc 可执行文件：默认 PATH 里的 anc，也可用 ANC_BIN 指定（CI / 本地构建产物）
+ANC_BIN="${ANC_BIN:-anc}"
+have_anc() { command -v "${ANC_BIN}" >/dev/null 2>&1; }
 if [ -z "$VAULT" ] || [ ! -d "$VAULT" ]; then
   echo "用法：bash dev/verify-governance.sh <vault>" >&2
   exit 2
@@ -61,14 +66,37 @@ else
   cant "判据 13 —— 没有 timeline/ 目录"
 fi
 
+# ── 判据 2：判定点不新增、每轴一份实现、且有单一视图
+# 对象：dev/authz-entry.sh 的白名单 · 命令：authz-entry.sh（多一处即 exit 1）
+if [ -f "${HERE}/authz-entry.sh" ]; then
+  if bash "${HERE}/authz-entry.sh" >/dev/null 2>&1; then
+    ok "判据 2（判定点）：计数与白名单一致（每轴一份实现，新增必须显式登记）"
+  else
+    bad "判据 2（判定点）：计数与白名单不一致 —— 跑 bash dev/authz-entry.sh 看是哪一处"
+  fi
+else
+  cant "判据 2（判定点）—— 没有 dev/authz-entry.sh"
+fi
+# 单一视图：能用一条命令答出「这个人/这个 agent 现在能碰什么」
+if have_anc && [ -d "${VAULT}" ]; then
+  who=$(ls "${VAULT}/members" 2>/dev/null | head -1 | sed 's/\.md$//')
+  if [ -n "${who}" ] && "${ANC_BIN}" authz effective --who "${who}" "${VAULT}" >/dev/null 2>&1; then
+    ok "判据 2（单一视图）：anc authz effective 能答出 ${who} 能碰什么"
+  else
+    cant "判据 2（单一视图）—— anc authz effective 跑不通（没装 anc 或 vault 里没有成员）"
+  fi
+else
+  cant "判据 2（单一视图）—— 本机没装 anc"
+fi
+
 # ── 判据 3：账本完整性（哈希链）。对象 audit/*.jsonl · 字段 prev_hash/hash
 # 样本框：全部分片；抽样：不需要（全量扫）
 if [ -d "${AUDIT_DIR}" ]; then
-  if command -v anc >/dev/null 2>&1; then
-    if anc audit verify "${VAULT}" >/dev/null 2>&1; then
+  if have_anc; then
+    if "${ANC_BIN}" audit verify "${VAULT}" >/dev/null 2>&1; then
       ok "判据 3（账本完整性）：哈希链逐行校验通过"
     else
-      bad "判据 3（账本完整性）：链断了 —— 跑 anc audit verify ${VAULT} 看是哪一行"
+      bad "判据 3（账本完整性）：链断了 —— 跑 ${ANC_BIN} audit verify ${VAULT} 看是哪一行"
     fi
   else
     cant "判据 3（账本完整性）—— 本机没装 anc，验不了链"
