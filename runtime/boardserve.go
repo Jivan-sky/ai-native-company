@@ -167,6 +167,11 @@ func cmdBoardServe(args []string) int {
 	// 脚本里用 ANC_ACCOUNTS=1 更稳。
 	bs.Accounts = *accounts || os.Getenv("ANC_ACCOUNTS") == "1"
 	bs.AssemblyLog = *asmLog || os.Getenv("ANC_ASSEMBLY_LOG") == "1"
+	if v := strings.TrimSpace(os.Getenv("ANC_PENDING_STALE_DAYS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			bs.PendingStaleDays = n
+		}
+	}
 	// 能力表：读不到就是空表（= 全拒），不是错误 —— 刚 init 的机器不该因此起不来，
 	// 但也不该因为「没配」而放行任何东西。
 	if caps, cerr := org.LoadCapabilities(abs); cerr == nil {

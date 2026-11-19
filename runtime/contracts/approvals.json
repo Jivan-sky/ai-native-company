@@ -3,6 +3,7 @@
   "pending": "array<object>",
   "schema": "string",
   "signals": "array<object>",
+  "stale_days": "number",
   "wired": "boolean",
   "write_path": "string"
 }

@@ -42,6 +42,9 @@ type Server struct {
 	// 而且测试与只读浏览不该在 vault 里留东西。要治理留痕的部署显式打开。
 	AssemblyLog bool
 
+	// PendingStaleDays = 待批「多久没动算拖住」的阈值（天）。0 = 用默认 3。
+	PendingStaleDays int
+
 	// Accounts = 开了本地账号（密码登录 / 注册）。关着时看板与以前完全一样：
 	// 本地只读观测，不做登录。开了之后前端会先问 /api/auth/me。
 	Accounts bool

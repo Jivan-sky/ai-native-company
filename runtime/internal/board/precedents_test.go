@@ -1,11 +1,13 @@
 package board
 
 import (
+	"anc/internal/approvals"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeTimeline(t *testing.T, vault string, lines ...string) {
@@ -81,5 +83,25 @@ func TestPrecedentsKeywordMatchesRawText(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if out.Total != 1 || out.Entries[0].ID != "d1" {
 		t.Fatalf("关键词该只命中标题/详情原文，拿到 %+v", out.Entries)
+	}
+}
+
+// 「拖住了」是事实，不是催办：只报放了多久、有没有超阈值，不报该催谁。
+func TestPendingViewsReportsAgeAndStale(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	list := []approvals.Pending{
+		{ID: "fresh", Enqueued: "2026-11-20T09:00:00Z"},
+		{ID: "old", Enqueued: "2026-11-15T12:00:00Z"}, // 5 天
+		{ID: "bad", Enqueued: "不是时间"},
+	}
+	views := pendingViews(list, now, 3)
+	if views[0].Stale || views[0].AgeHours != 3 {
+		t.Fatalf("3 小时前的不该算拖住：%+v", views[0])
+	}
+	if !views[1].Stale || views[1].AgeHours != 120 {
+		t.Fatalf("5 天前该算拖住且 age=120h：%+v", views[1])
+	}
+	if views[2].Stale || views[2].AgeHours != 0 {
+		t.Fatalf("时间解析不出来时留 0 且不算拖住，不拿「可能很久」吓人：%+v", views[2])
 	}
 }

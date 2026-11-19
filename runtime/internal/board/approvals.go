@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"anc/internal/approvals"
+	"time"
 )
 
 // WritePath 是看板的**唯一写口**：审批信号。
@@ -40,7 +41,12 @@ type ApprovalView struct {
 	Signals   []SignalView  `json:"signals"`
 	Count     int           `json:"count"`
 	Pending   []PendingView `json:"pending"`
+	// StaleDays 是「多久没动算拖住」的阈值。**服务端给**，读的人不用猜。
+	StaleDays int `json:"stale_days"`
 }
+
+// 默认阈值：3 天。拖过三天还没人动，就不再是"在排队"，是"被搁置"。
+const defaultStaleDays = 3
 
 // BandInputRequired 是「判真」那根轴上的**第四档**：**等人给一句话**
 // （A2A 任务状态机里的一等中断态 `input-required` —— 不是失败，也不是系统自己在走）。
@@ -75,15 +81,31 @@ type PendingView struct {
 	Brief Brief `json:"brief"`
 	// Refs 是依据材料；空 = 提案人没给，brief.missing 会指出来。
 	Refs []string `json:"refs,omitempty"`
+	// AgeHours / Stale 是**事实**，不是催办：这条在队列里放了多久、有没有超过阈值。
+	// 我们只报"放了多久"，不报"该催谁" —— 后者是判断（判据 15 的教训）。
+	AgeHours int  `json:"age_hours"`
+	Stale    bool `json:"stale"`
 }
 
-func pendingViews(list []approvals.Pending) []PendingView {
+func pendingViews(list []approvals.Pending, now time.Time, staleDays int) []PendingView {
+	if staleDays <= 0 {
+		staleDays = defaultStaleDays
+	}
 	out := make([]PendingView, 0, len(list))
 	for _, p := range list {
 		v := PendingView{
 			ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain, Project: p.Project,
 			Title: p.Title, Body: p.Body, Refs: p.Refs, Enqueued: p.Enqueued, Status: p.Status,
 			Band: BandInputRequired,
+		}
+		// 等了多久：解析不出来就留 0 并标 stale=false —— 不拿"可能很久了"去吓人
+		if t, err := time.Parse(time.RFC3339, p.Enqueued); err == nil {
+			age := now.Sub(t)
+			if age < 0 {
+				age = 0
+			}
+			v.AgeHours = int(age.Hours())
+			v.Stale = age >= time.Duration(staleDays)*24*time.Hour
 		}
 		// 简报基于**完整的那条视图**算（含 refs）—— 上一版传了个临时结构体，
 		// 结果 refs 明明有、missing 还在报"没有依据材料"。
@@ -133,7 +155,12 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, view)
 		return
 	}
-	view.Pending = pendingViews(list)
+	if s.PendingStaleDays > 0 {
+		view.StaleDays = s.PendingStaleDays
+	} else {
+		view.StaleDays = defaultStaleDays
+	}
+	view.Pending = pendingViews(list, s.now(), s.PendingStaleDays)
 	view.Count = len(list)
 	writeJSON(w, http.StatusOK, view)
 }
