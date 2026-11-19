@@ -564,3 +564,21 @@ func ScanGovernance(es []Entry) Governance {
 	}
 	return g
 }
+
+// Upstreams 返回这一条的**出处**，按"回填规则"补齐：
+//
+//	有 derived_from → 用它（写入时强制填的那份）
+//	没有但有 prev  → 用 [prev]（prev 本来就是上游引用，这不是编，是把已有的指针读出来）
+//	两者都没有     → 空切片（明确"没有上游"）
+//
+// 为什么不写回历史：账本是追加式事实，改历史行等于篡改证据。
+// 推断只发生在**读**这一侧 —— 同一份底账，任何时候读都是同一个结果。
+func (e Entry) Upstreams() []string {
+	if len(e.DerivedFrom) > 0 {
+		return e.DerivedFrom
+	}
+	if p := strings.TrimSpace(e.Prev); p != "" {
+		return []string{p}
+	}
+	return nil
+}

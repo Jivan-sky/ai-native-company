@@ -32,3 +32,19 @@ func TestScanGovernanceLastCorrectionWinsDeterministically(t *testing.T) {
 		t.Fatalf("同一时刻该按 id 字典序取后一个（b），拿到 %q", g.Corrected["x"])
 	}
 }
+
+// 回填规则：老数据没有 derived_from 时，读侧按 prev 推断（不改写历史）。
+func TestUpstreamsFallsBackToPrev(t *testing.T) {
+	withDF := Entry{ID: "a", DerivedFrom: []string{"x"}, Prev: "y"}
+	if got := withDF.Upstreams(); len(got) != 1 || got[0] != "x" {
+		t.Fatalf("有 derived_from 时该用它，拿到 %v", got)
+	}
+	onlyPrev := Entry{ID: "b", Prev: "p1"}
+	if got := onlyPrev.Upstreams(); len(got) != 1 || got[0] != "p1" {
+		t.Fatalf("没有 derived_from 但有 prev 时该推断成 [p1]，拿到 %v", got)
+	}
+	neither := Entry{ID: "c"}
+	if got := neither.Upstreams(); len(got) != 0 {
+		t.Fatalf("两者都没有时该是空，拿到 %v", got)
+	}
+}
