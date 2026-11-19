@@ -111,8 +111,21 @@ else
   cant "判据 7/8/12（经验对象）—— 还没有 experiences/ledger.jsonl（没有任何经验被确认过）"
 fi
 
-# ── 判据 2/3/6/9/10/11/14/15：见 GOVERNANCE-FLYWHEEL.md 4.2 的现状表
-for n in 2 3 6 9 10 11 14 15; do
+# ── 判据 14（部分）：同类事可回查。对象 blockers/ · 字段 kind + domain
+# 「同类」口径写在 casework.Recurring：按 (域, 类别) 归组，不用标题相似度（那需要调参，调不准就是"看着像"）
+if [ -d "${VAULT}/blockers" ]; then
+  n=$(ls "${VAULT}/blockers"/*.md 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${n}" -eq 0 ]; then
+    cant "判据 14（同类可回查）—— blockers/ 是空的"
+  else
+    ok "判据 14（部分）：${n} 条卡点可按「域 + 类别」归组（anc blocker recurring）"
+  fi
+else
+  cant "判据 14（同类可回查）—— 还没有 blockers/ 目录"
+fi
+
+# ── 判据 2/3/6/9/10/11/15：见 GOVERNANCE-FLYWHEEL.md 4.2 的现状表
+for n in 2 3 6 9 10 11 15; do
   cant "判据 ${n} —— 暂无自动化验收（缺字段或接口，见 4.2）"
 done
 

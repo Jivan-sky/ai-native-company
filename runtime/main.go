@@ -145,6 +145,10 @@ func main() {
 		os.Exit(cmdDistill(args))
 	case "approvals":
 		os.Exit(cmdApprovals(args))
+	case "blocker":
+		os.Exit(cmdBlocker(args))
+	case "breakthrough":
+		os.Exit(cmdBreakthrough(args))
 	case "experience":
 		os.Exit(cmdExperience(args))
 	case "envelope":

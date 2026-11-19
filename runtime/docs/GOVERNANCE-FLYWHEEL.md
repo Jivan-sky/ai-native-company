@@ -61,7 +61,7 @@ IETF 的 AI 治理记录草案（[draft-reilly-aigov](https://datatracker.ietf.o
 | **C 上下文**（Context Pack） | 给某个主体（人/Agent）装配的一次上下文 | who, sections[], chars, why, version, derived_from[] | 装配器（自动） | 每次装配留摘要 30 天 |
 | **D 决策**（Decision） | 一次拍板：谁、为什么、依据哪条授权 | id, actor, role, decision, why, basis, at **+ commitment_version（依据哪一版承诺/报价/SOW）· prior_cases[]（同类事上次谁办、结果如何）· worst_case（不拍板的最坏代价）** | 人（含 Agent 代人） | 永久 |
 | **B 卡点**（Blocker） | 一次阻塞：卡在哪、等谁、等了多久 | id, case, stage, waiting_on, since, resolved_by | 任何人/Agent | 永久 |
-| **R 突破**（Breakthrough） | 一次解法：什么办法、代价、可复用吗 | id, blocker_id, method, cost, reused_count | 当事人 | 永久 |
+| **R 突破**（Breakthrough） | 一次解法：什么办法、代价、可复用吗 | id, **blocker_id（必填）**, method, cost, reusable, scope | 当事人 | 永久 |
 | **E 经验**（Experience） | 从 D/B/R 里提炼的**可复用条目** | id, from[], claim, evidence[], scope, grade | 只能由人确认 | 永久 |
 
 **关键设计**：E 不能自动生成后就生效。它必须经过一次**人工确认**（谁确认、确认了什么证据），
@@ -156,7 +156,7 @@ IETF 的 AI 治理记录草案（[draft-reilly-aigov](https://datatracker.ietf.o
 | 11 | 人机边界明确 | **无法判定** | 判定树谓词无阈值（多少钱算花钱）；没有答案键、没有"说不清"档 |
 | 12 | 飞轮有出口 | **部分成立** | reject / retire 必须写理由并进台账，状态可查；revive 尚未提供命令 |
 | 13 | 决策带依据 | **部分成立** | `basis` 已落：审批回执 `proposal:<id>`、结账 `task:<id>`；`commitment_version`（哪一版报价/SOW）仍未定义，判据 13 完整形态待 P2 |
-| 14 | 同类事可回查 | **无法判定** | "同类"无口径（域/case/标题/客户？）；`kind` 字段"约定不强卡"，按它查会漏；没有"客户"对象 |
+| 14 | 同类事可回查 | **部分成立** | `anc blocker recurring` 按 (域, 类别) 归组回答"踩了几次"；卡死不用标题相似度（要调参，调不准就是"看着像"）。缺：客户对象、跨 case 的调派台账 |
 | 15 | 待批按最坏代价排序 | **不成立** | `PendingView` 无代价字段、无排序参数；`worst_case` 全仓 0 命中 |
 
 ### 4.3 结论与最省力的一刀

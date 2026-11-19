@@ -12,6 +12,7 @@
 | 7 经验未确认不得生效 | ✅ | `internal/exp` + `anc experience`，deploy 先要 approve | CLI 实测 exit 1 + `ErrNotApproved` |
 | 8 部署可回滚 | 🟡 部分 | version + digest + `experiences/ledger.jsonl` | 台账里每条 deploy 带 digest |
 | 12 飞轮有出口 | 🟡 部分 | reject / retire 必须写理由并进台账 | 台账可查；revive 命令未做 |
+| 14 同类可回查 | 🟡 部分 | `blockers/` + `anc blocker recurring`（按域+类别归组） | 判据 14 验法已进脚本 |
 | 1 出处 | 🟡 部分 | `derived_from`（timeline + audit）；审批/结账主链已带 | 字段在；逐条走链待经验对象铺开 |
 | 13 决策带依据 | 🟡 部分 | `basis`（proposal:/task:）；缺 `commitment_version` | 11-19 之后写入的 decision 行 |
 | 6 撤权即时生效 | ✅（专家核过） | `Exercise` 按 version + revoked_at | 边界：只管过闸三面 |
@@ -30,7 +31,9 @@
    做法：每行 `prev_hash` + 每日 head 签名 + `anc audit verify`。
 3. **判据 9（破坏性契约变更）** —— `gen-types.mjs` 只拦"前端编字段"；
    删字段/改名/标可选三种全绿。做法：版本化快照 `contracts/*.json`，破坏性变更 `exit 1`。
-4. **判据 10/11（任务卡与判定树）** —— 卡是手写样例、无版本机制；判定树谓词无阈值。
+4. **卡点/突破接进飞轮** —— 对象已建（`internal/casework`），但还没接进 `distill` 的候选池：
+   现在要靠人从 `blocker recurring` 看出来，再 `anc experience add`。这一步该自动化。
+5. **判据 10/11（任务卡与判定树）** —— 卡是手写样例、无版本机制；判定树谓词无阈值。
    做法：卡由 `anc task card <id>` 生成；判定树做成可执行分类器 + 20 道带答案的题。
 5. **判据 14/15** —— "同类"无口径（需要客户对象与标题相似度）；`PendingView` 无 `worst_case`。
 
