@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"anc/internal/approvals"
+	"anc/internal/timeline"
 	"time"
 )
 
@@ -85,9 +86,12 @@ type PendingView struct {
 	// 我们只报"放了多久"，不报"该催谁" —— 后者是判断（判据 15 的教训）。
 	AgeHours int  `json:"age_hours"`
 	Stale    bool `json:"stale"`
+	// Precedents 是同域的近期决策（最多 3 条，新的在前）。
+	// 让 agent **一次请求**就拿到"这条 + 先例"，不用再发一次；仍然不做相似度排序。
+	Precedents []Precedent `json:"precedents,omitempty"`
 }
 
-func pendingViews(list []approvals.Pending, now time.Time, staleDays int) []PendingView {
+func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDomain map[string][]Precedent) []PendingView {
 	if staleDays <= 0 {
 		staleDays = defaultStaleDays
 	}
@@ -110,6 +114,11 @@ func pendingViews(list []approvals.Pending, now time.Time, staleDays int) []Pend
 		// 简报基于**完整的那条视图**算（含 refs）—— 上一版传了个临时结构体，
 		// 结果 refs 明明有、missing 还在报"没有依据材料"。
 		v.Brief = briefOf(v)
+		if byDomain != nil && v.Domain != "" {
+			// 拷一份，避免调用方改到共享切片
+			src := byDomain[v.Domain]
+			v.Precedents = append([]Precedent(nil), src...)
+		}
 		out = append(out, v)
 	}
 	return out
@@ -155,12 +164,17 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, view)
 		return
 	}
+	// 一次把时间线读进来，给每条待批挂同域先例（读一次，不按条读）
+	byDomain := map[string][]Precedent{}
+	if doc, terr := timeline.Load(s.Vault); terr == nil {
+		byDomain = s.precedentsByDomain(doc, 3)
+	}
 	if s.PendingStaleDays > 0 {
 		view.StaleDays = s.PendingStaleDays
 	} else {
 		view.StaleDays = defaultStaleDays
 	}
-	view.Pending = pendingViews(list, s.now(), s.PendingStaleDays)
+	view.Pending = pendingViews(list, s.now(), s.PendingStaleDays, byDomain)
 	view.Count = len(list)
 	writeJSON(w, http.StatusOK, view)
 }

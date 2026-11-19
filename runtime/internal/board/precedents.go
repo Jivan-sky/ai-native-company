@@ -55,6 +55,37 @@ func verdictOf(title string) string {
 	return ""
 }
 
+// precedentsByDomain 把时间线里的决策按域分组，每组最多 max 条、新的在前。
+//
+// 给待批条目内嵌先例用：**一次请求就能拿到"这条 + 它所在域的先例"**，
+// 不用 agent 再发第二个请求。仍然不做相似度排序 —— 分组的键只有"同域"这一个事实。
+func (s *Server) precedentsByDomain(doc timeline.Doc, max int) map[string][]Precedent {
+	out := map[string][]Precedent{}
+	if max <= 0 {
+		max = 3
+	}
+	for _, e := range doc.Entries {
+		if !strings.EqualFold(strings.TrimSpace(e.Kind), "decision") {
+			continue
+		}
+		d := strings.TrimSpace(e.Domain)
+		if d == "" {
+			continue
+		}
+		out[d] = append(out[d], Precedent{ID: e.ID, Case: e.Case, At: e.At, By: e.By, To: e.To,
+			Verdict: verdictOf(e.Title), Title: e.Title, Detail: e.Detail, Domain: e.Domain, Refs: e.Refs})
+	}
+	for d := range out {
+		list := out[d]
+		sort.SliceStable(list, func(i, j int) bool { return list[i].At > list[j].At })
+		if len(list) > max {
+			list = list[:max]
+		}
+		out[d] = list
+	}
+	return out
+}
+
 // handlePrecedents 查先例：按域过滤 + 可选关键词。
 //
 // 为什么参数这么少：调用方（一线 agent）手上只有"这条提案的域和一句话"，

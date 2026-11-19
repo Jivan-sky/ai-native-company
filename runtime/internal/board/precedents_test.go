@@ -94,7 +94,7 @@ func TestPendingViewsReportsAgeAndStale(t *testing.T) {
 		{ID: "old", Enqueued: "2026-11-15T12:00:00Z"}, // 5 天
 		{ID: "bad", Enqueued: "不是时间"},
 	}
-	views := pendingViews(list, now, 3)
+	views := pendingViews(list, now, 3, nil)
 	if views[0].Stale || views[0].AgeHours != 3 {
 		t.Fatalf("3 小时前的不该算拖住：%+v", views[0])
 	}
@@ -103,5 +103,29 @@ func TestPendingViewsReportsAgeAndStale(t *testing.T) {
 	}
 	if views[2].Stale || views[2].AgeHours != 0 {
 		t.Fatalf("时间解析不出来时留 0 且不算拖住，不拿「可能很久」吓人：%+v", views[2])
+	}
+}
+
+// 待批条目自带同域先例：一次请求拿到"这条 + 先例"，不同域的不混进来。
+func TestPendingViewsEmbedSameDomainPrecedents(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	byDomain := map[string][]Precedent{
+		"trade":    {{ID: "d1", Domain: "trade", Title: "报价 —— 同意"}},
+		"delivery": {{ID: "d2", Domain: "delivery", Title: "巡检 —— 驳回"}},
+	}
+	list := []approvals.Pending{
+		{ID: "a", Domain: "trade", Enqueued: "2026-11-20T09:00:00Z"},
+		{ID: "b", Domain: "delivery", Enqueued: "2026-11-20T09:00:00Z"},
+		{ID: "c", Domain: "", Enqueued: "2026-11-20T09:00:00Z"},
+	}
+	views := pendingViews(list, now, 3, byDomain)
+	if len(views[0].Precedents) != 1 || views[0].Precedents[0].ID != "d1" {
+		t.Fatalf("trade 该拿到 d1：%+v", views[0].Precedents)
+	}
+	if len(views[1].Precedents) != 1 || views[1].Precedents[0].ID != "d2" {
+		t.Fatalf("delivery 该拿到 d2：%+v", views[1].Precedents)
+	}
+	if len(views[2].Precedents) != 0 {
+		t.Fatalf("没有域的条目不该硬塞先例：%+v", views[2].Precedents)
 	}
 }
