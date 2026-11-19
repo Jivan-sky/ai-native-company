@@ -122,9 +122,14 @@ all)
 	# 脱敏门禁放在最后：它是唯一一条与代码正确性无关、但决定"能不能公开仓库"的检查。
 	# 仓库要公开 → 私密信息不能进提交，所以它必须自动跑，不能靠人记得。
 	"$0" redact
+	# 判定点计数：多一处判定点没登记就失败（判据 2）
+	"$0" authz
 	;;
 redact)
 	bash "$HERE/check-docs-redaction.sh"
+	;;
+authz)
+	bash "$HERE/authz-entry.sh"
 	;;
 board)
 	[[ -f "$BOX/bin/anc" ]] || die "还没有 .devbox/bin/anc —— 先跑 ./dev.sh smoke"

@@ -34,6 +34,8 @@ func cmdAuthz(args []string) int {
 	switch args[0] {
 	case "init":
 		return authzInit(args[1:])
+	case "effective":
+		return cmdAuthzEffective(args[1:])
 	case "grant":
 		return authzGrant(args[1:])
 	case "revoke":
@@ -201,6 +203,74 @@ func authzCheck(args []string) int {
 	fmt.Println(string(b))
 	if bad > 0 {
 		return 1
+	}
+	return 0
+}
+
+// cmdAuthzEffective —— 「这个人 / 这个 agent 现在到底能碰什么」。
+//
+// 五条轴分别回答不同问题，客户问一句要翻四个文件还可能翻漏。
+// 这个命令不新判定：它把已有的结论合成一页，每条都带来源，答不出来的写「无法判定」。
+func cmdAuthzEffective(args []string) int {
+	fs := flag.NewFlagSet("authz effective", flag.ContinueOnError)
+	who := fs.String("who", "", "成员名或 agent slug")
+	asJSON := fs.Bool("json", false, "输出 JSON")
+	fa, pos := splitArgs(args, map[string]bool{})
+	if err := fs.Parse(fa); err != nil {
+		return 2
+	}
+	vault, code := authzVault(pos)
+	if code != 0 {
+		return code
+	}
+	o, err := org.Load(vault)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	caps, _ := org.LoadCapabilities(vault)
+	auth, wired, _ := org.LoadAuthority(vault)
+	v, err := org.Effective(o, caps, auth, wired, *who, time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		return 1
+	}
+	if *asJSON {
+		b, _ := json.MarshalIndent(v, "", "  ")
+		fmt.Println(string(b))
+		return 0
+	}
+	fmt.Printf("%s（%s · 岗位 %s）\n", v.Who, v.Kind, v.Role)
+	if v.AllDoms {
+		fmt.Println("  可见域：全部（跨域可见）")
+	} else if len(v.Domains) == 0 {
+		fmt.Println("  可见域：无 —— 只有公司级资料")
+	} else {
+		fmt.Println("  可见域：" + strings.Join(v.Domains, ", "))
+	}
+	if len(v.Caps) == 0 {
+		fmt.Println("  岗位能力：能力表里没有这一行 —— 按表判定时一律拒绝")
+	} else {
+		var rows []string
+		for _, c := range v.Caps {
+			rows = append(rows, c.Module+"."+c.Action+"("+c.Scope+")")
+		}
+		fmt.Println("  岗位能力：" + strings.Join(rows, "  "))
+	}
+	if len(v.Delegated) == 0 {
+		fmt.Println("  委派授权：零条 —— 跨域能力为零")
+	} else {
+		fmt.Println("  委派授权：")
+		for _, d := range v.Delegated {
+			why := ""
+			if d.Why != "" {
+				why = "  ← " + d.Why
+			}
+			fmt.Printf("    %-20s %s %-24s %-8s%s\n", d.Slug, d.Action, d.Object, d.Verdict, why)
+		}
+	}
+	for _, n := range v.Notes {
+		fmt.Println("  ! " + n)
 	}
 	return 0
 }
