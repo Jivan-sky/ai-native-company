@@ -145,6 +145,8 @@ func main() {
 		os.Exit(cmdDistill(args))
 	case "approvals":
 		os.Exit(cmdApprovals(args))
+	case "experience":
+		os.Exit(cmdExperience(args))
 	case "envelope":
 		os.Exit(cmdEnvelope(args))
 	case "gate":

@@ -95,8 +95,24 @@ else
   cant "判据 5（装配可解释）—— 还没有 context/assembly.jsonl"
 fi
 
-# ── 判据 2/3/6/7/8/9/10/11/12/14/15：见 GOVERNANCE-FLYWHEEL.md 4.2 的现状表
-for n in 2 3 6 7 8 9 10 11 12 14 15; do
+# ── 判据 7/8/12：经验对象的状态机与台账
+EXP_DIR="${VAULT}/experiences"
+if [ -f "${EXP_DIR}/ledger.jsonl" ]; then
+  exports=$(grep -c '"action":"deploy"' "${EXP_DIR}/ledger.jsonl" 2>/dev/null || true)
+  nover=$(grep '"action":"deploy"' "${EXP_DIR}/ledger.jsonl" 2>/dev/null | grep -vc '"digest"' || true)
+  rej=$(grep -c '"action":"reject"' "${EXP_DIR}/ledger.jsonl" 2>/dev/null || true)
+  if [ "${nover:-0}" -ne 0 ]; then
+    bad "判据 8（部署可回滚）：${nover} 次部署缺 digest"
+  else
+    ok "判据 8（部署可回滚）：${exports} 次部署全部带 digest/version"
+  fi
+  ok "判据 7/12（经验对象在用）：否决 ${rej} 条、部署 ${exports} 条，台账可查"
+else
+  cant "判据 7/8/12（经验对象）—— 还没有 experiences/ledger.jsonl（没有任何经验被确认过）"
+fi
+
+# ── 判据 2/3/6/9/10/11/14/15：见 GOVERNANCE-FLYWHEEL.md 4.2 的现状表
+for n in 2 3 6 9 10 11 14 15; do
   cant "判据 ${n} —— 暂无自动化验收（缺字段或接口，见 4.2）"
 done
 
