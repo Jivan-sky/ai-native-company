@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 720" width="1240" height="720" role="img" aria-label="ANC 飞轮：干活 → context 落下来 → 蒸馏成知识 → 固化成 skill → 回到干活">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4f6fa"/>
+      <stop offset="1" stop-color="#e9edf5"/>
+    </linearGradient>
+    <filter id="card" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#1b2436" flood-opacity="0.08"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6b8c"/>
+    </marker>
+    <style>
+      .t { font-family: "PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif; }
+      .h { font-size: 30px; font-weight: 600; fill: #111827; }
+      .s { font-size: 17px; fill: #4b5563; }
+      .x { font-size: 15px; fill: #6b7280; }
+      .edge { font-size: 16px; font-weight: 500; fill: #374151; }
+      .badge { font-size: 13px; fill: #6b7280; }
+    </style>
+  </defs>
+
+  <rect width="1240" height="720" rx="28" fill="url(#bg)"/>
+
+  <!-- 四张卡 -->
+  <!-- 上：干活 -->
+  <g filter="url(#card)">
+    <rect x="470" y="52" width="300" height="112" rx="18" fill="#eef1ff" stroke="#c7d0ff"/>
+    <text class="t h" x="620" y="102" text-anchor="middle" fill="#2f43a8">大家干活</text>
+    <text class="t s" x="620" y="136" text-anchor="middle">每个人 + 他自己的 agent</text>
+  </g>
+
+  <!-- 右：context -->
+  <g filter="url(#card)">
+    <rect x="852" y="286" width="318" height="132" rx="18" fill="#f1f4f8" stroke="#cfd6e2"/>
+    <text class="t h" x="1011" y="334" text-anchor="middle" fill="#334155">context 落下来</text>
+    <text class="t s" x="1011" y="366" text-anchor="middle">transcripts · inbox · 踩的坑</text>
+    <text class="t x" x="1011" y="394" text-anchor="middle">会话收尾自记，随口一句进 inbox</text>
+  </g>
+
+  <!-- 下：知识 -->
+  <g filter="url(#card)">
+    <rect x="470" y="556" width="300" height="112" rx="18" fill="#eafaf5" stroke="#b9e6d8"/>
+    <text class="t h" x="620" y="606" text-anchor="middle" fill="#0f5f52">知识</text>
+    <text class="t s" x="620" y="640" text-anchor="middle">标准答案 · 方法 · handbook</text>
+  </g>
+
+  <!-- 左：skill -->
+  <g filter="url(#card)">
+    <rect x="70" y="286" width="300" height="132" rx="18" fill="#fff6ec" stroke="#f3d3ae"/>
+    <text class="t h" x="220" y="334" text-anchor="middle" fill="#9a4b0a">skill</text>
+    <text class="t s" x="220" y="366" text-anchor="middle">agent 直接会做的事</text>
+    <text class="t x" x="220" y="394" text-anchor="middle">从「能查到」升级成「会做」</text>
+  </g>
+
+  <!-- 箭头（四段弧） -->
+  <path d="M 772 132 C 900 160 985 205 1000 278" fill="none" stroke="#5b6b8c" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M 1006 426 C 995 505 900 560 778 600" fill="none" stroke="#5b6b8c" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M 462 600 C 340 560 245 505 232 426" fill="none" stroke="#5b6b8c" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M 226 278 C 240 205 330 160 462 132" fill="none" stroke="#5b6b8c" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- 边上的动作词 -->
+  <text class="t edge" x="905" y="196" text-anchor="middle">落下来</text>
+  <text class="t badge" x="905" y="220" text-anchor="middle">会话收尾 · 随手记</text>
+
+  <text class="t edge" x="905" y="520" text-anchor="middle">蒸馏</text>
+  <text class="t badge" x="905" y="544" text-anchor="middle">过一遍 inbox</text>
+
+  <text class="t edge" x="330" y="520" text-anchor="middle">固化</text>
+  <text class="t badge" x="330" y="544" text-anchor="middle">写成 skills/ 正文</text>
+
+  <text class="t edge" x="352" y="186" text-anchor="middle">回流</text>
+  <text class="t badge" x="352" y="210" text-anchor="middle">自己查 · 问人 · 点头才用</text>
+
+  <!-- 中心 -->
+  <circle cx="620" cy="360" r="132" fill="#ffffff" stroke="#dbe2ee"/>
+  <text class="t" x="620" y="330" text-anchor="middle" font-size="44" font-weight="700" fill="#111827" letter-spacing="2">ANC</text>
+  <text class="t" x="620" y="366" text-anchor="middle" font-size="18" fill="#374151">每转一圈，公司变强一点</text>
+  <text class="t x" x="620" y="398" text-anchor="middle">中枢 · 调度 · 指挥</text>
+  <text class="t badge" x="620" y="424" text-anchor="middle">不推送 · 人点头才生效</text>
+</svg>
