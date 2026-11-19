@@ -76,15 +76,8 @@ type Scope struct {
 
 // Allows 判一份文档的域在不在这次范围里。空域恒真。
 func (s Scope) Allows(domain string) bool {
-	if domain == "" || s.All {
-		return true
-	}
-	for _, d := range s.Domains {
-		if d == domain {
-			return true
-		}
-	}
-	return false
+	// 与看板同一个实现（org.Visibility）—— 这里不再自己写一遍循环。
+	return org.Visibility{All: s.All, Domains: s.Domains}.Allows(domain)
 }
 
 // Index 是一份只读的内存索引。并发读安全（构建后不再写）。

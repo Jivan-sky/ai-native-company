@@ -126,7 +126,28 @@ func (o *Org) isAdminName(name string) bool {
 // slug 为空 = 这份东西不属于任何域（公司级资料，比如 company.md 自己）：
 // 登录进来的人都能看 —— 它本来就渲染在每个人的 persona 里，拒绝它只会让人打不开首页。
 func (v Viewer) CanSeeDomain(slug string) bool {
-	if slug == "" || v.AllDomains {
+	// 转给 Visibility.Allows —— 判据 2 的第一步：**同一条口径只留一份实现**。
+	return v.Visibility().Allows(slug)
+}
+
+// Visibility 是「这次能看见哪些域」的**唯一实现**。
+//
+// 为什么要有这个类型：看板用 Viewer.CanSeeDomain、检索用 retrieval.Scope.Allows，
+// 两处各写一遍同样的循环。这正是 SPEC §15.4 说的「判定点散落」——
+// 两份实现迟早给出两个答案，而"命令行说能看、看板说不能看"比没有权限更坏。
+//
+// 口径（三处必须一致，任何一处改动都要同步测试）：
+//   - 空 slug = 公司级资料（company.md 这类），登录的人都能看；
+//   - All = 跨域可见（admin 或 access.cross_domain=visible）；
+//   - 否则按 Domains 白名单。
+type Visibility struct {
+	All     bool
+	Domains []string
+}
+
+// Allows 判一个域（或空域）在不在可见范围里。
+func (v Visibility) Allows(slug string) bool {
+	if slug == "" || v.All {
 		return true
 	}
 	for _, d := range v.Domains {
@@ -136,3 +157,6 @@ func (v Viewer) CanSeeDomain(slug string) bool {
 	}
 	return false
 }
+
+// Visibility 把访问者转成统一形状。
+func (v Viewer) Visibility() Visibility { return Visibility{All: v.AllDomains, Domains: v.Domains} }
