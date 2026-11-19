@@ -1,0 +1,27 @@
+{
+  "cost": {
+    "note": "string",
+    "sections": "array<object>",
+    "total": "number"
+  },
+  "domain": "string",
+  "note": "string",
+  "pack": {
+    "at": "string",
+    "directory": "array<object>",
+    "doing": "array<object>",
+    "domains": "array<object>",
+    "gaps": "array<string>",
+    "grants": "object",
+    "identity": "object",
+    "projects": "array<object>",
+    "who": "string"
+  },
+  "roster": "array<object>",
+  "schema": "string",
+  "task_bands": {
+    "prop:p-gov-1": "string"
+  },
+  "tasks_wired": "boolean",
+  "who": "string"
+}

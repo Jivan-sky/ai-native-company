@@ -1,0 +1,23 @@
+{
+  "bad": "array<unknown>",
+  "bands": {
+    "denied": "number",
+    "failed": "number",
+    "ok": "number",
+    "unknown": "number"
+  },
+  "limit": "number",
+  "missing": "array<string>",
+  "note": "string",
+  "records": "array<object>",
+  "schema": "string",
+  "scopes": {
+    "cross": "number",
+    "domain": "number",
+    "outside": "number",
+    "unknown": "number",
+    "vault": "number"
+  },
+  "total": "number",
+  "wired": "boolean"
+}

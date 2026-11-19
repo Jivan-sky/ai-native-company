@@ -1,0 +1,8 @@
+{
+  "bots": "array<object>",
+  "gateway": "string",
+  "gateway_why": "string",
+  "handlers": "array<string>",
+  "schema": "string",
+  "wired": "boolean"
+}

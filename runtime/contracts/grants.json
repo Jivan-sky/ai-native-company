@@ -1,0 +1,15 @@
+{
+  "findings": "array<unknown>",
+  "missing": "array<string>",
+  "note": "string",
+  "rows": "array<object>",
+  "schema": "string",
+  "scope": {
+    "known": "boolean",
+    "ref": "string"
+  },
+  "shown": "number",
+  "subjects": "array<object>",
+  "total": "number",
+  "wired": "boolean"
+}

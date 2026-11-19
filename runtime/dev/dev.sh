@@ -51,6 +51,11 @@ mkdir -p "$BOX" "$LOG"
 in_dev() { "${COMPOSE[@]}" run --rm dev sh -c "$1"; }
 
 case "$1" in
+  contract)
+    # 契约快照检查：需要有活看板（与 types 同一条前提）。--update 用来显式改契约。
+    node "$HERE/contract-check.mjs" "${@:2}"
+    ;;
+
   types)
     # 契约漂移检查：拿真服务返回核对前端类型（不引任何运行时，只在开发期跑）
     node "$HERE/gen-types.mjs"

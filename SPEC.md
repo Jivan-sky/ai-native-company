@@ -1165,7 +1165,9 @@ candidate ──approve──▶ approved ──deploy──▶ deployed ──r
 `dev/gen-types.mjs` 核 7 份契约类型（board / approvals / timeline / audit / context / grants / runtime），与 `boardui/src/core/types.ts` 逐字段比对，
 不一致即非零退出（`dev.sh types`）。
 
-它拦的是"前端编字段"，**不拦破坏性变更**（删字段 / 改名 / 改可选性三种全绿）—— 判据 9 仍未成立。
+另外 `dev/contract-check.mjs` 把 7 个端点的**真实形状**存成 `contracts/*.json` 快照：
+删字段或改类型 → `exit 1`（判据 9）；新增字段只提示，需人确认后 `--update`。
+看不见"可选性"与"取值范围"——这条限制写在脚本头注释里。
 
 ### 16.2 错误形状目前有两种（未统一）
 

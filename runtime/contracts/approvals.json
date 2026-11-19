@@ -1,0 +1,8 @@
+{
+  "count": "number",
+  "pending": "array<object>",
+  "schema": "string",
+  "signals": "array<object>",
+  "wired": "boolean",
+  "write_path": "string"
+}

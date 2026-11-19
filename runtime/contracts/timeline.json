@@ -1,0 +1,19 @@
+{
+  "bad": "array<unknown>",
+  "cases": "array<object>",
+  "counts": {
+    "green": "number",
+    "red": "number",
+    "unknown": "number",
+    "yellow": "number"
+  },
+  "entries": "number",
+  "limit": "number",
+  "missing": "array<string>",
+  "next_before": "string",
+  "note": "string",
+  "schema": "string",
+  "series": "array<object>",
+  "total": "number",
+  "wired": "boolean"
+}
