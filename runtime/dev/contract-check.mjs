@@ -38,6 +38,13 @@ function typeOf(v) {
   return typeof v; // string | number | boolean
 }
 
+// 有些键名是**动态的**（例如 task_bands 以提案 id 为键：`prop:p-gov-1`）。
+// 把它们原样写进快照，队列一变就会误报"字段被删" —— 这不是契约变更，是数据变了。
+// 归一成 <key>，只保留"这里是一个映射"这个事实。
+function dynamicKey(k) {
+  return k.includes(":") || /^[a-z0-9]+(-[a-z0-9]+)+$/.test(k);
+}
+
 // shape 只取两层：顶层对象的键与类型；数组取第一元素的键与类型。
 function shape(v) {
   if (v === null || typeof v !== "object") return typeOf(v);
@@ -49,7 +56,7 @@ function shape(v) {
     const t = typeOf(v[k]);
     if (t === "object") {
       const inner = {};
-      for (const k2 of Object.keys(v[k]).sort()) inner[k2] = typeOf(v[k][k2]);
+      for (const k2 of Object.keys(v[k]).sort()) inner[dynamicKey(k2) ? "<key>" : k2] = typeOf(v[k][k2]);
       out[k] = inner;
     } else {
       out[k] = t;

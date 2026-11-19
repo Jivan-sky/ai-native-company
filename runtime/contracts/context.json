@@ -20,7 +20,7 @@
   "roster": "array<object>",
   "schema": "string",
   "task_bands": {
-    "prop:p-gov-1": "string"
+    "<key>": "string"
   },
   "tasks_wired": "boolean",
   "who": "string"
