@@ -26,7 +26,7 @@ ANC 把这件事搬进系统：**组织的事实写成文件，权限写成数�
 | **右 · 落下来** | 大家干活时 context 自动沉降：会话收尾记 transcripts、随口一句进 inbox、踩的坑留在对话里 | ✅ 归集已有（`anc audit collect` / trail）；inbox 有目录与规矩，投递仍靠人或 agent |
 | **下 · 蒸馏** | 过一遍 inbox，把生料提炼成知识：标准答案、方法论、handbook | ⚠️ `anc distill` **只读、现算、不写 skills/**；经验对象已有 approve/deploy，但 deploy 只改状态与台账 |
 | **左 · 固化** | 反复被用到的知识，写成 `skills/<name>/SKILL.md` —— 从「能查到」升级成「agent 直接会做」 | ⚠️ 落点已定（`ctxpack` 会报 missing），**从经验写进 skills 的通道还没接** |
-| **上 · 回流** | plugin 分发，全员的 agent 瞬间都会了，然后用它干更多活、产生更多 context | ❌ 没有分发机制；现在靠渲染进 persona |
+| **上 · 回流** | 让全员的 agent 知道"有这个新技能"，**自己查、问人、人点头才用** | ⚠️ 拉取式已落（`anc skill check`；按人记"看过哪一版"）；**故意不做推送**——推送等于替 agent 改行为。缺效果度量 |
 
 **两种转法**：托管 = 中心机每天自动摇；非托管 = 盘点时手动摇。
 我们只有定时器（`anc job`）和只读的蒸馏，**"每天自动摇"那条链还没接**。
