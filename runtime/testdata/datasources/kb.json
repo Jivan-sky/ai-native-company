@@ -3,7 +3,7 @@
   "name": "kb",
   "title": "演示：本机 Obsidian 知识库（只读）",
   "type": "file",
-  "root": "/Users/example/D/Obsidian",
+  "root": "/home/demo/Obsidian",
   "max_bytes": 20000,
   "max_entries": 200
 }
