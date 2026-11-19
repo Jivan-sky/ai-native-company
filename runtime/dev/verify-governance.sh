@@ -77,8 +77,23 @@ else
   cant "判据 1 —— 没有流水目录"
 fi
 
-# ── 判据 5：上下文装配可解释 —— 需要 assembly 流水，P1 尚未落盘
-cant "判据 5（装配可解释）—— 装配流水尚未落盘（P2 待做：context/assembly.jsonl）"
+# ── 判据 5：装配可解释。对象 context/assembly.jsonl · 字段 who/at/sections[].chars/why
+# 样本框：最近 20 次装配（文件尾部 20 行）
+ASM="${VAULT}/context/assembly.jsonl"
+if [ -f "${ASM}" ]; then
+  n=$(tail -20 "${ASM}" | wc -l | tr -d ' ')
+  bad_why=$(tail -20 "${ASM}" | jq -r 'select((.sections // []) | map(select((.why // "") == "")) | length > 0) | .id' 2>/dev/null | wc -l | tr -d ' ')
+  bad_who=$(tail -20 "${ASM}" | jq -r 'select((.who // "") == "") | .id' 2>/dev/null | wc -l | tr -d ' ')
+  if [ "${n}" -eq 0 ]; then
+    cant "判据 5（装配可解释）—— 流水文件是空的"
+  elif [ "${bad_why}" -eq 0 ] && [ "${bad_who}" -eq 0 ]; then
+    ok "判据 5（装配可解释）：最近 ${n} 次装配，每段有 why、每次有 who"
+  else
+    bad "判据 5（装配可解释）：${bad_why} 次有段缺 why、${bad_who} 次缺 who（最近 ${n} 次）"
+  fi
+else
+  cant "判据 5（装配可解释）—— 还没有 context/assembly.jsonl"
+fi
 
 # ── 判据 2/3/6/7/8/9/10/11/12/14/15：见 GOVERNANCE-FLYWHEEL.md 4.2 的现状表
 for n in 2 3 6 7 8 9 10 11 12 14 15; do

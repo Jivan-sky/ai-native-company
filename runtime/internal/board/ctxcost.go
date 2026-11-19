@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 
 	"anc/internal/ctxpack"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // 上下文装配的「账」：每一段占多少、依据是什么、被挡在哪。
@@ -69,4 +73,65 @@ func costOf(o *ctxpack.Out) CostReport {
 		add("拒绝理由", "refused", o.Refused, 0, "被拒时给理由，不给数据")
 	}
 	return rep
+}
+
+// ── 装配流水（治理判据 5） ───────────────────────────────────────────────
+//
+// 为什么必须落盘：判据 5 要求「任取一次装配，每段有 why 与 chars」。
+// 第一版只有看板那一个出口有 cost，而 agent 真正拿的 ctxpack.Out 没有；
+// 而且没有任何历史可抽 —— 装配完就没了，验收时只能"再装配一次看看"，
+// 那不是验证，那是重新演示。
+//
+// 落点：<vault>/context/assembly.jsonl（追加式，进 git）。
+// 只记**结构**不记正文：谁、何时、哪几段、各多少字、依据哪条规则。
+// 正文本身在 vault 的 markdown 里，这里再抄一遍等于复制一份会漂的真相。
+
+// AssemblyLog 是这一层的落点。
+const AssemblyLog = "context/assembly.jsonl"
+
+// assemblyLine 是流水的一行。
+type assemblyLine struct {
+	ID       string         `json:"id"`
+	At       string         `json:"at"`
+	Who      string         `json:"who"`
+	Domain   string         `json:"domain,omitempty"`
+	Sections []assemblySect `json:"sections"`
+	Total    int            `json:"total"`
+	Rules    []string       `json:"rules,omitempty"` // 本次装配依据的规则行（文件:行号）
+}
+
+type assemblySect struct {
+	Name  string `json:"name"`
+	Chars int    `json:"chars"`
+	Why   string `json:"why"`
+}
+
+// logAssembly 把一次装配追加进流水。失败**不阻塞**接口（装配本身是只读的，
+// 记不下来就少一条证据，不该让人看不到上下文），但会在返回体里如实说一句。
+func (s *Server) logAssembly(who, domain string, rep *CostReport) string {
+	if !s.AssemblyLog {
+		return ""
+	}
+	if rep == nil || strings.TrimSpace(who) == "" {
+		return ""
+	}
+	id := "asm:" + s.now().Format(time.RFC3339Nano)
+	line := assemblyLine{ID: id, At: s.now().Format(time.RFC3339), Who: who, Domain: domain, Total: rep.Total}
+	for _, sec := range rep.Sections {
+		line.Sections = append(line.Sections, assemblySect{Name: sec.Name, Chars: sec.Chars, Why: sec.Why})
+	}
+	dir := filepath.Join(s.Vault, filepath.Dir(AssemblyLog))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "装配流水没落盘：" + firstLine(err.Error())
+	}
+	f, err := os.OpenFile(filepath.Join(s.Vault, AssemblyLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return "装配流水没落盘：" + firstLine(err.Error())
+	}
+	defer f.Close()
+	b, _ := json.Marshal(line)
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		return "装配流水写不进去：" + firstLine(err.Error())
+	}
+	return ""
 }

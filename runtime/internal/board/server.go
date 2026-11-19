@@ -37,6 +37,11 @@ type Server struct {
 	// 所以运行态走独立端点，不并进投影契约（见 runtime.go）。
 	DataDir string
 
+	// AssemblyLog = 把每次装配写进 <vault>/context/assembly.jsonl（治理判据 5）。
+	// **默认关**：看板原本承诺"不落盘"，读一次就写一条会打破这个承诺；
+	// 而且测试与只读浏览不该在 vault 里留东西。要治理留痕的部署显式打开。
+	AssemblyLog bool
+
 	// Accounts = 开了本地账号（密码登录 / 注册）。关着时看板与以前完全一样：
 	// 本地只读观测，不做登录。开了之后前端会先问 /api/auth/me。
 	Accounts bool

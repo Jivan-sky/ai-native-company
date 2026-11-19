@@ -120,6 +120,10 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 		view.TaskBands = taskBands(&out)
 		rep := costOf(&out)
 		view.Cost = &rep
+		// 判据 5：装配要留历史。没留下来就只能"再装配一次看看"，那不是验证。
+		if e := s.logAssembly(view.Who, view.Domain, &rep); e != "" {
+			view.Note += "（" + e + "）"
+		}
 	}
 	writeJSON(w, http.StatusOK, view)
 }

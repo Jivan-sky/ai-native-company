@@ -68,6 +68,7 @@ const boardServeUsage = `anc board serve —— 起 ANC 看板（读为主；写
 // 与任务归档（tasks.go，落 timeline）。
 func cmdBoardServe(args []string) int {
 	fs := flag.NewFlagSet("board serve", flag.ContinueOnError)
+	asmLog := fs.Bool("assembly-log", false, "把每次上下文装配写进 <vault>/context/assembly.jsonl（治理判据 5）。默认关：看板不落盘")
 	accounts := fs.Bool("accounts", false, "开本地账号（密码登录 / 注册）。关着时看板与以前一样：本地只读观测")
 	addr := fs.String("addr", "127.0.0.1:8787", "监听地址")
 	chatBaseURL := fs.String("chat-base-url", "", "给 /api/chat 用的模型端点（兼容 OpenAI）；不配则该口 501")
@@ -165,6 +166,7 @@ func cmdBoardServe(args []string) int {
 	// 也认环境变量：`--accounts` 是布尔开关，而自定义的 splitArgs 对布尔 flag 容易误吞下一个参数，
 	// 脚本里用 ANC_ACCOUNTS=1 更稳。
 	bs.Accounts = *accounts || os.Getenv("ANC_ACCOUNTS") == "1"
+	bs.AssemblyLog = *asmLog || os.Getenv("ANC_ASSEMBLY_LOG") == "1"
 	// 能力表：读不到就是空表（= 全拒），不是错误 —— 刚 init 的机器不该因此起不来，
 	// 但也不该因为「没配」而放行任何东西。
 	if caps, cerr := org.LoadCapabilities(abs); cerr == nil {
