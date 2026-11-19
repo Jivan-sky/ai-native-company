@@ -52,6 +52,7 @@ func (s *Server) fileSubject(w http.ResponseWriter, r *http.Request, ds string) 
 	return c.Sub, true
 }
 
+//go:authz-entry 数据策略轴
 func (s *Server) fileAllowed(subject, ds, path string) (bool, string) {
 	pol, err := policy.Load(filepath.Join(filepath.Dir(s.Vault), "policies"), ds)
 	if err != nil {

@@ -130,6 +130,8 @@ func unknownVerdict(reason string, chain []string, v int) Verdict {
 //  2. 在有效期内（左闭右开：到期那一刻已经失效）
 //  3. 签发者在签发那一刻**确实有权**（根签发人 = 权威源的 issuer；转授 = 父授权）
 //  4. 子项不得超出父项（动作相同、客体相同、到期不晚于父项）
+//
+//go:authz-entry 委派轴
 func (o *Org) Exercise(g Grant, auth Authority, authWired bool, at time.Time) Verdict {
 	if !authWired {
 		return unknownVerdict("权威源没接上（<vault>/"+AuthorityFile+" 不存在）—— 判不出这条授权是否还有效", nil, 0)

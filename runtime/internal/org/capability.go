@@ -77,6 +77,8 @@ func splitRow(line string) []string {
 //
 // `admin` 是一个通配动作：有了它，这块业务的所有动作都算有（范围仍按它自己那行）。
 // `*` 作模块名表示所有模块。这两条是**写进数据里的约定**，不是代码里的特例分支。
+//
+//go:authz-entry 岗位轴
 func (t CapTable) Allow(role, module, action string) bool {
 	role = strings.ToLower(strings.TrimSpace(role))
 	module = strings.ToLower(strings.TrimSpace(module))

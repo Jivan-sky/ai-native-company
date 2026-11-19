@@ -146,6 +146,8 @@ type Visibility struct {
 }
 
 // Allows 判一个域（或空域）在不在可见范围里。
+//
+//go:authz-entry 可见性轴
 func (v Visibility) Allows(slug string) bool {
 	if slug == "" || v.All {
 		return true

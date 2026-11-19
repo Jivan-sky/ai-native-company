@@ -99,6 +99,8 @@ func (p Policy) validate(ds string) error {
 }
 
 // Action 返回（主体，表，列）上的动作。
+//
+//go:authz-entry 数据策略引擎
 func (p *Policy) Action(subject, table, column string) string {
 	if p == nil {
 		return "deny"
