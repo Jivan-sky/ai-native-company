@@ -129,3 +129,23 @@ func TestPendingViewsEmbedSameDomainPrecedents(t *testing.T) {
 		t.Fatalf("没有域的条目不该硬塞先例：%+v", views[2].Precedents)
 	}
 }
+
+// 截止时间是事实：还有多久、是否已逾期；没给就不猜。
+func TestPendingViewsReportsDueAndOverdue(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	list := []approvals.Pending{
+		{ID: "later", Enqueued: "2026-11-20T09:00:00Z", DueAt: "2026-11-21T12:00:00Z"}, // 还剩 24h
+		{ID: "late", Enqueued: "2026-11-20T09:00:00Z", DueAt: "2026-11-19T12:00:00Z"},  // 逾期 24h
+		{ID: "none", Enqueued: "2026-11-20T09:00:00Z"},
+	}
+	views := pendingViews(list, now, 3, nil)
+	if views[0].HoursLeft != 24 || views[0].Overdue {
+		t.Fatalf("还剩 24 小时：%+v", views[0])
+	}
+	if views[1].HoursLeft != -24 || !views[1].Overdue {
+		t.Fatalf("逾期 24 小时：%+v", views[1])
+	}
+	if views[2].DueAt != "" || views[2].HoursLeft != 0 || views[2].Overdue {
+		t.Fatalf("没给截止就不该编：%+v", views[2])
+	}
+}

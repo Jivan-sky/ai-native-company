@@ -99,6 +99,8 @@ type Pending struct {
 	Status   string // 当前态；从热层读回来是原样，不在这里改写
 	// Refs 是依据材料（合同条款、比价单、附件）。与 timeline 同一字段名、同一含义。
 	Refs []string
+	// DueAt 是"什么时候要办完"（RFC3339）。空 = 提案人没说 —— 那是事实，不是缺陷。
+	DueAt string
 }
 
 // ProposalTitle 是队列里的一句话。**带上「代谁」** —— 审批的人第一眼要知道是谁在要权。
@@ -144,6 +146,7 @@ func FromEnvelope(e envelope.Envelope, at time.Time) (Pending, error) {
 			ProposalTitle(e.Who, e.OnBehalfOf, e.Scope.Domain, e.Scope.Project)),
 		Body:     e.Body,
 		Refs:     e.Refs,
+		DueAt:    strings.TrimSpace(e.DueAt),
 		Enqueued: at.Format(time.RFC3339),
 		Status:   StatusPending,
 	}, nil
@@ -202,6 +205,7 @@ func (p Pending) State() hot.State {
 		Title:   p.Title,
 		Note:    p.Body,
 		Refs:    p.Refs,
+		DueAt:   p.DueAt,
 		AsOf:    p.Enqueued,
 	}
 }
@@ -224,6 +228,7 @@ func FromState(s hot.State) (Pending, error) {
 		Title:    s.Title,
 		Body:     s.Note,
 		Refs:     s.Refs,
+		DueAt:    s.DueAt,
 		Enqueued: s.AsOf,
 		Status:   s.Status,
 	}, nil

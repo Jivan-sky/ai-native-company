@@ -64,7 +64,10 @@ type Envelope struct {
 	Title      string   `json:"title,omitempty"`        // 提案人自己写的一句话（没有就由队列合成，见 approvals）
 	Body       string   `json:"body,omitempty"`         // 正文
 	Refs       []string `json:"refs,omitempty"`         // 证据在哪
-	Needs      []string `json:"needs,omitempty"`        // 要不要人拍 —— 自由文本，一个词都不认
+	// DueAt 是这件事**什么时候要办完**（RFC3339）。空 = 提案人没说。
+	// 注意：它是提案的事实，不是我们的判断 —— 中枢只搬运，不替业务定截止。
+	DueAt string   `json:"due_at,omitempty"`
+	Needs []string `json:"needs,omitempty"` // 要不要人拍 —— 自由文本，一个词都不认
 }
 
 // Parse 读一份信封。**只判「读不读得懂」，不判指不指向真东西**（那是 Bind 的事）。

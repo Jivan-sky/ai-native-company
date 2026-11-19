@@ -86,6 +86,12 @@ type PendingView struct {
 	// 我们只报"放了多久"，不报"该催谁" —— 后者是判断（判据 15 的教训）。
 	AgeHours int  `json:"age_hours"`
 	Stale    bool `json:"stale"`
+	// DueAt 是"什么时候要办完"（提案人给的事实；空 = 没说）。
+	// HoursLeft 由它算出：正数=还剩多少小时，负数=已经逾期多少小时。
+	// **它不是优先级** —— 只是"还有多久"，排序仍由读的人判断（判据 15 的教训）。
+	DueAt     string `json:"due_at,omitempty"`
+	HoursLeft int    `json:"hours_left,omitempty"`
+	Overdue   bool   `json:"overdue,omitempty"`
 	// Precedents 是同域的近期决策（最多 3 条，新的在前）。
 	// 让 agent **一次请求**就拿到"这条 + 先例"，不用再发一次；仍然不做相似度排序。
 	Precedents []Precedent `json:"precedents,omitempty"`
@@ -99,10 +105,18 @@ func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDoma
 	for _, p := range list {
 		v := PendingView{
 			ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain, Project: p.Project,
-			Title: p.Title, Body: p.Body, Refs: p.Refs, Enqueued: p.Enqueued, Status: p.Status,
+			Title: p.Title, Body: p.Body, Refs: p.Refs, DueAt: p.DueAt,
+			Enqueued: p.Enqueued, Status: p.Status,
 			Band: BandInputRequired,
 		}
 		// 等了多久：解析不出来就留 0 并标 stale=false —— 不拿"可能很久了"去吓人
+		if strings.TrimSpace(p.DueAt) != "" {
+			if due, derr := time.Parse(time.RFC3339, p.DueAt); derr == nil {
+				left := int(due.Sub(now).Hours())
+				v.HoursLeft = left
+				v.Overdue = left < 0
+			}
+		}
 		if t, err := time.Parse(time.RFC3339, p.Enqueued); err == nil {
 			age := now.Sub(t)
 			if age < 0 {
