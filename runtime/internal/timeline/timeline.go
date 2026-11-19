@@ -114,6 +114,13 @@ type Entry struct {
 	// Basis 是**凭什么**：一次决策/行使依据的是哪条授权、哪个提案、哪条规则。
 	Basis string `json:"basis,omitempty"`
 
+	// Corrects 指向一条**被这条更正掉的**记录：更正只追加，不改写上游。
+	// 这样"改过的痕"本身也是痕 —— 抹掉原文比记错更危险。
+	Corrects string `json:"corrects,omitempty"`
+	// Retires 指向被**废止**的对象 id（经验 / 规则 / 技能）：废止要留理由与时间点。
+	// 与 Corrects 分开：更正是"我说错了"，废止是"它不该再生效了"。
+	Retires string `json:"retires,omitempty"`
+
 	// Src 是这条记录**在盘上的哪一行**（`2026-11.anc.jsonl:12`）。加载时填，不写进文件：
 	// 它描述的是位置，不是内容 —— 写进 jsonl 会让「重放同一份数据」多出一个会漂的字段。
 	// 看板靠它把每一行指回原文，跟汇总数字的「口径回源」是同一条纪律。
@@ -523,4 +530,37 @@ func applyCausal(c *Case) {
 		c.Pending = true
 		c.Band = BandPending
 	}
+}
+
+// Governance 是一次折叠里**更正/废止**的结果：哪些 id 被更正过、哪些被废止了。
+//
+// 为什么单独算而不写进 Entry：Entry 是**事实**（谁在什么时候说了什么），
+// "被更正"是**事后对事实的解释**。把解释写进事实里，重放同一份底账会得到两种结果。
+// 与 Band / Src 同一条纪律：派生值不落盘，读完再算。
+type Governance struct {
+	Corrected map[string]string // 被更正的 id → 更正它的那条 id
+	Retired   map[string]string // 被废止的 id → 废止它的那条 id
+}
+
+// ScanGovernance 扫一遍更正与废止，返回两个映射。
+// 同一条被更正两次：**后到的那条赢**（按 At 排序；At 相同按 id 字典序，保证可重放）。
+func ScanGovernance(es []Entry) Governance {
+	g := Governance{Corrected: map[string]string{}, Retired: map[string]string{}}
+	ordered := make([]Entry, len(es))
+	copy(ordered, es)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].At != ordered[j].At {
+			return ordered[i].At < ordered[j].At
+		}
+		return ordered[i].ID < ordered[j].ID
+	})
+	for _, e := range ordered {
+		if id := strings.TrimSpace(e.Corrects); id != "" {
+			g.Corrected[id] = e.ID
+		}
+		if id := strings.TrimSpace(e.Retires); id != "" {
+			g.Retired[id] = e.ID
+		}
+	}
+	return g
 }

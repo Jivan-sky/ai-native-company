@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Grant 是一条授权（SPEC §6 授权模型：一张授权表，四种客体）。
@@ -37,6 +39,12 @@ type Grant struct {
 	IssuedAt  string // RFC3339；空 = 从有记录起就生效
 	ExpiresAt string // RFC3339；空 = 受上游与权威约束，自身不设截止
 	Parent    string // 上游授权的 slug 或路径；空 = 根授权（只能由权威源的 issuer 签）
+
+	// Kind 区分「常规授权」与「例外」（break-glass）。两者**共用同一个判定器**，
+	// 例外只是带更紧的约束（必须有 why、必须有到期、最长 7 天）——
+	// 不新开一条判定路径：开出第二条判定路径，就等于迟早出现"两套答案"。
+	// 空 = grant（老数据）。词表外的值照收、报出来（同 action 词表的口径）。
+	Kind string // grant | exception
 }
 
 // GrantsDir 是授权表的落点（vault 顶层）。
@@ -136,6 +144,7 @@ func readGrant(path, rel string, p *Policy) (*Grant, []Issue) {
 	g.OnBehalfOf, g.Reason = field("on_behalf_of"), field("reason")
 	g.IssuedBy, g.IssuedAt = field("issued_by"), field("issued_at")
 	g.ExpiresAt, g.Parent = field("expires_at"), field("parent")
+	g.Kind = field("kind")
 
 	// 四个必填字段。**期限不在必填之列**（SPEC §6 / Q25，2026-10-10 改口径：`ttl` 可选、不写 = 永久）。
 	// `grant.ttl.missing` 这条发现**照样发**，只是出厂档是 off（收集时被丢掉）—— 这样客户想要
@@ -158,6 +167,13 @@ func readGrant(path, rel string, p *Policy) (*Grant, []Issue) {
 	if g.Action != "" && !knownGrantActions[g.Action] {
 		issues = append(issues, p.Issue("grant.action.unknown", rel,
 			"action=%q 不在 read | write | invoke —— 照收，只是执行层认不出来", g.Action))
+	}
+	// 例外的硬约束在**加载**这一口就报出来：等到判定时再说"这条例外不合规"，
+	// 人已经以为它生效了。加载即报，与"静默猜测"相反。
+	if g.NormalizeKind() != KindGrant {
+		for _, msg := range ValidateGrant(*g, time.Now()) {
+			issues = append(issues, p.Issue("grant.exception.invalid", rel, "%s", msg))
+		}
 	}
 	return g, issues
 }
@@ -315,4 +331,64 @@ func GrantHitsSubject(o *Org, g Grant, idn Identity) bool {
 		}
 	}
 	return false
+}
+
+// 例外（break-glass）的硬约束。为什么必须有这三条：
+//
+//	真实事故几乎都发生在例外里 —— 例外不是"放宽规则"，是"在可解释的窄窗里临时破例"。
+//	没有 why 就没法复盘；没有到期就永远撤不掉；超过 7 天就不再是例外，而是新规则。
+const (
+	ExceptionMaxTTL = 7 * 24 * time.Hour
+	KindGrant       = "grant"
+	KindException   = "exception"
+)
+
+// NormalizeKind 把空的 kind 读成 grant。
+func (g Grant) NormalizeKind() string {
+	k := strings.ToLower(strings.TrimSpace(g.Kind))
+	if k == "" {
+		return KindGrant
+	}
+	return k
+}
+
+// ValidateGrant 检查一条授权的形态。**只在加载与写入两个口调用**，
+// 判定器（Exercise）不重复做形态校验 —— 它只回答"这次行使能不能过"。
+//
+// 返回的每一条都是能直接给人看的一句话；空切片 = 形态没问题。
+func ValidateGrant(g Grant, at time.Time) []string {
+	var out []string
+	kind := g.NormalizeKind()
+	switch kind {
+	case KindGrant:
+		return nil
+	case KindException:
+		// 下面三条是例外的定义，缺一条它就不是例外。
+	default:
+		return []string{"kind 只认 grant / exception，拿到 " + strconv.Quote(g.Kind)}
+	}
+	if strings.TrimSpace(g.Reason) == "" {
+		out = append(out, "例外必须写 reason —— 没有理由的破例，事后没法复盘")
+	}
+	if strings.TrimSpace(g.IssuedBy) == "" {
+		out = append(out, "例外必须写 issued_by —— 谁批的这条例外")
+	}
+	if strings.TrimSpace(g.ExpiresAt) == "" {
+		out = append(out, "例外必须有 expires_at —— 没有到期就永远撤不掉")
+		return out
+	}
+	exp, ok := parseOrgTime(g.ExpiresAt)
+	if !ok {
+		return append(out, "expires_at 读不懂："+g.ExpiresAt+"（要 RFC3339）")
+	}
+	base := at
+	if g.IssuedAt != "" {
+		if t, ok := parseOrgTime(g.IssuedAt); ok {
+			base = t
+		}
+	}
+	if exp.Sub(base) > ExceptionMaxTTL {
+		out = append(out, "例外最长 7 天 —— 超过就不是例外了，写成常规授权")
+	}
+	return out
 }

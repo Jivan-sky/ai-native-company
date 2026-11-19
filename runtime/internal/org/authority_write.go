@@ -63,6 +63,12 @@ func AppendGrant(vault string, g Grant) (string, error) {
 	if !reID.MatchString(slug) {
 		return "", fmt.Errorf("slug %q 不是小写 ASCII 标识 —— 它要进路径", slug)
 	}
+	// 例外的形态在**写入**这一口就拦住：不合规的例外不许落盘（加载口另报一次）。
+	if g.NormalizeKind() != KindGrant {
+		if errs := ValidateGrant(g, time.Now()); len(errs) > 0 {
+			return "", errors.New("例外不合规：" + strings.Join(errs, "；"))
+		}
+	}
 	if strings.TrimSpace(g.IssuedBy) == "" {
 		return "", errors.New("缺 issued_by —— 签不出谁签的授权，判定时会判「无法证明」")
 	}
