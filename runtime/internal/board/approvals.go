@@ -71,6 +71,8 @@ type PendingView struct {
 	// Band 是判真那一档：**在队列里 = 有人在等你给一句话**（BandInputRequired）。
 	// 不由 status 推 —— status 是提案自己写的词，而「在等人」是队列这个事实。
 	Band string `json:"band"`
+	// Brief 是给**下游 agent** 的最低可判材料（五问）；缺什么写 Missing。
+	Brief Brief `json:"brief"`
 }
 
 func pendingViews(list []approvals.Pending) []PendingView {
@@ -80,6 +82,8 @@ func pendingViews(list []approvals.Pending) []PendingView {
 			ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain, Project: p.Project,
 			Title: p.Title, Body: p.Body, Enqueued: p.Enqueued, Status: p.Status,
 			Band: BandInputRequired,
+			Brief: briefOf(PendingView{ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain,
+				Project: p.Project, Title: p.Title, Body: p.Body}),
 		})
 	}
 	return out
