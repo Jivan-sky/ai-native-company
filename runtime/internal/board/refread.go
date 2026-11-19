@@ -102,3 +102,26 @@ func parseLineRange(s string) (int, int) {
 	n, _ := strconv.Atoi(s)
 	return n, 0
 }
+
+// checkRefs 逐条检查 refs 能不能打开（去掉 #锚点后按 vault 相对路径 stat）。
+//
+// 为什么在**读**这一侧查、不在入队时落盘：文件可能晚一点才创建，
+// 落盘会把"当时的缺失"冻结成永久结论。读时查，永远反映此刻。
+func (s *Server) checkRefs(refs []string) (ok int, missing []string) {
+	src := files.Source{Root: s.Vault, MaxBytes: refMaxBytes}
+	for _, r := range refs {
+		path := strings.TrimSpace(r)
+		if i := strings.Index(path, "#"); i >= 0 {
+			path = strings.TrimSpace(path[:i])
+		}
+		if path == "" {
+			continue
+		}
+		if _, _, err := files.Read(src, path); err != nil {
+			missing = append(missing, r)
+			continue
+		}
+		ok++
+	}
+	return ok, missing
+}

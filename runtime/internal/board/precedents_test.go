@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -94,7 +95,7 @@ func TestPendingViewsReportsAgeAndStale(t *testing.T) {
 		{ID: "old", Enqueued: "2026-11-15T12:00:00Z"}, // 5 天
 		{ID: "bad", Enqueued: "不是时间"},
 	}
-	views := pendingViews(list, now, 3, nil)
+	views := pendingViews(list, now, 3, nil, nil)
 	if views[0].Stale || views[0].AgeHours != 3 {
 		t.Fatalf("3 小时前的不该算拖住：%+v", views[0])
 	}
@@ -118,7 +119,7 @@ func TestPendingViewsEmbedSameDomainPrecedents(t *testing.T) {
 		{ID: "b", Domain: "delivery", Enqueued: "2026-11-20T09:00:00Z"},
 		{ID: "c", Domain: "", Enqueued: "2026-11-20T09:00:00Z"},
 	}
-	views := pendingViews(list, now, 3, byDomain)
+	views := pendingViews(list, now, 3, byDomain, nil)
 	if len(views[0].Precedents) != 1 || views[0].Precedents[0].ID != "d1" {
 		t.Fatalf("trade 该拿到 d1：%+v", views[0].Precedents)
 	}
@@ -138,7 +139,7 @@ func TestPendingViewsReportsDueAndOverdue(t *testing.T) {
 		{ID: "late", Enqueued: "2026-11-20T09:00:00Z", DueAt: "2026-11-19T12:00:00Z"},  // 逾期 24h
 		{ID: "none", Enqueued: "2026-11-20T09:00:00Z"},
 	}
-	views := pendingViews(list, now, 3, nil)
+	views := pendingViews(list, now, 3, nil, nil)
 	if views[0].HoursLeft != 24 || views[0].Overdue {
 		t.Fatalf("还剩 24 小时：%+v", views[0])
 	}
@@ -147,5 +148,36 @@ func TestPendingViewsReportsDueAndOverdue(t *testing.T) {
 	}
 	if views[2].DueAt != "" || views[2].HoursLeft != 0 || views[2].Overdue {
 		t.Fatalf("没给截止就不该编：%+v", views[2])
+	}
+}
+
+// 依据打不开要在读的时候暴露出来：agent 才知道"这条的一半依据是空的"。
+func TestPendingViewsReportsUnreadableRefs(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	check := func(refs []string) (int, []string) {
+		var miss []string
+		ok := 0
+		for _, r := range refs {
+			if r == "gone.md" {
+				miss = append(miss, r)
+				continue
+			}
+			ok++
+		}
+		return ok, miss
+	}
+	list := []approvals.Pending{
+		{ID: "a", Refs: []string{"ok.md", "gone.md"}, Enqueued: "2026-11-20T09:00:00Z", Title: "t", Body: "b", Domain: "trade"},
+	}
+	views := pendingViews(list, now, 3, nil, check)
+	if views[0].RefsChecked != 1 || len(views[0].RefsMissing) != 1 {
+		t.Fatalf("该是 1 条可读 1 条缺失：%+v", views[0])
+	}
+	joined := ""
+	for _, m := range views[0].Brief.Missing {
+		joined += m
+	}
+	if !strings.Contains(joined, "打不开") {
+		t.Fatalf("brief.missing 要指出依据打不开，拿到 %v", views[0].Brief.Missing)
 	}
 }

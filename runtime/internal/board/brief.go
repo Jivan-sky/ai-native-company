@@ -12,7 +12,10 @@ package board
 //
 // 硬纪律：**不许编**。没有数据就写进 Missing，不拿默认话术糊上去。
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // BriefAnswer 是五问里的一问。
 type BriefAnswer struct {
@@ -61,6 +64,9 @@ func briefOf(p PendingView) Brief {
 	}
 	if len(p.Refs) == 0 {
 		b.Missing = append(b.Missing, "没有依据材料（refs）：核不了这条提案建立在什么之上")
+	} else if len(p.RefsMissing) > 0 {
+		// 用 strconv 而不自己写 itoa：包内已有同名 helper，重名会编译失败（踩过一次）
+		b.Missing = append(b.Missing, "有 "+strconv.Itoa(len(p.RefsMissing))+" 条依据打不开："+strings.Join(p.RefsMissing, "、"))
 	}
 	return b
 }

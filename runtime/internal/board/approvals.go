@@ -92,12 +92,16 @@ type PendingView struct {
 	DueAt     string `json:"due_at,omitempty"`
 	HoursLeft int    `json:"hours_left,omitempty"`
 	Overdue   bool   `json:"overdue,omitempty"`
+	// RefsChecked / RefsMissing 是"依据能不能打开"的事实：
+	// 入队时不判（文件可能晚点才建），读的时候逐条查（见 checkRefs）。
+	RefsChecked int      `json:"refs_checked,omitempty"`
+	RefsMissing []string `json:"refs_missing,omitempty"`
 	// Precedents 是同域的近期决策（最多 3 条，新的在前）。
 	// 让 agent **一次请求**就拿到"这条 + 先例"，不用再发一次；仍然不做相似度排序。
 	Precedents []Precedent `json:"precedents,omitempty"`
 }
 
-func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDomain map[string][]Precedent) []PendingView {
+func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDomain map[string][]Precedent, check func([]string) (int, []string)) []PendingView {
 	if staleDays <= 0 {
 		staleDays = defaultStaleDays
 	}
@@ -127,6 +131,10 @@ func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDoma
 		}
 		// 简报基于**完整的那条视图**算（含 refs）—— 上一版传了个临时结构体，
 		// 结果 refs 明明有、missing 还在报"没有依据材料"。
+		if check != nil && len(v.Refs) > 0 {
+			ok, miss := check(v.Refs)
+			v.RefsChecked, v.RefsMissing = ok, miss
+		}
 		v.Brief = briefOf(v)
 		if byDomain != nil && v.Domain != "" {
 			// 拷一份，避免调用方改到共享切片
@@ -188,7 +196,7 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	} else {
 		view.StaleDays = defaultStaleDays
 	}
-	view.Pending = pendingViews(list, s.now(), s.PendingStaleDays, byDomain)
+	view.Pending = pendingViews(list, s.now(), s.PendingStaleDays, byDomain, s.checkRefs)
 	view.Count = len(list)
 	writeJSON(w, http.StatusOK, view)
 }
