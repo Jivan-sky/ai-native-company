@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"anc/internal/casework"
 	"anc/internal/hot"
 	"anc/internal/org"
 	"anc/internal/tasksettle"
@@ -499,6 +500,23 @@ func cmdTaskSettle(args []string) int {
 	fmt.Printf("  这一条   id=%s kind=%s status=%s by=%s\n",
 		res.Entry.ID, dashIfEmpty(res.Entry.Kind), dashIfEmpty(res.Entry.Status), dashIfEmpty(res.Entry.By))
 	fmt.Printf("  热层     %s 已清走（进行中 → 历史）\n", res.Task.ID)
+
+	// 结账即触发蒸馏（学 Hermes：学习闭环挂在会话边界上）。
+	// 只产出 **candidate**，不自动部署 —— 改 Agent 行为的东西必须有人签字（判据 7）。
+	made, skipped, derr := casework.DistillCase(abs, res.Entry.Case, casework.DistillOpts{})
+	if derr != nil {
+		fmt.Fprintf(os.Stderr, "  蒸馏    没跑成：%v（结账本身已落库，不受影响）\n", derr)
+		return 0
+	}
+	if len(made) == 0 {
+		fmt.Printf("  蒸馏    没有够格的卡点（跳过 %d 条：多半是没踩够次数、或没有可复用的突破）\n", len(skipped))
+		return 0
+	}
+	fmt.Printf("  蒸馏    %d 条经验候选（待人工确认，未生效）：\n", len(made))
+	for _, c := range made {
+		fmt.Printf("          %-28s ← %s\n", c.Experience.ID, c.Why)
+	}
+	fmt.Printf("          确认：anc experience approve --vault %s --id <id> --by <你>\n", abs)
 	return 0
 }
 

@@ -48,7 +48,8 @@ func cmdBlocker(args []string) int {
 	by := fs.String("by", "", "谁解的")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 
-	fa, pos := splitArgs(args[1:], map[string]bool{})
+	// 布尔 flag 必须登记给 splitArgs，否则 --json/--reusable 会把下一个参数当值吃掉
+	fa, pos := splitArgs(args[1:], map[string]bool{"json": true})
 	if err := fs.Parse(fa); err != nil {
 		return 2
 	}
@@ -129,7 +130,8 @@ func cmdBreakthrough(args []string) int {
 	reusable := fs.Bool("reusable", false, "能不能复用（能进蒸馏候选）")
 	asJSON := fs.Bool("json", false, "输出 JSON")
 
-	fa, pos := splitArgs(args[1:], map[string]bool{})
+	// 同上：--reusable 与 --json 是布尔 flag
+	fa, pos := splitArgs(args[1:], map[string]bool{"json": true, "reusable": true})
 	if err := fs.Parse(fa); err != nil {
 		return 2
 	}
