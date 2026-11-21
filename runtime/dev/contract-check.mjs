@@ -30,6 +30,8 @@ const ENDPOINTS = [
   ["grants", "/api/grants"],
   ["runtime", "/api/runtime"],
   ["precedents", "/api/precedents?domain=trade"],
+  ["metrics", "/api/metrics"],
+  ["ref", "/api/ref?path=metrics.md"],
 ];
 
 function typeOf(v) {

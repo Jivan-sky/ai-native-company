@@ -1,0 +1,7 @@
+{
+  "content": "string",
+  "lines": "number",
+  "path": "string",
+  "schema": "string",
+  "total_lines": "number"
+}
