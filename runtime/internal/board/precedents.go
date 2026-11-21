@@ -35,6 +35,7 @@ type Precedent struct {
 	Title        string   `json:"title"`
 	Detail       string   `json:"detail,omitempty"`
 	Domain       string   `json:"domain,omitempty"`
+	Act          string   `json:"act,omitempty"`
 	Refs         []string `json:"refs,omitempty"`
 }
 
@@ -68,6 +69,19 @@ func verdictOf(title string) string {
 //
 // 给待批条目内嵌先例用：**一次请求就能拿到"这条 + 它所在域的先例"**，
 // 不用 agent 再发第二个请求。仍然不做相似度排序 —— 分组的键只有"同域"这一个事实。
+// keyOf 是分组键：有动作就 (域|动作)，没有就只有域 —— 宁可粗，也不猜。
+func keyOf(domain, act string) string {
+	d := strings.TrimSpace(domain)
+	a := strings.TrimSpace(act)
+	if d == "" {
+		return ""
+	}
+	if a == "" {
+		return d
+	}
+	return d + "|" + a
+}
+
 func (s *Server) precedentsByDomain(doc timeline.Doc, max int) map[string][]Precedent {
 	out := map[string][]Precedent{}
 	if max <= 0 {
@@ -77,13 +91,13 @@ func (s *Server) precedentsByDomain(doc timeline.Doc, max int) map[string][]Prec
 		if !strings.EqualFold(strings.TrimSpace(e.Kind), "decision") {
 			continue
 		}
-		d := strings.TrimSpace(e.Domain)
-		if d == "" {
+		k := keyOf(e.Domain, e.Act)
+		if k == "" {
 			continue
 		}
-		out[d] = append(out[d], Precedent{ID: e.ID, Case: e.Case, At: e.At, By: e.By, To: e.To,
+		out[k] = append(out[k], Precedent{ID: e.ID, Case: e.Case, At: e.At, By: e.By, To: e.To,
 			Verdict: verdictOf(e.Title), Title: e.Title, TitleGeneric: looksGenerated(e.Title),
-			Detail: e.Detail, Domain: e.Domain, Refs: e.Refs})
+			Detail: e.Detail, Domain: e.Domain, Act: e.Act, Refs: e.Refs})
 	}
 	for d := range out {
 		list := out[d]

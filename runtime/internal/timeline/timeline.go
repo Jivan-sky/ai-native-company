@@ -114,6 +114,10 @@ type Entry struct {
 	// Basis 是**凭什么**：一次决策/行使依据的是哪条授权、哪个提案、哪条规则。
 	Basis string `json:"basis,omitempty"`
 
+	// Act 是"这件事在做什么"（开户/删除/报价…）：提案人填的自由文本，
+	// 决策行继承它，用来把同类先例归组。空 = 没填。
+	Act string `json:"act,omitempty"`
+
 	// Corrects 指向一条**被这条更正掉的**记录：更正只追加，不改写上游。
 	// 这样"改过的痕"本身也是痕 —— 抹掉原文比记错更危险。
 	Corrects string `json:"corrects,omitempty"`

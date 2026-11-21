@@ -101,6 +101,8 @@ type Pending struct {
 	Refs []string
 	// DueAt 是"什么时候要办完"（RFC3339）。空 = 提案人没说 —— 那是事实，不是缺陷。
 	DueAt string
+	// Action 是"这件事在做什么"（提案人填的自由文本）。先例按 (域, 动作) 归组用。
+	Action string
 }
 
 // ProposalTitle 是队列里的一句话。**带上「代谁」** —— 审批的人第一眼要知道是谁在要权。
@@ -147,6 +149,7 @@ func FromEnvelope(e envelope.Envelope, at time.Time) (Pending, error) {
 		Body:     e.Body,
 		Refs:     e.Refs,
 		DueAt:    strings.TrimSpace(e.DueAt),
+		Action:   strings.TrimSpace(e.Action),
 		Enqueued: at.Format(time.RFC3339),
 		Status:   StatusPending,
 	}, nil
@@ -206,6 +209,7 @@ func (p Pending) State() hot.State {
 		Note:    p.Body,
 		Refs:    p.Refs,
 		DueAt:   p.DueAt,
+		Action:  p.Action,
 		AsOf:    p.Enqueued,
 	}
 }
@@ -229,6 +233,7 @@ func FromState(s hot.State) (Pending, error) {
 		Body:     s.Note,
 		Refs:     s.Refs,
 		DueAt:    s.DueAt,
+		Action:   s.Action,
 		Enqueued: s.AsOf,
 		Status:   s.Status,
 	}, nil
@@ -410,6 +415,7 @@ func (d Decision) TimelineEntry(p Pending) timeline.Entry {
 		Domain:  p.Domain,
 		Project: p.Project,
 		Title:   p.Title + " —— " + d.Verdict(),
+		Act:     p.Action,
 		Detail:  p.Body,
 		// 判据 1/13：决策的出处（提案）与依据（提案 id 即这一轮的授权起点）。
 		Basis:       "proposal:" + p.ID,

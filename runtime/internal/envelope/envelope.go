@@ -55,15 +55,18 @@ type Scope struct {
 // 只有 ID / TS / Who 是必需的 —— 它们是「这份信封是谁发的、什么时候、发件人是谁」，
 // 缺一个信封就不成立（Parse 拒收）。其余留空不拦：现场先发一句，比逼人填全字段然后干脆不发要好。
 type Envelope struct {
-	ID         string   `json:"id"`                     // 这一份的唯一 id
-	TS         string   `json:"ts"`                     // RFC3339
-	Who        string   `json:"who"`                    // 发件人（bot 名）；必须能在真相源里解出来
-	OnBehalfOf string   `json:"on_behalf_of,omitempty"` // 代谁：member:名字 | role:岗位 | domain:slug，或裸名字
-	Scope      Scope    `json:"scope"`                  // 哪块业务 / 哪个项目
-	Kind       string   `json:"kind,omitempty"`         // ask / report / notify / ingest / proposal（认不出的照收）
-	Title      string   `json:"title,omitempty"`        // 提案人自己写的一句话（没有就由队列合成，见 approvals）
-	Body       string   `json:"body,omitempty"`         // 正文
-	Refs       []string `json:"refs,omitempty"`         // 证据在哪
+	ID         string `json:"id"`                     // 这一份的唯一 id
+	TS         string `json:"ts"`                     // RFC3339
+	Who        string `json:"who"`                    // 发件人（bot 名）；必须能在真相源里解出来
+	OnBehalfOf string `json:"on_behalf_of,omitempty"` // 代谁：member:名字 | role:岗位 | domain:slug，或裸名字
+	Scope      Scope  `json:"scope"`                  // 哪块业务 / 哪个项目
+	Kind       string `json:"kind,omitempty"`         // ask / report / notify / ingest / proposal（认不出的照收）
+	Title      string `json:"title,omitempty"`        // 提案人自己写的一句话（没有就由队列合成，见 approvals）
+	// Action 是"这件事在做什么"（自由文本：开户 / 删除 / 报价 / 导数据 …）。
+	// 用来把同类先例归到一起；**不用来判断轻重**（那是业务判断）。
+	Action string   `json:"action,omitempty"`
+	Body   string   `json:"body,omitempty"` // 正文
+	Refs   []string `json:"refs,omitempty"` // 证据在哪
 	// DueAt 是这件事**什么时候要办完**（RFC3339）。空 = 提案人没说。
 	// 注意：它是提案的事实，不是我们的判断 —— 中枢只搬运，不替业务定截止。
 	DueAt string   `json:"due_at,omitempty"`

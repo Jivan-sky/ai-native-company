@@ -119,7 +119,10 @@ type State struct {
 	Accept     string // 验收口径（自由文本；由业务决定，不做结构化字段）
 	DueAt      string // 截止时刻（RFC3339；空 = 没定截止）
 	Priority   string // 优先级（自由文本；空 = 未知；热层不猜大小）
-	Hop        int    // 交接次数（只由 handoff 增加）
+	// Action 是"这件事在做什么"（开户/删除/报价/导数据…），**提案人自己填的自由文本**。
+	// 中枢只搬运：它用来把同类先例归到一起，不用来判断轻重。
+	Action string
+	Hop    int // 交接次数（只由 handoff 增加）
 	// MaxHop 是「最多交接几次」；0 = DefaultTaskMaxHop。
 	MaxHop  int
 	Refs    []string // 证据 / 引用（自由文本）
@@ -158,6 +161,7 @@ func (s State) Fields() map[string]string {
 		"accept":      s.Accept,
 		"due_at":      s.DueAt,
 		"priority":    s.Priority,
+		"action_word": s.Action,
 		"hop":         strconv.Itoa(s.Hop),
 		"max_hop":     strconv.Itoa(s.MaxHop),
 		"refs":        refsJSON(s.Refs),
@@ -206,6 +210,7 @@ func StateFromFields(m map[string]string) State {
 		Accept:     m["accept"],
 		DueAt:      m["due_at"],
 		Priority:   m["priority"],
+		Action:     m["action_word"],
 		Hop:        hop,
 		MaxHop:     maxHop,
 		Refs:       refsFromJSON(m["refs"]),

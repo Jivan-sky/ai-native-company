@@ -94,9 +94,13 @@ type PendingView struct {
 	Overdue   bool   `json:"overdue,omitempty"`
 	// RefsChecked / RefsMissing 是"依据能不能打开"的事实：
 	// 入队时不判（文件可能晚点才建），读的时候逐条查（见 checkRefs）。
-	RefsChecked int      `json:"refs_checked,omitempty"`
-	RefsMissing []string `json:"refs_missing,omitempty"`
-	// Precedents 是同域的近期决策（最多 3 条，新的在前）。
+	// PrecedentMatch 说明先例是按什么选的：domain+act / domain / 空。
+	PrecedentMatch string   `json:"precedent_match,omitempty"`
+	RefsChecked    int      `json:"refs_checked,omitempty"`
+	RefsMissing    []string `json:"refs_missing,omitempty"`
+	// Act 是"这件事在做什么"（提案人填，中枢只搬运）。
+	Act string `json:"act,omitempty"`
+	// Precedents 是同域（且同动作，若提案写了动作）的近期决策（最多 3 条，新的在前）。
 	// 让 agent **一次请求**就拿到"这条 + 先例"，不用再发一次；仍然不做相似度排序。
 	Precedents []Precedent `json:"precedents,omitempty"`
 }
@@ -109,7 +113,7 @@ func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDoma
 	for _, p := range list {
 		v := PendingView{
 			ID: p.ID, Who: p.Who, To: p.To, Domain: p.Domain, Project: p.Project,
-			Title: p.Title, Body: p.Body, Refs: p.Refs, DueAt: p.DueAt,
+			Title: p.Title, Body: p.Body, Refs: p.Refs, DueAt: p.DueAt, Act: p.Action,
 			Enqueued: p.Enqueued, Status: p.Status,
 			Band: BandInputRequired,
 		}
@@ -136,10 +140,17 @@ func pendingViews(list []approvals.Pending, now time.Time, staleDays int, byDoma
 			v.RefsChecked, v.RefsMissing = ok, miss
 		}
 		v.Brief = briefOf(v)
+		// 先按 (域+动作) 找；没有就退回按域找 —— 并**如实标出是怎么匹配的**
 		if byDomain != nil && v.Domain != "" {
-			// 拷一份，避免调用方改到共享切片
-			src := byDomain[v.Domain]
-			v.Precedents = append([]Precedent(nil), src...)
+			if k := keyOf(v.Domain, v.Act); k != "" {
+				if src, ok := byDomain[k]; ok && v.Act != "" {
+					v.Precedents = append([]Precedent(nil), src...)
+					v.PrecedentMatch = "domain+act"
+				} else if src2, ok2 := byDomain[v.Domain]; ok2 {
+					v.Precedents = append([]Precedent(nil), src2...)
+					v.PrecedentMatch = "domain"
+				}
+			}
 		}
 		out = append(out, v)
 	}

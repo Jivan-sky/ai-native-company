@@ -181,3 +181,23 @@ func TestPendingViewsReportsUnreadableRefs(t *testing.T) {
 		t.Fatalf("brief.missing 要指出依据打不开，拿到 %v", views[0].Brief.Missing)
 	}
 }
+
+// 先例按 (域, 动作) 归组；没有同动作的先例时退回按域，并**标出**是怎么匹配的。
+func TestPendingViewsMatchesPrecedentsByDomainAndAct(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	byDomain := map[string][]Precedent{
+		"trade|报价": {{ID: "d1", Domain: "trade", Act: "报价"}},
+		"trade":    {{ID: "d0", Domain: "trade"}},
+	}
+	list := []approvals.Pending{
+		{ID: "quote", Domain: "trade", Action: "报价", Enqueued: "2026-11-20T09:00:00Z"},
+		{ID: "del", Domain: "trade", Action: "删除", Enqueued: "2026-11-20T09:00:00Z"},
+	}
+	views := pendingViews(list, now, 3, byDomain, nil)
+	if views[0].PrecedentMatch != "domain+act" || len(views[0].Precedents) != 1 || views[0].Precedents[0].ID != "d1" {
+		t.Fatalf("同动作该精确命中 d1：%+v", views[0])
+	}
+	if views[1].PrecedentMatch != "domain" || views[1].Precedents[0].ID != "d0" {
+		t.Fatalf("没有同动作先例时该退回按域，并标 domain：%+v", views[1])
+	}
+}
