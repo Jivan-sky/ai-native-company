@@ -1,0 +1,22 @@
+[
+  {"name": "把 A 客户的续约打法摘进给 B 的方案", "cross_data": true, "irreversible": true, "want_human": true, "note": "对方看过就收不回"},
+  {"name": "导出客户对话给内部做分析", "cross_data": true, "irreversible": true, "want_human": true},
+  {"name": "给新同事开通只读权限", "permissions": true, "want_human": true},
+  {"name": "给 opsbot 增加发消息权限", "permissions": true, "promise": true, "want_human": true},
+  {"name": "批准 8 万元采购", "money": true, "want_human": true},
+  {"name": "把报价从 51 万降到 48 万", "promise": true, "money": true, "want_human": true},
+  {"name": "修改计费口径（涉及 12 家客户）", "promise": true, "money": true, "want_human": true},
+  {"name": "合并两个重复客户记录", "irreversible": true, "want_human": true},
+  {"name": "删除 37 个临时导出文件", "irreversible": true, "want_human": true},
+  {"name": "把内部培训材料发到客户群", "cross_data": true, "promise": true, "irreversible": true, "want_human": true},
+  {"name": "给外部顾问开放只读看板（两周）", "permissions": true, "cross_data": true, "want_human": true},
+  {"name": "接入客户 B 的 ERP 只读", "cross_data": true, "want_human": true},
+  {"name": "项目 X 延后两周（合同有逾期条款）", "promise": true, "want_human": true},
+  {"name": "客户 D 的 SLA 改 4 小时", "promise": true, "want_human": true},
+  {"name": "巡检脚本每 30 分钟跑一次", "want_human": false},
+  {"name": "巡检失败重试 3 次改 5 次", "want_human": false},
+  {"name": "更新报价模板到 v5（内部文档）", "want_human": false},
+  {"name": "把 Q3 对账单落到 trade 域（内部记录）", "want_human": false},
+  {"name": "停用已被替代的旧巡检作业", "want_human": false, "note": "可回滚"},
+  {"name": "归档历史工单（只读，可解档）", "want_human": false}
+]

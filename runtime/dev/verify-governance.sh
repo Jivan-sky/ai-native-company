@@ -168,8 +168,19 @@ else
   cant "判据 14（同类可回查）—— 还没有 blockers/ 目录"
 fi
 
+# ── 判据 11'：边界可执行。对象 判定树 + 20 题答案集
+if have_anc; then
+  if "${ANC_BIN}" division --selftest >/dev/null 2>&1; then
+    ok "判据 11'（边界可执行）：判定树与 20 题答案集一致（答案集仍需人签）"
+  else
+    bad "判据 11'（边界可执行）：判定树与答案集打架 —— 跑 ${ANC_BIN} division --selftest 看哪条"
+  fi
+else
+  cant "判据 11'（边界可执行）—— 本机没装 anc"
+fi
+
 # ── 判据 2/3/6/9/10/11/15：见 GOVERNANCE-FLYWHEEL.md 4.2 的现状表
-for n in 2 3 6 9 10 11 15; do
+for n in 2 3 6 9 10 15; do
   cant "判据 ${n} —— 暂无自动化验收（缺字段或接口，见 4.2）"
 done
 

@@ -149,6 +149,8 @@ func main() {
 		os.Exit(cmdBlocker(args))
 	case "breakthrough":
 		os.Exit(cmdBreakthrough(args))
+	case "division":
+		os.Exit(cmdDivision(args))
 	case "skill":
 		os.Exit(cmdSkill(args))
 	case "experience":
