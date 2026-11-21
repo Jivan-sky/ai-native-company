@@ -72,7 +72,7 @@ ANC 管的是「信息怎么流、流到谁、以什么口径流、流完沉淀�
 | **右 · 落下来** | 会话收尾自记、随口一句进 inbox、踩的坑留在对话里 | `transcripts` / `inbox` / 对话 | ✅ 归集已有（`anc audit collect`、`internal/trail`）；inbox 有目录与规矩，投递仍靠人或 agent |
 | **下 · 蒸馏** | 过一遍 inbox，提炼标准答案 / 方法论 / handbook | 知识条目 | ⚠️ `anc distill` **只读、现算、不写 `skills/`**；经验对象已能 approve/deploy，但 deploy 只改状态与台账 |
 | **左 · 固化** | 反复被用到的知识写成 `skills/<name>/SKILL.md` | skill 正文 | ⚠️ 落点已定（`ctxpack` 报 missing），**从经验写入 skills 的通道未接** |
-| **上 · 回流** | 让 agent 自己发现新技能，**问人，人点头才采纳** | 全员的判断力 | ⚠️ 拉取式已落（`anc skill list/check/seen`）；**不做推送**（推送=替 agent 改行为）；缺"用了之后有没有用"的度量 |
+| **上 · 回流** | 让 agent 自己发现新技能，**问人，人点头才采纳**；再盘点"有没有用" | 全员的判断力 | ✅ 拉取式（`anc skill list/check/seen`，不做推送）+ **`anc effect` 效果盘点**：卡点按月走势、经验被哪些岗位采纳、**算不出来的逐条列出** |
 
 **两种转法**：托管 = 中心机每天自动摇；非托管 = 盘点时手动摇。
 现在只有定时器（`anc job`）与只读蒸馏，**"每天自动摇"的链未接**。
